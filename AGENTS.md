@@ -84,6 +84,18 @@ Principles: provider-agnostic interfaces, dependency injection, every external c
 11. Settings/onboarding, key management
 12. Packaging (PyInstaller/Nuitka), installer, smoke tests
 13. Hardening: performance, error handling, end-to-end tests
+14. Manual-trigger answering (default) + Auto Generate toggle
+15. Overlay visual pass + Hide-to-bubble + Chat relabel
+16. In-overlay Q&A history stack
+17. "Create Interview Session" (company/JD/resume/instructions, created before the call)
+18. Session dashboard
+19. Simultaneous mic + system audio capture
+20. Screenshot / vision support
+
+Steps 14-20 are a Parakeet-inspired UX redesign; see
+`C:\Users\tcs91\.claude\plans\zippy-wandering-penguin.md` for the full plan, the two Parakeet
+features deliberately excluded (screen-capture evasion, cross-user question sharing — both conflict
+with the safety boundaries below), and the file:line references each step builds on.
 
 ## Maintenance
 - Keep this file current when stable decisions change. Add nested `AGENTS.md` files only for areas that become complex (e.g., `src/<app>/llm/`, `src/<app>/audio/`).
@@ -113,6 +125,15 @@ Principles: provider-agnostic interfaces, dependency injection, every external c
   DLL check) and runs the packaged `--self-test`. Release builds must be signed (`scripts/sign.py`); never disable Smart App Control.
 - CLI switches: `--version`, `--self-test [--deep] [--out F]`, `--purge-data` (uninstaller uses it). Tests must never call
   `purge()` against the real credential store / registry (inject stand-ins).
+
+## Shared access / relay (shipped, outside the numbered roadmap)
+A separate deployable (`server/`, package `interview-relay`) lets the owner share their own OpenAI
+billing with friends under an approval flow: friends request access from the desktop app's
+"Shared access" settings tab, the owner approves from a hosted `/admin` dashboard, and approved
+friends' `fast`/`smart` tiers route through the relay's budget-enforced `/v1/chat/completions` proxy
+instead of needing their own API keys. Deployed and verified end-to-end at
+https://interview-assistant-relay.fly.dev. Full design, API, and redeploy steps: `server/README.md`
+and `server/DEPLOY.md`.
 
 ## Hardening decisions (Step 13)
 - Logging: rotating file `%APPDATA%\InterviewAssistant\logs\app.log` (needed: the packaged exe has no console), every line passes
