@@ -85,7 +85,9 @@ def build_app(
     if settings.history_retention_days:
         removed = history.purge_older_than(settings.history_retention_days)
         log.info("Retention purge removed %d old session(s)", removed)
-    controller = AssistantController(jev, tracker=tracker, history=history)
+    controller = AssistantController(
+        jev, tracker=tracker, history=history, answer_mode=settings.answer_mode
+    )
     tracker.on_change = controller.notify_cost_changed
     overlay = OverlayWindow(controller)
 

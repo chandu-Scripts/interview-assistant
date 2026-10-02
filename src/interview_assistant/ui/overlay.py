@@ -119,6 +119,9 @@ class OverlayWindow(QWidget):
 
         self.input = QLineEdit()
         self.input.setPlaceholderText("Type a question and press Enter…")
+        self.answer_btn = QPushButton("Answer")
+        self.answer_btn.setToolTip("Answer the question above (Ctrl+Enter)")
+        self.answer_btn.setEnabled(False)
         self.ask_btn = QPushButton("Ask")
         self.stop_btn = QPushButton("Stop")
         self.copy_btn = QPushButton("Copy")
@@ -129,7 +132,7 @@ class OverlayWindow(QWidget):
         footer = QHBoxLayout()
         footer.setContentsMargins(0, 0, 0, 0)
         footer.addWidget(self.input, 1)
-        for extra in (self.ask_btn, self.stop_btn, self.copy_btn, self.opacity):
+        for extra in (self.answer_btn, self.ask_btn, self.stop_btn, self.copy_btn, self.opacity):
             footer.addWidget(extra)
         self.footer = QWidget()
         self.footer.setLayout(footer)
@@ -166,6 +169,9 @@ class OverlayWindow(QWidget):
         self.opacity.valueChanged.connect(self._set_opacity)
         self.input.returnPressed.connect(self._submit_typed)
         self.ask_btn.clicked.connect(self._submit_typed)
+        self.answer_btn.clicked.connect(self._trigger_answer)
+        QShortcut(QKeySequence("Ctrl+Return"), self, self._trigger_answer)
+        QShortcut(QKeySequence("Ctrl+Enter"), self, self._trigger_answer)  # numpad Enter
         QShortcut(QKeySequence("Escape"), self, self._stop)
         self.stop_btn.clicked.connect(self._stop)
 
@@ -186,6 +192,7 @@ class OverlayWindow(QWidget):
     def bind(self, c: AssistantController) -> None:
         self._controller = c
         c.question_started.connect(self.on_question)
+        c.question_pending.connect(self.on_question_pending)
         c.decision_ready.connect(self.on_decision)
         c.answer_delta.connect(self.on_delta)
         c.answer_reset.connect(self.on_reset)
@@ -214,7 +221,15 @@ class OverlayWindow(QWidget):
         self._fix_row_open = False
         self.fix_row.setVisible(False)
         self.fix_btn.setEnabled(False)
+        self.answer_btn.setEnabled(False)
         self._update_dot(thinking=True)
+
+    def on_question_pending(self, text: str, lag: object) -> None:
+        """Manual mode: a voice question was heard and is waiting for Answer/Ctrl+Enter."""
+        self.question.setText(f"🎤 {text}")
+        self.chip.setText("ready - press Answer")
+        self.chip.setToolTip("")
+        self.answer_btn.setEnabled(True)
 
     def on_decision(self, gen: int, d: Decision) -> None:
         if gen != self._gen:
@@ -356,6 +371,10 @@ class OverlayWindow(QWidget):
     def _stop(self) -> None:
         if self._controller is not None:
             self._controller.stop()
+
+    def _trigger_answer(self) -> None:
+        if self._controller is not None:
+            self._controller.trigger_answer()
 
     def _toggle_fix_row(self) -> None:
         # Track state explicitly: fix_row.isVisible() is unreliable while the window itself is

@@ -112,6 +112,8 @@ def make_stack(qtbot, tmp_path):
         chain=None,
         stt=None,
         router_builder=None,
+        answer_mode="auto",  # most of these tests exercise the real pipeline end to end; the
+        # manual-trigger gate (answer_mode="manual") gets its own dedicated tests below.
     ):
         src = MortalSource()
         factory = lambda d, **kw: AudioCapture(src, d.channels, d.sample_rate, **kw)  # noqa: E731
@@ -135,6 +137,7 @@ def make_stack(qtbot, tmp_path):
             poll_ms=10,
             tracker=tracker,
             history=history,
+            answer_mode=answer_mode,
         )
         tracker.on_change = controller.notify_cost_changed
         overlay = OverlayWindow(
@@ -194,6 +197,18 @@ def test_a_question_split_by_a_pause_is_answered_once(make_stack):
     (turn,) = s.wait_turns(1)
     assert turn.question == f"{CONFLICT} What was the outcome?"
     assert len(prov.requests) == 1  # one merged question -> exactly one model call
+
+
+def test_manual_mode_waits_for_answer_button_then_streams(make_stack, qtbot):
+    s = make_stack({"openai": hash_provider()}, [TWO_SUM], answer_mode="manual")
+    s.speak()
+    qtbot.waitUntil(lambda: s.overlay.answer_btn.isEnabled(), timeout=8000)
+    assert s.overlay.answer.toPlainText() == ""  # not answered yet - just heard and pending
+    assert s.turns() == []
+    s.controller.trigger_answer()
+    s.answered("hash map.")
+    (turn,) = s.wait_turns(1)
+    assert (turn.question, turn.source) == (TWO_SUM, "voice")
 
 
 def test_filler_is_ignored_and_never_saved(make_stack):

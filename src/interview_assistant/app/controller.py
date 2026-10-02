@@ -2,7 +2,7 @@ import asyncio
 import itertools
 import logging
 import time
-from typing import Protocol
+from typing import Literal, Protocol
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
@@ -45,6 +45,7 @@ class AssistantController(QObject):
     """
 
     question_started = Signal(int, str, str)  # gen, text, source ("voice" | "typed")
+    question_pending = Signal(str, object)  # text, speech_lag (float | None) - manual mode only
     decision_ready = Signal(int, object)  # gen, Decision
     answer_delta = Signal(int, str)
     answer_reset = Signal(int)  # discard text shown so far (provider failover)
@@ -68,11 +69,15 @@ class AssistantController(QObject):
         poll_ms: int = 100,
         tracker: CostTracker | None = None,
         history: HistoryStore | None = None,
+        answer_mode: Literal["manual", "auto"] = "manual",
     ) -> None:
         super().__init__()
         self._jev = jev
         self._tracker = tracker
         self._history = history
+        self._answer_mode = answer_mode
+        self._pending_question: str | None = None
+        self._pending_lag: float | None = None
         self._stopped_gen = 0
         self._paused = False
         self._last_speech_end: float | None = None
@@ -109,6 +114,8 @@ class AssistantController(QObject):
         self._paused = paused
         if paused:
             self._agg.reset()
+            self._pending_question = None
+            self._pending_lag = None
 
     @property
     def paused(self) -> bool:
@@ -127,6 +134,16 @@ class AssistantController(QObject):
     def stop(self) -> None:
         self._runner.call_soon(self._stop_active)
 
+    def trigger_answer(self) -> None:
+        """Manual mode: answer the question currently waiting (see question_pending). A no-op if
+        nothing is pending (e.g. the button was clicked twice, or the UI is stale)."""
+        if self._pending_question is None or self._paused:
+            return
+        text, lag = self._pending_question, self._pending_lag
+        self._pending_question = None
+        self._pending_lag = None
+        self.ask(text, "voice", lag)
+
     def correct_category(self, category: Category) -> None:
         """The user says Jev picked the wrong specialist: redo the last question with this one.
 
@@ -142,6 +159,8 @@ class AssistantController(QObject):
         """Forget the conversation and start a fresh cost session."""
         self._jev.clear_history()
         self._agg.reset()
+        self._pending_question = None
+        self._pending_lag = None
         if self._tracker is not None:
             self._tracker.new_session()
         if self._history is not None:
@@ -166,7 +185,13 @@ class AssistantController(QObject):
             lag = None
             if self._last_speech_end is not None:
                 lag = max(0.0, time.monotonic() - self._last_speech_end)
-            self.ask(question, "voice", lag)
+            if self._answer_mode == "manual":
+                # Waits for trigger_answer() instead of answering immediately. A later poll()
+                # before that happens simply replaces the pending question (latest wins).
+                self._pending_question, self._pending_lag = question, lag
+                self.question_pending.emit(question, lag)
+            else:
+                self.ask(question, "voice", lag)
 
     # ---- runs on the asyncio thread ----
     def _stop_active(self) -> None:

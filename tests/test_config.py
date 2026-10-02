@@ -592,6 +592,7 @@ def test_dialog_loads_current_values(dialog):
     assert d.default_audio_kind.currentData() == "loopback"
     assert not d.budget_on.isChecked() and d.redact.isChecked() and d.history_on.isChecked()
     assert d.hotkey_presentation.text() == "ctrl+alt+p"
+    assert not d.auto_generate.isChecked()  # default answer_mode is "manual"
 
 
 def test_dialog_save_writes_only_non_defaults_and_requests_restart(qtbot, dialog):
@@ -613,6 +614,22 @@ def test_dialog_save_writes_only_non_defaults_and_requests_restart(qtbot, dialog
     }  # defaults are NOT pinned into the file
     s = Settings(_env_file=None)  # simulates the next start
     assert (s.whisper_model, s.budget_usd, s.budget_scope) == ("small.en", 7.5, "day")
+
+
+def test_dialog_auto_generate_toggle_round_trips_through_answer_mode(qtbot, dialog):
+    d, _ = dialog
+    d.auto_generate.setChecked(True)
+    with qtbot.waitSignal(d.saved):
+        d.save_btn.click()
+    assert json.loads(settings_path().read_text(encoding="utf-8")) == {"answer_mode": "auto"}
+    assert Settings(_env_file=None).answer_mode == "auto"
+    d.load()
+    assert d.auto_generate.isChecked()
+    d.auto_generate.setChecked(False)  # back to the default - should clear the saved override
+    with qtbot.waitSignal(d.saved):
+        d.save_btn.click()
+    assert json.loads(settings_path().read_text(encoding="utf-8")) == {}
+    assert Settings(_env_file=None).answer_mode == "manual"
 
 
 def test_dialog_unchanged_save_does_not_ask_for_restart(qtbot, dialog):

@@ -250,7 +250,9 @@ def test_friendly_error_variants():
 
 def test_voice_fragments_merge_into_one_question(qtbot, make_controller):
     jev = FakeJev()
-    c, rec = make_controller(jev, aggregator=UtteranceAggregator(quiet_s=0.2))
+    c, rec = make_controller(
+        jev, aggregator=UtteranceAggregator(quiet_s=0.2), answer_mode="auto"
+    )
     c.on_speech_started()
     c.on_transcript_event(TranscriptEvent(1, "Tell me about a time you failed.", True, 3))
     c.on_speech_started()  # second fragment still transcribing
@@ -260,6 +262,88 @@ def test_voice_fragments_merge_into_one_question(qtbot, make_controller):
     qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
     assert jev.asked == ["Tell me about a time you failed. What did you learn?"]
     assert rec.has("q", 1, "Tell me about a time you failed. What did you learn?", "voice")
+
+
+# ---------------- controller: manual-trigger answering (answer_mode) ----------------
+def test_manual_mode_buffers_voice_question_until_triggered(qtbot, make_controller):
+    jev = FakeJev()
+    c, rec = make_controller(jev, aggregator=UtteranceAggregator(quiet_s=0.15))  # default: manual
+    pending = []
+    c.question_pending.connect(lambda t, lag: pending.append((t, lag)))
+    c.on_speech_started()
+    c.on_transcript_event(TranscriptEvent(1, "What is a mutex?", True, 2))
+    qtbot.waitUntil(lambda: len(pending) > 0, timeout=3000)
+    assert pending == [("What is a mutex?", None)]  # no on_speech_ended -> lag is None
+    assert jev.asked == []  # not answered yet - waiting for trigger_answer()
+    assert not rec.has("q", 1, "What is a mutex?", "voice")
+    c.trigger_answer()
+    qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
+    assert jev.asked == ["What is a mutex?"]
+    assert rec.has("q", 1, "What is a mutex?", "voice")
+
+
+def test_trigger_answer_without_pending_is_a_noop(qtbot, make_controller):
+    jev = FakeJev()
+    c, rec = make_controller(jev)
+    c.trigger_answer()
+    qtbot.wait(100)
+    assert jev.asked == [] and rec.log == []
+
+
+def test_manual_mode_later_question_replaces_earlier_pending_one(qtbot, make_controller):
+    jev = FakeJev()
+    c, rec = make_controller(jev, aggregator=UtteranceAggregator(quiet_s=0.15))
+    pending = []
+    c.question_pending.connect(lambda t, lag: pending.append(t))
+    c.on_speech_started()
+    c.on_transcript_event(TranscriptEvent(1, "First question?", True, 2))
+    qtbot.waitUntil(lambda: pending == ["First question?"], timeout=3000)
+    c.on_speech_started()
+    c.on_transcript_event(TranscriptEvent(2, "Second question?", True, 2))
+    qtbot.waitUntil(lambda: pending == ["First question?", "Second question?"], timeout=3000)
+    c.trigger_answer()
+    qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
+    assert jev.asked == ["Second question?"]  # the first was superseded, never answered
+
+
+def test_set_paused_clears_pending_question(qtbot, make_controller):
+    jev = FakeJev()
+    c, rec = make_controller(jev, aggregator=UtteranceAggregator(quiet_s=0.15))
+    c.on_speech_started()
+    c.on_transcript_event(TranscriptEvent(1, "What is a mutex?", True, 2))
+    qtbot.waitUntil(lambda: c._pending_question is not None, timeout=3000)
+    c.set_paused(True)
+    c.set_paused(False)
+    c.trigger_answer()
+    qtbot.wait(100)
+    assert jev.asked == []
+
+
+def test_new_interview_clears_pending_question(qtbot, make_controller):
+    jev = FakeJev()
+    c, rec = make_controller(jev, aggregator=UtteranceAggregator(quiet_s=0.15))
+    c.on_speech_started()
+    c.on_transcript_event(TranscriptEvent(1, "What is a mutex?", True, 2))
+    qtbot.waitUntil(lambda: c._pending_question is not None, timeout=3000)
+    c.new_interview()
+    c.trigger_answer()
+    qtbot.wait(100)
+    assert jev.asked == []
+
+
+def test_auto_mode_still_answers_immediately(qtbot, make_controller):
+    """answer_mode="auto" is the pre-Step-14 behavior, kept for anyone who wants it back."""
+    jev = FakeJev()
+    c, rec = make_controller(
+        jev, aggregator=UtteranceAggregator(quiet_s=0.15), answer_mode="auto"
+    )
+    pending = []
+    c.question_pending.connect(lambda t, lag: pending.append(t))
+    c.on_speech_started()
+    c.on_transcript_event(TranscriptEvent(1, "What is a mutex?", True, 2))
+    qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
+    assert jev.asked == ["What is a mutex?"]
+    assert pending == []  # question_pending is only emitted in manual mode
 
 
 def test_live_partial_text_signal(qtbot, make_controller):
@@ -408,6 +492,29 @@ def test_overlay_reset_and_error(qtbot, overlay):
     assert overlay.answer_text == "" and overlay.answer.toPlainText() == ""
     overlay.on_failed(1, "All AI providers failed")
     assert "All AI providers failed" in overlay.answer.toPlainText()
+
+
+def test_overlay_question_pending_enables_answer_button(overlay):
+    assert not overlay.answer_btn.isEnabled()
+    overlay.on_question_pending("What is a mutex?", None)
+    assert overlay.answer_btn.isEnabled()
+    assert "What is a mutex?" in overlay.question.text()
+    assert "press Answer" in overlay.chip.text()
+
+
+def test_overlay_new_question_disables_answer_button_again(overlay):
+    overlay.on_question_pending("What is a mutex?", None)
+    assert overlay.answer_btn.isEnabled()
+    overlay.on_question(1, "What is a mutex?", "voice")  # trigger_answer() led here
+    assert not overlay.answer_btn.isEnabled()
+
+
+def test_overlay_answer_button_calls_trigger_answer(qtbot, overlay):
+    calls = []
+    overlay._controller = type("C", (), {"trigger_answer": lambda self: calls.append(1)})()
+    overlay.on_question_pending("What is a mutex?", None)
+    overlay.answer_btn.click()
+    assert calls == [1]
 
 
 def test_overlay_live_text_and_listening_dot(overlay):

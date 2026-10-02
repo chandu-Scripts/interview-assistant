@@ -422,7 +422,9 @@ def test_voice_question_reports_stage_timings(qtbot, tmp_path):
 
     from interview_assistant.app.aggregator import UtteranceAggregator
 
-    c = AssistantController(FakeJev(), aggregator=UtteranceAggregator(quiet_s=0.05), poll_ms=10)
+    c = AssistantController(
+        FakeJev(), aggregator=UtteranceAggregator(quiet_s=0.05), poll_ms=10, answer_mode="auto"
+    )
     o = OverlayWindow(c, QSettings(str(tmp_path / "o.ini"), QSettings.Format.IniFormat))
     qtbot.addWidget(o)
     got = []

@@ -201,6 +201,12 @@ class SettingsDialog(QDialog):
         ):
             self.budget_scope.addItem(label, value)
         self.budget_hard = QCheckBox("Stop answering when the limit is reached")
+        self.auto_generate = QCheckBox("Auto Generate (Beta): answer voice questions immediately")
+        self.auto_generate.setToolTip(
+            "Off (default): a detected voice question waits for you to click Answer or press "
+            "Ctrl+Enter. On: answered automatically, like before this setting existed. Typed "
+            "questions and Chat always answer immediately either way."
+        )
         self.history_on = QCheckBox("Save question/answer history on this PC")
         self.retention_on = QCheckBox("Auto-delete history older than")
         self.retention_days = QSpinBox()
@@ -209,6 +215,7 @@ class SettingsDialog(QDialog):
         form.addRow(self.budget_on, self.budget_usd)
         form.addRow("Budget period", self.budget_scope)
         form.addRow(self.budget_hard)
+        form.addRow(self.auto_generate)
         form.addRow(self.history_on)
         form.addRow(self.retention_on, self.retention_days)
         return w
@@ -280,6 +287,7 @@ class SettingsDialog(QDialog):
         self.budget_usd.setValue(s.budget_usd or 5.0)
         self._select(self.budget_scope, s.budget_scope)
         self.budget_hard.setChecked(s.budget_hard_stop)
+        self.auto_generate.setChecked(s.answer_mode == "auto")
         self.history_on.setChecked(s.history_enabled)
         self.retention_on.setChecked(s.history_retention_days is not None)
         self.retention_days.setValue(s.history_retention_days or 30)
@@ -324,6 +332,7 @@ class SettingsDialog(QDialog):
         values["budget_usd"] = self.budget_usd.value() if self.budget_on.isChecked() else None
         values["budget_scope"] = self.budget_scope.currentData()
         values["budget_hard_stop"] = self.budget_hard.isChecked()
+        values["answer_mode"] = "auto" if self.auto_generate.isChecked() else "manual"
         values["history_enabled"] = self.history_on.isChecked()
         values["history_retention_days"] = (
             self.retention_days.value() if self.retention_on.isChecked() else None
