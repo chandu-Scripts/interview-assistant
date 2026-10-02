@@ -91,6 +91,8 @@ def main() -> int:
         hotkeys.register(settings.hotkey_presentation, parts.presentation.toggle)
     if settings.hotkey_overlay:
         hotkeys.register(settings.hotkey_overlay, parts.toggle_overlay)
+    if settings.hotkey_bubble:
+        hotkeys.register(settings.hotkey_bubble, parts.overlay.toggle_bubble)
 
     parts.window.show()
     parts.overlay.show()

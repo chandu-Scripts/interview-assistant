@@ -123,6 +123,7 @@ def build_app(
     hotkey_pairs = (
         (settings.hotkey_presentation, "presentation mode"),
         (settings.hotkey_overlay, "show/hide overlay"),
+        (settings.hotkey_bubble, "collapse overlay to a bubble"),
     )
     hint = ", ".join(f"{key} = {what}" for key, what in hotkey_pairs if key)
     privacy_dialog = PrivacyDialog(privacy, presentation, flows, hint)

@@ -543,6 +543,76 @@ def test_overlay_collapse_and_opacity_persist(qtbot, tmp_path):
     assert o2.opacity.value() == 60
 
 
+def test_overlay_chat_row_toggles(overlay):
+    assert not overlay.chat_row.isVisibleTo(overlay)
+    overlay.chat_btn.click()
+    assert overlay.chat_row.isVisibleTo(overlay)
+    overlay.chat_btn.click()
+    assert not overlay.chat_row.isVisibleTo(overlay)
+    overlay.chat_btn.click()  # a third click (same isVisible()-while-hidden pitfall as fix_row)
+    assert overlay.chat_row.isVisibleTo(overlay)
+
+
+def test_overlay_sending_a_chat_question_leaves_the_row_open(qtbot, overlay):
+    """Unlike fix_row (a one-shot action), Chat is a small persistent box - sending a question
+    should not close it."""
+    overlay._controller = type("C", (), {"ask": lambda self, text, source: None})()
+    overlay.chat_btn.click()
+    overlay.input.setText("What is a mutex?")
+    overlay.ask_btn.click()
+    assert overlay.chat_row.isVisibleTo(overlay)
+
+
+def test_overlay_toggle_bubble_hides_everything_but_the_dot(qtbot, tmp_path):
+    o = OverlayWindow(settings=QSettings(str(tmp_path / "b.ini"), QSettings.Format.IniFormat))
+    qtbot.addWidget(o)
+    o.show()
+    assert not o.bubbled
+    o.toggle_bubble()
+    assert o.bubbled
+    assert o.dot.isVisibleTo(o)
+    for w in (o.title, o.chip, o.cost_label, o.chat_btn, o.fix_btn, o.collapse_btn, o.close_btn):
+        assert not w.isVisibleTo(o)
+    assert (o.width(), o.height()) == (48, 48)
+    o.toggle_bubble()
+    assert not o.bubbled and o.title.isVisibleTo(o) and o.width() > 48
+
+
+def test_overlay_bubble_click_restores_but_drag_does_not(qtbot, tmp_path):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QMouseEvent
+
+    o = OverlayWindow(settings=QSettings(str(tmp_path / "b2.ini"), QSettings.Format.IniFormat))
+    qtbot.addWidget(o)
+    o.show()
+    o.toggle_bubble()
+
+    def press_release(start: QPointF, end: QPointF) -> None:
+        down = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            start,
+            start,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        o.mousePressEvent(down)
+        up = QMouseEvent(
+            QMouseEvent.Type.MouseButtonRelease,
+            end,
+            end,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        o.mouseReleaseEvent(up)
+
+    press_release(QPointF(10, 10), QPointF(40, 10))  # moved -> a drag, stays bubbled
+    assert o.bubbled
+    press_release(QPointF(10, 10), QPointF(11, 10))  # barely moved -> a click, restores
+    assert not o.bubbled
+
+
 def test_overlay_copy(overlay):
     overlay.on_question(1, "q", "typed")
     overlay.on_delta(1, "copy me")
@@ -640,6 +710,7 @@ def test_end_to_end_typed_question_shows_answer(qtbot, tmp_path):
     o = OverlayWindow(controller, s)
     qtbot.addWidget(o)
     o.show()
+    o.chat_btn.click()  # Chat is toggled off by default (Step 15)
     qtbot.keyClicks(o.input, "Write a function to solve the two sum problem.")
     qtbot.keyClick(o.input, Qt.Key.Key_Return)
     qtbot.waitUntil(lambda: "hash map." in o.answer.toPlainText(), timeout=5000)

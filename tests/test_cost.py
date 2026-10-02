@@ -23,7 +23,7 @@ from interview_assistant.llm.router import AttemptRecord, Route, Router, RouterC
 from interview_assistant.llm.types import ErrorKind, LLMError, LLMRequest, Message, Usage
 from interview_assistant.stt.metered import MeteredSTT
 from interview_assistant.stt.streaming import StreamingTranscriber
-from interview_assistant.ui.overlay import OverlayWindow
+from interview_assistant.ui.overlay import COST_COLOR, OverlayWindow
 from tests.test_router import Script
 
 REQ = LLMRequest([Message("user", "Hi")], system="sys")
@@ -333,7 +333,7 @@ def test_hard_budget_blocks_new_answers(qtbot, tmp_path):
     c.ask("Explain how garbage collection works?")
     qtbot.waitUntil(lambda: "Budget reached" in o.answer.toPlainText(), timeout=5000)
     assert tracker.summary().calls == 1  # no second LLM call was made
-    assert "ff6b6b" in o.cost_label.styleSheet()  # red
+    assert COST_COLOR[BudgetLevel.EXCEEDED] in o.cost_label.styleSheet()
     c.shutdown()
 
 

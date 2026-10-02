@@ -228,13 +228,15 @@ class SettingsDialog(QDialog):
         self.consent = QCheckBox("Show the recording notice before the first capture")
         self.hotkey_presentation = QLineEdit()
         self.hotkey_overlay = QLineEdit()
-        for e in (self.hotkey_presentation, self.hotkey_overlay):
+        self.hotkey_bubble = QLineEdit()
+        for e in (self.hotkey_presentation, self.hotkey_overlay, self.hotkey_bubble):
             e.setPlaceholderText("e.g. ctrl+alt+p (empty = disabled)")
         form.addRow(self.incognito)
         form.addRow(self.redact)
         form.addRow(self.consent)
         form.addRow("Hotkey: presentation mode", self.hotkey_presentation)
         form.addRow("Hotkey: show/hide overlay", self.hotkey_overlay)
+        form.addRow("Hotkey: collapse to bubble", self.hotkey_bubble)
         return w
 
     def _shared_access_tab(
@@ -296,6 +298,7 @@ class SettingsDialog(QDialog):
         self.consent.setChecked(s.require_consent)
         self.hotkey_presentation.setText(s.hotkey_presentation)
         self.hotkey_overlay.setText(s.hotkey_overlay)
+        self.hotkey_bubble.setText(s.hotkey_bubble)
         for row in self.key_rows.values():
             row.refresh()
         self.relay_panel.refresh()
@@ -343,6 +346,7 @@ class SettingsDialog(QDialog):
         for field, edit in (
             ("hotkey_presentation", self.hotkey_presentation),
             ("hotkey_overlay", self.hotkey_overlay),
+            ("hotkey_bubble", self.hotkey_bubble),
         ):
             spec = edit.text().strip()
             if spec:

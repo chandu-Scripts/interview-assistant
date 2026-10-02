@@ -694,6 +694,19 @@ def test_dialog_validation_blocks_save(qtbot, dialog):
     assert json.loads(settings_path().read_text(encoding="utf-8"))["hotkey_overlay"] == ""
 
 
+def test_dialog_hotkey_bubble_round_trips_and_validates(qtbot, dialog):
+    d, _ = dialog
+    assert d.hotkey_bubble.text() == "ctrl+h"
+    d.hotkey_bubble.setText("ctrl+alt+enter")  # "enter" isn't a supported key (see parse_hotkey)
+    d.save_btn.click()
+    assert "Not saved" in d.message.text() and not settings_path().exists()
+    d.hotkey_bubble.setText("ctrl+j")
+    with qtbot.waitSignal(d.saved):
+        d.save_btn.click()
+    assert json.loads(settings_path().read_text(encoding="utf-8"))["hotkey_bubble"] == "ctrl+j"
+    assert Settings(_env_file=None).hotkey_bubble == "ctrl+j"
+
+
 def test_dialog_models_fill_from_key_test(qtbot, dialog):
     d, _ = dialog
     d.key_rows["openai"].models_found.emit("openai", ["gpt-x", "gpt-y"])

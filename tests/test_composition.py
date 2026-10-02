@@ -178,6 +178,15 @@ def test_settings_flow_into_the_running_components(parts_factory, tmp_path):
     assert "show/hide overlay" not in labels  # hotkey_overlay was disabled ("")
 
 
+def test_hotkey_bubble_is_advertised_and_can_be_disabled(parts_factory):
+    p = parts_factory(hotkey_bubble="ctrl+h")
+    labels = " ".join(lbl.text() for lbl in p.privacy_dialog.findChildren(QLabel))
+    assert "ctrl+h = collapse overlay to a bubble" in labels
+    p2 = parts_factory(hotkey_bubble="")
+    labels2 = " ".join(lbl.text() for lbl in p2.privacy_dialog.findChildren(QLabel))
+    assert "collapse overlay to a bubble" not in labels2
+
+
 def test_billed_speech_recognition_turns_off_partials(parts_factory):
     free = parts_factory()
     billed = parts_factory(stt=BilledSTT())

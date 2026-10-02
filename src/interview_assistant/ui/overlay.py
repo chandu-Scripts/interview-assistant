@@ -19,28 +19,32 @@ from interview_assistant.agents.types import Category, Decision
 from interview_assistant.app.controller import AssistantController
 from interview_assistant.cost.tracker import BudgetLevel, BudgetState, Summary, format_usd
 
-BG = QColor(22, 24, 30, 236)
+# Light, translucent "glass" card (Step 15) - was a dark card before; every color below was
+# re-picked for contrast against a near-white background, not just swapped.
+BG = QColor(255, 255, 255, 235)
+BORDER = QColor(214, 217, 226)
 STYLE = """
-QLabel { color: #e8eaf0; }
+QLabel { color: #1d2030; }
 #title { font-weight: 600; }
-#chip { color: #9fb4ff; font-size: 11px; }
-#question { color: #9aa0b4; font-size: 12px; }
-#warn { color: #f5a623; font-size: 11px; }
-QTextBrowser { background: transparent; color: #f2f4f8; border: none; font-size: 14px; }
-QLineEdit { background: rgba(255,255,255,0.08); color: #f2f4f8; border: 1px solid #3a3f52;
+#chip { color: #4a63d6; font-size: 11px; }
+#question { color: #6b7185; font-size: 12px; }
+#warn { color: #b5650a; font-size: 11px; }
+QTextBrowser { background: transparent; color: #1d2030; border: none; font-size: 14px; }
+QLineEdit { background: rgba(0,0,0,0.04); color: #1d2030; border: 1px solid #d6d9e2;
             border-radius: 6px; padding: 4px 8px; }
-QPushButton { background: rgba(255,255,255,0.10); color: #e8eaf0; border: none;
+QPushButton { background: rgba(0,0,0,0.05); color: #1d2030; border: none;
               border-radius: 6px; padding: 4px 10px; }
-QPushButton:hover { background: rgba(255,255,255,0.20); }
-QPushButton:disabled { color: #6b7185; }
+QPushButton:hover { background: rgba(0,0,0,0.10); }
+QPushButton:disabled { color: #a7acbd; }
 #iconbtn { padding: 2px 8px; font-weight: bold; }
 """
 COST_COLOR = {
-    BudgetLevel.OK: "#8fd6a8",
-    BudgetLevel.WARN: "#f5a623",
-    BudgetLevel.EXCEEDED: "#ff6b6b",
+    BudgetLevel.OK: "#1f9d55",
+    BudgetLevel.WARN: "#b5650a",
+    BudgetLevel.EXCEEDED: "#d6363f",
 }
-DOT = {"idle": "#5c6378", "listening": "#d32f2f", "thinking": "#f5a623", "answering": "#3ecf8e"}
+DOT = {"idle": "#9aa0b4", "listening": "#d32f2f", "thinking": "#d98c1f", "answering": "#1f9d55"}
+BUBBLE_SIZE = 48
 
 
 class OverlayWindow(QWidget):
@@ -58,13 +62,17 @@ class OverlayWindow(QWidget):
         self._gen = 0
         self._text = ""
         self._drag: QPoint | None = None
+        self._press_global: QPoint | None = None
         self._collapsed = False
+        self._bubble = False
         self._expanded_height = 340
+        self._restore_width = 460
         self._listening = False
         self._busy = False
         self._answer_cost: float | None = None
         self._last_decision: Decision | None = None
         self._fix_row_open = False
+        self._chat_row_open = False
         self.setObjectName("overlay")
         self.setWindowTitle("Interview Assistant Overlay")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
@@ -79,15 +87,27 @@ class OverlayWindow(QWidget):
         self.chip.setObjectName("chip")
         self.cost_label = QLabel("")
         self.cost_label.setToolTip("Session cost")
+        self.chat_btn = self._icon_button("Chat", "Type a question (toggle)")
         self.fix_btn = self._icon_button("✎", "Wrong specialist? Pick the right one and redo")
         self.collapse_btn = self._icon_button("–", "Collapse / expand")
         self.close_btn = self._icon_button("✕", "Hide overlay")
+        # Widgets hidden in bubble mode (everything except the status dot, which IS the bubble).
+        self._header_extras = (
+            self.title,
+            self.chip,
+            self.cost_label,
+            self.chat_btn,
+            self.fix_btn,
+            self.collapse_btn,
+            self.close_btn,
+        )
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         for w in (self.dot, self.title, self.chip):
             header.addWidget(w)
         header.addStretch(1)
         header.addWidget(self.cost_label)
+        header.addWidget(self.chat_btn)
         header.addWidget(self.fix_btn)
         header.addWidget(self.collapse_btn)
         header.addWidget(self.close_btn)
@@ -119,10 +139,18 @@ class OverlayWindow(QWidget):
 
         self.input = QLineEdit()
         self.input.setPlaceholderText("Type a question and press Enter…")
+        self.ask_btn = QPushButton("Ask")
+        chat_row = QHBoxLayout()
+        chat_row.setContentsMargins(0, 0, 0, 0)
+        chat_row.addWidget(self.input, 1)
+        chat_row.addWidget(self.ask_btn)
+        self.chat_row = QWidget()
+        self.chat_row.setLayout(chat_row)
+        self.chat_row.setVisible(False)
+
         self.answer_btn = QPushButton("Answer")
         self.answer_btn.setToolTip("Answer the question above (Ctrl+Enter)")
         self.answer_btn.setEnabled(False)
-        self.ask_btn = QPushButton("Ask")
         self.stop_btn = QPushButton("Stop")
         self.copy_btn = QPushButton("Copy")
         self.opacity = QSlider(Qt.Orientation.Horizontal)
@@ -131,8 +159,8 @@ class OverlayWindow(QWidget):
         self.opacity.setToolTip("Opacity")
         footer = QHBoxLayout()
         footer.setContentsMargins(0, 0, 0, 0)
-        footer.addWidget(self.input, 1)
-        for extra in (self.answer_btn, self.ask_btn, self.stop_btn, self.copy_btn, self.opacity):
+        footer.addStretch(1)
+        for extra in (self.answer_btn, self.stop_btn, self.copy_btn, self.opacity):
             footer.addWidget(extra)
         self.footer = QWidget()
         self.footer.setLayout(footer)
@@ -143,6 +171,7 @@ class OverlayWindow(QWidget):
         body.addWidget(self.question)
         body.addWidget(self.warn_label)
         body.addWidget(self.fix_row)
+        body.addWidget(self.chat_row)
         body.addWidget(self.answer, 1)
         body.addWidget(self.footer)
         grip_row = QHBoxLayout()
@@ -163,6 +192,7 @@ class OverlayWindow(QWidget):
         self.fix_btn.clicked.connect(self._toggle_fix_row)
         self.fix_apply_btn.clicked.connect(self._apply_fix)
         self.fix_btn.setEnabled(False)
+        self.chat_btn.clicked.connect(self._toggle_chat_row)
         self.collapse_btn.clicked.connect(self.toggle_collapsed)
         self.close_btn.clicked.connect(self.hide)
         self.copy_btn.clicked.connect(self.copy_answer)
@@ -382,6 +412,15 @@ class OverlayWindow(QWidget):
         self._fix_row_open = not self._fix_row_open
         self.fix_row.setVisible(self._fix_row_open)
 
+    def _toggle_chat_row(self) -> None:
+        # Same explicit-flag idiom as _toggle_fix_row, and for the same reason. Unlike the fix
+        # row, this one is left open after sending a question - it's a small persistent chat box,
+        # not a one-shot action.
+        self._chat_row_open = not self._chat_row_open
+        self.chat_row.setVisible(self._chat_row_open)
+        if self._chat_row_open:
+            self.input.setFocus()
+
     def _apply_fix(self) -> None:
         if self._controller is None:
             return
@@ -403,6 +442,30 @@ class OverlayWindow(QWidget):
         self.setMinimumHeight(48 if self._collapsed else 90)
         self.resize(self.width(), 48 if self._collapsed else self._expanded_height)
 
+    def toggle_bubble(self) -> None:
+        """Collapse the whole window down to a small draggable dot (Hide-to-bubble, Ctrl+H by
+        default) - further than toggle_collapsed(), which still shows the header. Click the
+        bubble (a plain click, not a drag) to restore."""
+        self._bubble = not self._bubble
+        if self._bubble:
+            if not self._collapsed:
+                self._expanded_height = self.height()
+            self._restore_width = self.width()
+        for w in self._header_extras:
+            w.setVisible(not self._bubble)
+        self.body.setVisible(not self._bubble and not self._collapsed)
+        if self._bubble:
+            self.setMinimumSize(BUBBLE_SIZE, BUBBLE_SIZE)
+            self.resize(BUBBLE_SIZE, BUBBLE_SIZE)
+        else:
+            self.setMinimumSize(320, 90)
+            self.resize(self._restore_width, 48 if self._collapsed else self._expanded_height)
+        self.update()  # repaint with the bubble's round-vs-rounded-rect shape
+
+    @property
+    def bubbled(self) -> bool:
+        return self._bubble
+
     def _set_opacity(self, value: int) -> None:
         self.setWindowOpacity(value / 100)
         self._settings.setValue("opacity", value)
@@ -412,19 +475,26 @@ class OverlayWindow(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setBrush(BG)
-        p.setPen(QColor(70, 76, 96))
-        p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 12, 12)
+        p.setPen(BORDER)
+        radius = min(self.width(), self.height()) // 2 if self._bubble else 12
+        p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), radius, radius)
 
     def mousePressEvent(self, e) -> None:  # noqa: N802
-        if e.button() == Qt.MouseButton.LeftButton and e.position().y() < 44:
+        if e.button() == Qt.MouseButton.LeftButton and (self._bubble or e.position().y() < 44):
             self._drag = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._press_global = e.globalPosition().toPoint()
 
     def mouseMoveEvent(self, e) -> None:  # noqa: N802
         if self._drag is not None:
             self.move(e.globalPosition().toPoint() - self._drag)
 
-    def mouseReleaseEvent(self, _e) -> None:  # noqa: N802
+    def mouseReleaseEvent(self, e) -> None:  # noqa: N802
+        if self._bubble and self._press_global is not None:
+            moved = (e.globalPosition().toPoint() - self._press_global).manhattanLength()
+            if moved < 4:  # a click, not a drag: restore from the bubble
+                self.toggle_bubble()
         self._drag = None
+        self._press_global = None
 
     def _restore(self) -> None:
         s = self._settings
