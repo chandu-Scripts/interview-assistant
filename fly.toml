@@ -1,0 +1,30 @@
+# Fly.io app config for the relay server (server/). Build context is this file's directory (the
+# repo root), so server/Dockerfile can reach both src/ and server/. See server/DEPLOY.md.
+#
+# `app` must be globally unique across all of Fly - `fly launch` will prompt you to change it if
+# "interview-assistant-relay" is already taken.
+app = "interview-assistant-relay"
+primary_region = "iad"  # pick the region closest to you; see `fly platform regions`
+
+[build]
+  dockerfile = "server/Dockerfile"
+
+[env]
+  RELAY_DB_PATH = "/data/relay.db"
+  # OPENAI_API_KEY and ADMIN_TOKEN are set as `fly secrets`, never here (this file is committed).
+
+[[mounts]]
+  source = "relay_data"       # persistent volume - relay.db survives restarts and redeploys
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"   # scales to zero when idle (free-tier friendly; adds a cold-start
+  auto_start_machines = true    # delay on the first request after idle - fine for occasional use
+  min_machines_running = 0
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

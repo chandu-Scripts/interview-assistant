@@ -5,10 +5,12 @@ request access from their copy of the app, you approve them from `/admin`, and t
 proxied through this server using your key - which never reaches their PC. See
 `..\.claude\plans\zippy-wandering-penguin.md` for the full design.
 
-**Status: Step 2 of 3 done** - requests, admin approve/deny, token issuance/revocation, and the
-`/v1/chat/completions` proxy with per-friend day/month budget enforcement and real-usage billing.
-The desktop app doesn't know about this server yet (that's Step 3 - a "Shared access" settings tab
-and routing a friend's `fast`/`smart` tiers through here instead of OpenAI directly).
+**Status: build complete, deployment pending.** Requests, admin approve/deny, token issuance/
+revocation, the `/v1/chat/completions` proxy with per-friend day/month budget enforcement and
+real-usage billing, and the desktop app's "Shared access" settings tab are all built and tested
+(including a real end-to-end run against this server and real OpenAI). What's left is purely
+operational: deploy this to a real host so there's a public URL to give a friend - see
+`DEPLOY.md` (Fly.io, with the `Dockerfile`/`fly.toml` already set up and verified).
 
 ## Run locally
 ```
