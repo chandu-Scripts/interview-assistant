@@ -40,6 +40,8 @@ EDITABLE = frozenset(
         "require_consent",
         "hotkey_presentation",
         "hotkey_overlay",
+        "relay_url",
+        "relay_pending_id",
     }
 )
 

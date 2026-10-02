@@ -20,4 +20,13 @@ def build_providers(settings: Settings) -> dict[str, LLMProvider]:
         out["gemini"] = GeminiProvider(
             settings.gemini_api_key.get_secret_value(), settings.gemini_model
         )
+    if settings.relay_url and settings.relay_token:
+        # OpenAIProvider's base_url param already speaks the relay's wire format exactly - no new
+        # client code needed. "fast"/"smart" are sent as the literal model string; the relay (not
+        # this client) decides what real model that maps to.
+        out["relay"] = OpenAIProvider(
+            settings.relay_token.get_secret_value(),
+            "fast",
+            base_url=f"{settings.relay_url.rstrip('/')}/v1/chat/completions",
+        )
     return out

@@ -22,11 +22,18 @@ from PySide6.QtWidgets import (
 from interview_assistant.app.hotkeys import parse_hotkey
 from interview_assistant.config.keys import PROVIDERS, KeyStatus, KeyStore, key_status
 from interview_assistant.config.provider_check import check_key
+from interview_assistant.config.relay import (
+    KeyringRelayTokenStore,
+    RelayTokenStore,
+    check_status,
+    request_access,
+)
 from interview_assistant.config.settings import Settings
 from interview_assistant.config.user_settings import UserSettingsStore
 from interview_assistant.llm.router_factory import parse_chain
 from interview_assistant.ui.bg import Runner, run_in_thread
 from interview_assistant.ui.key_row import Checker, KeyRow
+from interview_assistant.ui.relay_panel import RelayPanel, RequestFn, StatusFn
 
 WHISPER_CHOICES = [
     ("tiny.en - fastest, least accurate", "tiny.en"),
@@ -58,6 +65,9 @@ class SettingsDialog(QDialog):
         raw_settings: Callable[[], Settings] = Settings,
         checker: Checker = check_key,
         runner: Runner = run_in_thread,
+        relay_store: RelayTokenStore | None = None,
+        relay_request_fn: RequestFn = request_access,
+        relay_status_fn: StatusFn = check_status,
     ) -> None:
         super().__init__()
         self._store = store
@@ -75,6 +85,12 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self._profile_tab(), "Profile")
         self.tabs.addTab(self._budget_tab(), "Budget && history")
         self.tabs.addTab(self._privacy_tab(), "Privacy && hotkeys")
+        self.tabs.addTab(
+            self._shared_access_tab(
+                relay_store or KeyringRelayTokenStore(), relay_request_fn, relay_status_fn, runner
+            ),
+            "Shared access",
+        )
         self.message = QLabel("")
         self.message.setWordWrap(True)
         self.save_btn = QPushButton("Save")
@@ -214,6 +230,23 @@ class SettingsDialog(QDialog):
         form.addRow("Hotkey: show/hide overlay", self.hotkey_overlay)
         return w
 
+    def _shared_access_tab(
+        self,
+        relay_store: RelayTokenStore,
+        request_fn: RequestFn,
+        status_fn: StatusFn,
+        runner: Runner,
+    ) -> QWidget:
+        self.relay_panel = RelayPanel(
+            self._store, relay_store, self._raw, request_fn, status_fn, runner
+        )
+        self.relay_panel.connected.connect(self._on_relay_connected)
+        return self.relay_panel
+
+    def _on_relay_connected(self) -> None:
+        self._keys_changed = True  # reuses the existing "a credential changed" restart flag
+        self.message.setText("Shared access updated. Restart the app for it to take effect.")
+
     def _status_fn(self, provider: str) -> Callable[[], KeyStatus]:
         return lambda: key_status(provider, self._raw(), self._keys)
 
@@ -257,6 +290,7 @@ class SettingsDialog(QDialog):
         self.hotkey_overlay.setText(s.hotkey_overlay)
         for row in self.key_rows.values():
             row.refresh()
+        self.relay_panel.refresh()
         self._initial = self.collect()
 
     @staticmethod

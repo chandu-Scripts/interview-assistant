@@ -242,6 +242,23 @@ def test_factory_only_configured_providers(monkeypatch):
     assert ps["gemini"].default_model == "m"
 
 
+def test_factory_registers_relay_provider_pointed_at_the_proxy_path(monkeypatch):
+    for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    s = Settings(_env_file=None, relay_url="https://relay.example/", relay_token="ika_tok")
+    ps = build_providers(s)
+    assert set(ps) == {"relay"}
+    assert isinstance(ps["relay"], OpenAIProvider)
+    assert ps["relay"]._url == "https://relay.example/v1/chat/completions"  # trailing slash ok
+
+
+def test_factory_relay_needs_both_url_and_token(monkeypatch):
+    for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    assert build_providers(Settings(_env_file=None, relay_url="https://relay.example")) == {}
+    assert build_providers(Settings(_env_file=None, relay_token="ika_tok")) == {}
+
+
 # ---------------- live (opt-in: RUN_LIVE=1, needs the key) ----------------
 @pytest.mark.skipif(
     not (os.environ.get("RUN_LIVE") and os.environ.get("GEMINI_API_KEY")),

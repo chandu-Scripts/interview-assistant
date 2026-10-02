@@ -224,6 +224,21 @@ def test_default_and_overridden_chains(monkeypatch):
     assert default_chains(s2)["fast"] == [Route("gemini", "g1")]
 
 
+def test_default_chains_use_relay_when_shared_access_is_connected():
+    s = Settings(_env_file=None, relay_url="https://relay.example", relay_token="ika_tok")
+    ch = default_chains(s)
+    assert ch["fast"] == [Route("relay", "fast")]
+    assert ch["smart"] == [Route("relay", "smart")]
+    # an explicit override still wins over the relay default
+    s2 = Settings(
+        _env_file=None,
+        relay_url="https://relay.example",
+        relay_token="ika_tok",
+        router_fast="gemini:g1",
+    )
+    assert default_chains(s2)["fast"] == [Route("gemini", "g1")]
+
+
 async def test_build_router_uses_only_configured_providers(monkeypatch):
     for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
         monkeypatch.delenv(k, raising=False)
@@ -232,3 +247,16 @@ async def test_build_router_uses_only_configured_providers(monkeypatch):
     assert [x.provider for x in r.chain_for("fast")] == ["gemini"]
     with pytest.raises(NoRoutesAvailable):
         build_router(Settings(_env_file=None)).chain_for("fast")
+
+
+async def test_build_router_end_to_end_through_a_relay_connection(monkeypatch):
+    """Factory + router_factory together: a friend with no provider keys of their own, only a
+    relay connection, gets a working router whose routes are literally "relay:fast"/"relay:smart"
+    - the same request/stream path as a direct provider, with build_providers doing the only
+    relay-specific wiring (an OpenAIProvider pointed at the relay's base_url)."""
+    for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    s = Settings(_env_file=None, relay_url="https://relay.example", relay_token="ika_tok")
+    r = build_router(s)
+    assert [x.provider for x in r.chain_for("fast")] == ["relay"]
+    assert [x.provider for x in r.chain_for("smart")] == ["relay"]

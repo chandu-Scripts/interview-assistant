@@ -18,6 +18,13 @@ from interview_assistant.config.keys import (
 )
 from interview_assistant.config.loader import load_settings
 from interview_assistant.config.provider_check import CheckResult, check_key
+from interview_assistant.config.relay import (
+    MemoryRelayTokenStore,
+    RequestResult,
+    StatusResult,
+    check_status,
+    request_access,
+)
 from interview_assistant.config.settings import Settings
 from interview_assistant.config.user_settings import EDITABLE, UserSettingsStore, settings_path
 from interview_assistant.privacy.consent import KEY as CONSENT_KEY
@@ -26,6 +33,7 @@ from interview_assistant.ui.bg import run_inline
 from interview_assistant.ui.key_row import KeyRow
 from interview_assistant.ui.main_window import MainWindow
 from interview_assistant.ui.onboarding import OnboardingWizard, needs_onboarding
+from interview_assistant.ui.relay_panel import RelayPanel
 from interview_assistant.ui.settings_dialog import SettingsDialog
 
 KEYS = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY")
@@ -130,6 +138,17 @@ def test_load_settings_fills_keys_from_store_without_overriding_env(clean_env, m
     assert s.anthropic_api_key.get_secret_value() == "ant-stored-2222"
     assert s.gemini_api_key is None
     assert "ant-stored-2222" not in repr(s)
+
+
+def test_load_settings_fills_relay_token_from_store_without_overriding_env(clean_env, monkeypatch):
+    monkeypatch.delenv("RELAY_TOKEN", raising=False)
+    relay_store = MemoryRelayTokenStore("ika_stored-token-1234")
+    s = load_settings(MemoryKeyStore(), relay_store)
+    assert s.relay_token.get_secret_value() == "ika_stored-token-1234"
+    assert "ika_stored-token-1234" not in repr(s)
+    monkeypatch.setenv("RELAY_TOKEN", "ika_env-9999")
+    s2 = load_settings(MemoryKeyStore(), relay_store)
+    assert s2.relay_token.get_secret_value() == "ika_env-9999"  # environment wins over stored
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows Credential Manager")
@@ -251,6 +270,61 @@ def test_check_network_errors_and_garbage():
         check_key("mystery", "k")
 
 
+# ---------------- relay client (shared access) ----------------
+def relay_client(handler):
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_request_access_posts_name_and_note_and_returns_public_id():
+    seen = {}
+
+    def h(req):
+        seen["url"] = str(req.url)
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(200, json={"public_id": "req_abc123"})
+
+    r = request_access("https://relay.example/", "Alice", "hi there", relay_client(h))
+    assert r == RequestResult("req_abc123")
+    assert seen["url"] == "https://relay.example/requests"  # trailing slash on base_url is fine
+    assert seen["body"] == {"name": "Alice", "note": "hi there"}
+
+
+def test_check_status_parses_all_fields_and_defaults():
+    full = check_status(
+        "https://relay.example",
+        "req_abc123",
+        relay_client(
+            lambda r: httpx.Response(
+                200,
+                json={
+                    "status": "approved",
+                    "token": "ika_xyz",
+                    "budget_usd": 2.0,
+                    "budget_scope": "day",
+                },
+            )
+        ),
+    )
+    assert full == StatusResult("approved", "ika_xyz", 2.0, "day")
+    pending = check_status(
+        "https://relay.example",
+        "req_abc123",
+        relay_client(lambda r: httpx.Response(200, json={"status": "pending"})),
+    )
+    assert pending == StatusResult("pending", None, None, None)
+
+
+def test_relay_client_raises_on_http_errors():
+    with pytest.raises(httpx.HTTPStatusError):
+        request_access(
+            "https://relay.example", "Alice", client=relay_client(lambda r: httpx.Response(404))
+        )
+    with pytest.raises(httpx.HTTPStatusError):
+        check_status(
+            "https://relay.example", "missing", client=relay_client(lambda r: httpx.Response(404))
+        )
+
+
 # ---------------- KeyRow ----------------
 def fake_checker(result):
     calls = []
@@ -352,6 +426,149 @@ def test_key_row_env_key_is_read_only_and_store_failure_reported(qtbot, clean_en
     assert "Could not save" in row2.result.text() and row2.edit.text() != ""
 
 
+# ---------------- RelayPanel ----------------
+def fake_relay_fn(result):
+    """Mirrors fake_checker: a 2-arg stand-in for request_access/check_status."""
+    calls = []
+
+    def call(*args):
+        calls.append(args)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    call.calls = calls
+    return call
+
+
+def make_panel(qtbot, relay_url=None, pending_id=None, request_fn=None, status_fn=None):
+    store = UserSettingsStore()
+    if relay_url is not None or pending_id is not None:
+        store.save({"relay_url": relay_url, "relay_pending_id": pending_id})
+    tokens = MemoryRelayTokenStore()
+    panel = RelayPanel(
+        store,
+        tokens,
+        lambda: Settings(_env_file=None),
+        request_fn or fake_relay_fn(RequestResult("req_1")),
+        status_fn or fake_relay_fn(StatusResult("pending")),
+        run_inline,
+    )
+    qtbot.addWidget(panel)
+    return panel, store, tokens
+
+
+def test_relay_panel_not_connected_initial_state(qtbot, clean_env):
+    panel, _, _ = make_panel(qtbot)
+    assert panel.status.text() == "Not connected."
+    assert panel.request_btn.isEnabled() and not panel.check_btn.isEnabled()
+    assert not panel.disconnect_btn.isEnabled() and panel.url_edit.isEnabled()
+
+
+def test_relay_panel_request_needs_url_and_name(qtbot, clean_env):
+    panel, _, _ = make_panel(qtbot)
+    panel.request_btn.click()
+    assert "Enter both" in panel.status.text()
+
+
+def test_relay_panel_request_success_persists_and_shows_pending(qtbot, clean_env):
+    panel, store, _ = make_panel(qtbot)
+    qtbot.keyClicks(panel.url_edit, "https://relay.example")
+    qtbot.keyClicks(panel.name_edit, "Alice")
+    panel.request_btn.click()
+    assert store.load() == {"relay_url": "https://relay.example", "relay_pending_id": "req_1"}
+    assert "Request sent" in panel.status.text()
+    assert not panel.request_btn.isEnabled() and panel.check_btn.isEnabled()
+    assert not panel.url_edit.isEnabled()
+
+
+def test_relay_panel_request_failure_reports_and_stays_enabled(qtbot, clean_env):
+    fn = fake_relay_fn(RuntimeError("boom"))
+    panel, store, _ = make_panel(qtbot, request_fn=fn)
+    qtbot.keyClicks(panel.url_edit, "https://relay.example")
+    qtbot.keyClicks(panel.name_edit, "Alice")
+    panel.request_btn.click()
+    assert "Could not send" in panel.status.text() and panel.request_btn.isEnabled()
+    assert store.load() == {}
+
+
+def test_relay_panel_check_still_pending(qtbot, clean_env):
+    panel, store, tokens = make_panel(
+        qtbot, "https://relay.example", "req_1", status_fn=fake_relay_fn(StatusResult("pending"))
+    )
+    panel.check_btn.click()
+    assert "Still waiting" in panel.status.text()
+    assert store.load()["relay_pending_id"] == "req_1" and tokens.get() is None
+
+
+def test_relay_panel_check_denied_clears_pending(qtbot, clean_env):
+    panel, store, _ = make_panel(
+        qtbot, "https://relay.example", "req_1", status_fn=fake_relay_fn(StatusResult("denied"))
+    )
+    panel.check_btn.click()
+    assert "denied" in panel.status.text()
+    assert "relay_pending_id" not in store.load()
+    assert panel.request_btn.isEnabled()  # free to try again
+
+
+def test_relay_panel_check_approved_stores_token_and_emits(qtbot, clean_env):
+    panel, store, tokens = make_panel(
+        qtbot,
+        "https://relay.example",
+        "req_1",
+        status_fn=fake_relay_fn(StatusResult("approved", "ika_newtoken", 2.0, "day")),
+    )
+    with qtbot.waitSignal(panel.connected):
+        panel.check_btn.click()
+    assert tokens.get() == "ika_newtoken"
+    assert "relay_pending_id" not in store.load()
+    assert "Connected" in panel.status.text()
+    assert panel.disconnect_btn.isEnabled() and not panel.request_btn.isEnabled()
+    assert not panel.check_btn.isEnabled()
+
+
+def test_relay_panel_approved_with_no_token_in_payload_does_not_crash(qtbot, clean_env):
+    """The relay only delivers the token on the FIRST poll after approval; a later poll (e.g. the
+    app was closed before refreshing) legitimately returns approved with token=None."""
+    panel, _, tokens = make_panel(
+        qtbot,
+        "https://relay.example",
+        "req_1",
+        status_fn=fake_relay_fn(StatusResult("approved", None, 2.0, "day")),
+    )
+    panel.check_btn.click()
+    assert tokens.get() is None
+    assert "Connected" in panel.status.text()  # still reflects approval, just no local token yet
+
+
+def test_relay_panel_check_network_failure_reports_and_reenables(qtbot, clean_env):
+    panel, store, _ = make_panel(
+        qtbot, "https://relay.example", "req_1", status_fn=fake_relay_fn(RuntimeError("down"))
+    )
+    panel.check_btn.click()
+    assert "Could not check status" in panel.status.text() and panel.check_btn.isEnabled()
+    assert store.load()["relay_pending_id"] == "req_1"
+
+
+def test_relay_panel_disconnect_clears_token_and_pending(qtbot, clean_env):
+    panel, store, tokens = make_panel(qtbot, "https://relay.example", "req_1")
+    tokens.set("ika_sometoken")
+    with qtbot.waitSignal(panel.connected):
+        panel.disconnect_btn.click()
+    assert tokens.get() is None
+    assert "relay_pending_id" not in store.load()
+    assert panel.status.text() == "Disconnected."
+    assert panel.request_btn.isEnabled()
+
+
+def test_relay_panel_refresh_reflects_already_connected_state(qtbot, clean_env):
+    panel, _, tokens = make_panel(qtbot, "https://relay.example")
+    tokens.set("ika_already")
+    panel.refresh()
+    assert "Connected" in panel.status.text()
+    assert not panel.request_btn.isEnabled() and not panel.url_edit.isEnabled()
+
+
 # ---------------- settings dialog ----------------
 @pytest.fixture
 def dialog(qtbot, clean_env):
@@ -362,6 +579,7 @@ def dialog(qtbot, clean_env):
         lambda: Settings(_env_file=None),
         fake_checker(CheckResult(True, "ok")),
         run_inline,
+        MemoryRelayTokenStore(),  # never touch the real Windows Credential Manager in tests
     )
     qtbot.addWidget(d)
     return d, keys
@@ -413,6 +631,30 @@ def test_dialog_key_change_needs_restart(qtbot, dialog):
     with qtbot.waitSignal(d.saved) as sig:
         d.save_btn.click()
     assert sig.args == [True]
+
+
+def test_dialog_has_shared_access_tab_wired_to_restart_flag(qtbot, dialog):
+    d, _ = dialog
+    assert d.tabs.tabText(d.tabs.indexOf(d.relay_panel)) == "Shared access"
+    d.relay_panel.connected.emit()
+    assert "Restart" in d.message.text()
+    with qtbot.waitSignal(d.saved) as sig:
+        d.save_btn.click()
+    assert sig.args == [True]
+
+
+def test_dialog_load_refreshes_relay_panel_from_saved_settings(qtbot, clean_env):
+    UserSettingsStore().save({"relay_url": "https://relay.example"})
+    d = SettingsDialog(
+        UserSettingsStore(),
+        MemoryKeyStore(),
+        lambda: Settings(_env_file=None),
+        fake_checker(CheckResult(True, "ok")),
+        run_inline,
+        MemoryRelayTokenStore(),
+    )
+    qtbot.addWidget(d)
+    assert d.relay_panel.url_edit.text() == "https://relay.example"
 
 
 def test_dialog_validation_blocks_save(qtbot, dialog):

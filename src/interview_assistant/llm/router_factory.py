@@ -21,12 +21,20 @@ def parse_chain(spec: str) -> list[Route]:
 
 
 def default_chains(s: Settings) -> dict[str, list[Route]]:
-    # fast: low latency first (measured: the gemini-flash-latest alias took 5-29 s to first token).
-    fast = (
-        f"openai:{s.openai_model},gemini:{s.gemini_fast_model},anthropic:{s.anthropic_fast_model}"
-    )
-    # smart: quality first.
-    smart = f"anthropic:{s.anthropic_model},openai:{s.openai_smart_model},gemini:{s.gemini_model}"
+    if s.relay_url and s.relay_token:
+        # Connected via someone else's shared access (config/relay.py): route everything through
+        # them instead of needing your own provider keys at all.
+        fast, smart = "relay:fast", "relay:smart"
+    else:
+        # fast: low latency first (measured: gemini-flash-latest took 5-29 s to first token).
+        fast = (
+            f"openai:{s.openai_model},gemini:{s.gemini_fast_model},"
+            f"anthropic:{s.anthropic_fast_model}"
+        )
+        # smart: quality first.
+        smart = (
+            f"anthropic:{s.anthropic_model},openai:{s.openai_smart_model},gemini:{s.gemini_model}"
+        )
     return {
         "fast": parse_chain(s.router_fast or fast),
         "smart": parse_chain(s.router_smart or smart),

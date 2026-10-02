@@ -80,3 +80,9 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
+    # Shared access (config/relay.py): connecting to someone else's relay instead of using your
+    # own provider keys. relay_url/relay_pending_id are ordinary settings; relay_token is a
+    # credential and is NEVER written to settings.json (see config/loader.py).
+    relay_url: str | None = None
+    relay_pending_id: str | None = None  # an outstanding access request awaiting approval
+    relay_token: SecretStr | None = None
