@@ -25,8 +25,12 @@ from interview_assistant.history.store import HistoryStore
 from interview_assistant.llm.base import LLMProvider
 from interview_assistant.llm.factory import build_providers
 from interview_assistant.llm.router_factory import build_router
-from interview_assistant.privacy.consent import ConsentGate
-from interview_assistant.privacy.disclosure import DataFlow, describe_data_flow
+from interview_assistant.privacy.consent import SCREENSHOT_KEY, ConsentGate
+from interview_assistant.privacy.disclosure import (
+    SCREENSHOT_CONSENT_TEXT,
+    DataFlow,
+    describe_data_flow,
+)
 from interview_assistant.privacy.state import PrivacyState
 from interview_assistant.stt.factory import build_provider
 from interview_assistant.stt.metered import MeteredSTT
@@ -151,7 +155,14 @@ def build_app(
     privacy_dialog = PrivacyDialog(privacy, presentation, flows, hint)
     hidden.append(privacy_dialog)
     consent = ConsentGate(app_settings, consent_prompt, settings.require_consent)
-    window.attach_privacy(privacy, presentation, privacy_dialog, consent)
+    screenshot_consent = ConsentGate(
+        app_settings,
+        consent_prompt,
+        settings.require_consent,
+        text=SCREENSHOT_CONSENT_TEXT,
+        key=SCREENSHOT_KEY,
+    )
+    window.attach_privacy(privacy, presentation, privacy_dialog, consent, screenshot_consent)
 
     # ---- settings dialog: most changes need a restart, which the app offers to do ----
     settings_dialog = SettingsDialog(user_settings or UserSettingsStore(), keys)

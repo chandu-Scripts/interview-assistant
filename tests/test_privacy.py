@@ -16,8 +16,12 @@ from interview_assistant.cost.tracker import CostTracker, UsageStore
 from interview_assistant.history.store import HistoryStore, TurnRecord
 from interview_assistant.llm.router import Route, Router, RouterConfig
 from interview_assistant.llm.types import LLMRequest, StreamEvent, Usage
-from interview_assistant.privacy.consent import ConsentGate
-from interview_assistant.privacy.disclosure import CONSENT_TEXT, describe_data_flow
+from interview_assistant.privacy.consent import SCREENSHOT_KEY, ConsentGate
+from interview_assistant.privacy.disclosure import (
+    CONSENT_TEXT,
+    SCREENSHOT_CONSENT_TEXT,
+    describe_data_flow,
+)
 from interview_assistant.privacy.redact import redact, redact_text
 from interview_assistant.privacy.state import PrivacyState
 from interview_assistant.ui.audio_panel import AudioPanel
@@ -157,6 +161,30 @@ def test_consent_gate(tmp_path):
     gate.revoke()
     assert not gate.granted
     assert ConsentGate(s, prompt, required=False).ensure() is True and len(prompts) == 3
+
+
+def test_screenshot_consent_is_independent_of_recording_consent(tmp_path):
+    s = QSettings(str(tmp_path / "c2.ini"), QSettings.Format.IniFormat)
+    prompts = []
+
+    def prompt(text):
+        prompts.append(text)
+        return True
+
+    recording = ConsentGate(s, prompt)
+    screenshot = ConsentGate(s, prompt, text=SCREENSHOT_CONSENT_TEXT, key=SCREENSHOT_KEY)
+    assert recording.ensure() is True and prompts == [CONSENT_TEXT]
+    assert not screenshot.granted  # agreeing to recording does not agree to screenshots
+    assert screenshot.ensure() is True and prompts == [CONSENT_TEXT, SCREENSHOT_CONSENT_TEXT]
+    assert screenshot.ensure() is True and len(prompts) == 2  # remembered
+    screenshot.revoke()
+    assert recording.granted and not screenshot.granted
+
+
+def test_screenshot_notice_says_what_is_sent_and_that_it_is_explicit():
+    assert "everything currently visible" in SCREENSHOT_CONSENT_TEXT
+    assert "AI provider" in SCREENSHOT_CONSENT_TEXT
+    assert "Screenshot" in SCREENSHOT_CONSENT_TEXT and "Ctrl+Shift+S" in SCREENSHOT_CONSENT_TEXT
 
 
 def test_audio_panel_blocks_capture_without_consent(qtbot):

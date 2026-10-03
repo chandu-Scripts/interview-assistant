@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from PySide6.QtCore import QPoint, QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
@@ -18,6 +20,7 @@ from interview_assistant.agents.specialists import ANSWERABLE_CATEGORIES, LABELS
 from interview_assistant.agents.types import Category, Decision
 from interview_assistant.app.controller import AssistantController
 from interview_assistant.cost.tracker import BudgetLevel, BudgetState, Summary, format_usd
+from interview_assistant.ui.screenshot import capture_screen_png
 
 # Light, translucent "glass" card (Step 15) - was a dark card before; every color below was
 # re-picked for contrast against a near-white background, not just swapped.
@@ -45,6 +48,7 @@ COST_COLOR = {
 }
 DOT = {"idle": "#9aa0b4", "listening": "#d32f2f", "thinking": "#d98c1f", "answering": "#1f9d55"}
 BUBBLE_SIZE = 48
+SCREENSHOT_TIP = "Attach a screenshot of your screen to your next question (Ctrl+Shift+S)"
 
 
 class OverlayWindow(QWidget):
@@ -77,6 +81,8 @@ class OverlayWindow(QWidget):
         self._last_decision: Decision | None = None
         self._fix_row_open = False
         self._chat_row_open = False
+        # Set by MainWindow.attach_privacy(): asks for screenshot consent before the first capture.
+        self.before_screenshot: Callable[[], bool] | None = None
         self.setObjectName("overlay")
         self.setWindowTitle("Interview Assistant Overlay")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
@@ -91,6 +97,7 @@ class OverlayWindow(QWidget):
         self.chip.setObjectName("chip")
         self.cost_label = QLabel("")
         self.cost_label.setToolTip("Session cost")
+        self.screenshot_btn = self._icon_button("📷", SCREENSHOT_TIP)
         self.chat_btn = self._icon_button("Chat", "Type a question (toggle)")
         self.fix_btn = self._icon_button("✎", "Wrong specialist? Pick the right one and redo")
         self.collapse_btn = self._icon_button("–", "Collapse / expand")
@@ -100,6 +107,7 @@ class OverlayWindow(QWidget):
             self.title,
             self.chip,
             self.cost_label,
+            self.screenshot_btn,
             self.chat_btn,
             self.fix_btn,
             self.collapse_btn,
@@ -111,6 +119,7 @@ class OverlayWindow(QWidget):
             header.addWidget(w)
         header.addStretch(1)
         header.addWidget(self.cost_label)
+        header.addWidget(self.screenshot_btn)
         header.addWidget(self.chat_btn)
         header.addWidget(self.fix_btn)
         header.addWidget(self.collapse_btn)
@@ -217,6 +226,8 @@ class OverlayWindow(QWidget):
         self.input.returnPressed.connect(self._submit_typed)
         self.ask_btn.clicked.connect(self._submit_typed)
         self.answer_btn.clicked.connect(self._trigger_answer)
+        self.screenshot_btn.clicked.connect(self._take_screenshot)
+        QShortcut(QKeySequence("Ctrl+Shift+S"), self, self._take_screenshot)
         QShortcut(QKeySequence("Ctrl+Return"), self, self._trigger_answer)
         QShortcut(QKeySequence("Ctrl+Enter"), self, self._trigger_answer)  # numpad Enter
         self.prev_btn.clicked.connect(self.prev_qa)
@@ -257,8 +268,15 @@ class OverlayWindow(QWidget):
         c.cost_updated.connect(self.on_cost_updated)
         c.answer_flags.connect(self.on_flags)
         c.category_corrected.connect(self.on_category_corrected)
+        c.screenshot_pending.connect(self.on_screenshot_pending)
 
     # ---- controller events (all run on the UI thread) ----
+    def on_screenshot_pending(self, pending: bool) -> None:
+        self.screenshot_btn.setText("📷 ✓" if pending else "📷")
+        self.screenshot_btn.setToolTip(
+            "Screenshot attached - it goes with your next question" if pending else SCREENSHOT_TIP
+        )
+
     def on_question(self, gen: int, text: str, source: str) -> None:
         self._gen = gen
         self._text = ""
@@ -434,6 +452,16 @@ class OverlayWindow(QWidget):
     def _trigger_answer(self) -> None:
         if self._controller is not None:
             self._controller.trigger_answer()
+
+    def _take_screenshot(self) -> None:
+        """Explicit user action only (button or Ctrl+Shift+S) - never captured automatically."""
+        if self._controller is None:
+            return
+        if self.before_screenshot is not None and not self.before_screenshot():
+            return
+        image = capture_screen_png()
+        if image is not None:
+            self._controller.attach_screenshot(image)
 
     def _toggle_fix_row(self) -> None:
         # Track state explicitly: fix_row.isVisible() is unreliable while the window itself is

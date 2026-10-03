@@ -21,7 +21,9 @@ log = logging.getLogger(__name__)
 class JevLike(Protocol):
     async def decide(self, question: str) -> Decision: ...
 
-    def ask(self, question: str, decision: Decision | None = None): ...  # async generator
+    def ask(
+        self, question: str, decision: Decision | None = None, image: bytes | None = None
+    ): ...  # async generator
 
     def clear_history(self) -> None: ...
 
@@ -60,6 +62,7 @@ class AssistantController(QObject):
     cost_updated = Signal(object, object)  # Summary (session), BudgetState
     answer_flags = Signal(int, list)  # gen, unverified numeric claims found in the answer
     category_corrected = Signal(str, str, str)  # question, original category, corrected category
+    screenshot_pending = Signal(bool)  # a screenshot is attached to the next question
 
     def __init__(
         self,
@@ -87,6 +90,8 @@ class AssistantController(QObject):
         self._last_question: str | None = None
         self._last_source: str = "typed"
         self._last_decision: Decision | None = None
+        self._last_image: bytes | None = None
+        self._pending_image: bytes | None = None
         self._runner = runner or AsyncRunner()
         self._agg = aggregator or UtteranceAggregator()
         self._gen = itertools.count(1)
@@ -128,6 +133,7 @@ class AssistantController(QObject):
             self._pending_question = None
             self._pending_lag = None
             self._pending_source = ""
+            self._drop_pending_image()
 
     @property
     def paused(self) -> bool:
@@ -136,12 +142,27 @@ class AssistantController(QObject):
     def on_speech_ended(self) -> None:
         self._last_speech_end = time.monotonic()
 
+    def attach_screenshot(self, image: bytes) -> None:
+        """Answer the NEXT question (typed or voice, in either mode) with this screenshot, once."""
+        if self._paused:
+            return
+        self._pending_image = image
+        self.screenshot_pending.emit(True)
+
+    def _drop_pending_image(self) -> None:
+        if self._pending_image is not None:
+            self._pending_image = None
+            self.screenshot_pending.emit(False)
+
     def ask(self, text: str, source: str = "typed", speech_lag: float | None = None) -> None:
         """`speech_lag`: seconds from the end of the speech to now (voice questions only)."""
         text = text.strip()
         if text and not self._paused:
             gen = next(self._gen)
-            self._runner.submit(self._run(gen, text, source, speech_lag))
+            image, self._pending_image = self._pending_image, None
+            if image is not None:
+                self.screenshot_pending.emit(False)
+            self._runner.submit(self._run(gen, text, source, speech_lag, image))
 
     def stop(self) -> None:
         self._runner.call_soon(self._stop_active)
@@ -175,6 +196,7 @@ class AssistantController(QObject):
         self._pending_question = None
         self._pending_lag = None
         self._pending_source = ""
+        self._drop_pending_image()
         if self._tracker is not None:
             self._tracker.new_session()
         if self._history is not None:
@@ -221,7 +243,14 @@ class AssistantController(QObject):
             task.cancel()
             self.answer_stopped.emit(gen)
 
-    async def _run(self, gen: int, text: str, source: str, speech_lag: float | None = None) -> None:
+    async def _run(
+        self,
+        gen: int,
+        text: str,
+        source: str,
+        speech_lag: float | None = None,
+        image: bytes | None = None,
+    ) -> None:
         asked_at = time.time()  # history order follows when the question was asked
         try:
             decision = await self._jev.decide(text)
@@ -237,7 +266,8 @@ class AssistantController(QObject):
         if gen < self._committed_gen.get(source, 0):  # a newer same-source question is answering
             return
         self._last_question, self._last_source, self._last_decision = text, source, decision
-        await self._answer(gen, text, source, decision, asked_at, speech_lag)
+        self._last_image = image
+        await self._answer(gen, text, source, decision, asked_at, speech_lag, image=image)
 
     async def _run_corrected(self, gen: int, category: Category) -> None:
         """Redo the most recent question with a user-picked specialist (see correct_category)."""
@@ -250,7 +280,9 @@ class AssistantController(QObject):
             self.category_corrected.emit(text, original.value, category.value)
         self._last_decision = decision
         corrected_from = original.value if original is not None and original != category else ""
-        await self._answer(gen, text, source, decision, time.time(), None, corrected_from)
+        await self._answer(
+            gen, text, source, decision, time.time(), None, corrected_from, image=self._last_image
+        )
 
     async def _answer(
         self,
@@ -261,6 +293,7 @@ class AssistantController(QObject):
         asked_at: float,
         speech_lag: float | None = None,
         corrected_from: str = "",
+        image: bytes | None = None,
     ) -> None:
         state = self._tracker.budget_state() if self._tracker else None
         if state is not None and state.blocked:
@@ -300,7 +333,7 @@ class AssistantController(QObject):
         status: Status = "complete"
         error = ""
         try:
-            async for ev in self._jev.ask(text, decision):
+            async for ev in self._jev.ask(text, decision, image=image):
                 if not isinstance(ev, RouteEvent):
                     continue
                 if ev.reset:

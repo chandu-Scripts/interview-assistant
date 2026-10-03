@@ -261,6 +261,26 @@ async def test_manual_decision_can_be_used_to_ask_directly():
     assert jev.history[-1].category is C.DATA_SQL
 
 
+async def test_screenshot_is_attached_to_that_answer_request_only():
+    seen = []
+
+    class Spy(Script):
+        async def stream(self, request):
+            seen.append(request)
+            async for e in super().stream(request):
+                yield e
+
+    a = Spy("a", ["answer", "answer"])
+    router = Router(
+        {"a": a}, RouterConfig(chains={"fast": [Route("a", "m")], "smart": [Route("a", "m")]})
+    )
+    jev = Jev(router)
+    await collect(jev, "Write a function to solve the two sum problem.", image=b"PNGDATA")
+    await collect(jev, "Write a function to reverse a linked list.")
+    assert seen[0].image == b"PNGDATA"
+    assert seen[1].image is None
+
+
 # ---------------- Jev end to end (scripted providers) ----------------
 def make_jev(steps_a, steps_b=None, **cfg):
     a = Script("a", steps_a)
@@ -273,8 +293,8 @@ def make_jev(steps_a, steps_b=None, **cfg):
     return Jev(router, JevConfig(**cfg)), provs
 
 
-async def collect(jev, q):
-    return [e async for e in jev.ask(q)]
+async def collect(jev, q, image=None):
+    return [e async for e in jev.ask(q, image=image)]
 
 
 async def test_jev_routes_and_streams():

@@ -74,9 +74,10 @@ class Jev:
         return Decision(category, spec.tier, 1.0, "user", spec.name)
 
     async def ask(
-        self, question: str, decision: Decision | None = None
+        self, question: str, decision: Decision | None = None, image: bytes | None = None
     ) -> AsyncGenerator[JevEvent, None]:
-        """Pass a pre-computed `decision` (from decide()) to avoid classifying twice."""
+        """Pass a pre-computed `decision` (from decide()) to avoid classifying twice. `image` is
+        PNG bytes sent with this question's answer request only (never with classification)."""
         decision = decision or await self.decide(question)
         yield decision
         if not decision.should_answer:
@@ -95,6 +96,7 @@ class Jev:
                 answer_tone=self.config.answer_tone,
             ),
             max_tokens=spec.max_tokens,
+            image=image,
         )
         parts: list[str] = []
         async for ev in self._router.stream(

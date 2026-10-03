@@ -1,3 +1,4 @@
+import base64
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -30,10 +31,26 @@ class AnthropicProvider:
         self._url = base_url
 
     def build_payload(self, req: LLMRequest) -> dict[str, Any]:
+        messages: list[dict[str, Any]] = [
+            {"role": m.role, "content": m.content} for m in req.messages
+        ]
+        if req.image and messages:
+            text = messages[-1]["content"]
+            b64 = base64.b64encode(req.image).decode()
+            messages[-1] = {
+                "role": messages[-1]["role"],
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": "image/png", "data": b64},
+                    },
+                    {"type": "text", "text": text},
+                ],
+            }
         body: dict[str, Any] = {
             "model": req.model or self.default_model,
             "max_tokens": req.max_tokens,
-            "messages": [{"role": m.role, "content": m.content} for m in req.messages],
+            "messages": messages,
             "stream": True,
         }
         if req.system:

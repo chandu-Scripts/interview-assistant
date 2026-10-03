@@ -1,3 +1,4 @@
+import base64
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -33,13 +34,14 @@ class GeminiProvider:
         gen: dict[str, Any] = {"maxOutputTokens": req.max_tokens}
         if req.temperature is not None:
             gen["temperature"] = req.temperature
-        body: dict[str, Any] = {
-            "contents": [
-                {"role": "user" if m.role == "user" else "model", "parts": [{"text": m.content}]}
-                for m in req.messages
-            ],
-            "generationConfig": gen,
-        }
+        contents: list[dict[str, Any]] = [
+            {"role": "user" if m.role == "user" else "model", "parts": [{"text": m.content}]}
+            for m in req.messages
+        ]
+        if req.image and contents:
+            b64 = base64.b64encode(req.image).decode()
+            contents[-1]["parts"].append({"inlineData": {"mimeType": "image/png", "data": b64}})
+        body: dict[str, Any] = {"contents": contents, "generationConfig": gen}
         if req.system:
             body["systemInstruction"] = {"parts": [{"text": req.system}]}
         return body

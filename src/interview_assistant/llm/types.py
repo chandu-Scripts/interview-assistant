@@ -42,6 +42,7 @@ class LLMRequest:
     model: str | None = None  # None -> provider default
     max_tokens: int = 1024
     temperature: float | None = None
+    image: bytes | None = None  # PNG bytes attached to the current question only (Step 20)
 
 
 @dataclass(frozen=True)

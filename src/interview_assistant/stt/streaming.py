@@ -125,9 +125,7 @@ class StreamingTranscriber:
                     stale = not is_final and utt in self._finalized
                 if text and not stale:
                     self._on_event(
-                        TranscriptEvent(
-                            utt, text, is_final, len(audio) / TARGET_RATE, self._source
-                        )
+                        TranscriptEvent(utt, text, is_final, len(audio) / TARGET_RATE, self._source)
                     )
                 elif is_final:  # keep the utterance lifecycle observable even when empty
                     self._on_event(

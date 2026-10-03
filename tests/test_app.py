@@ -152,6 +152,7 @@ class FakeJev:
     def __init__(self, delays=None, chunks=("Hel", "lo"), fail=None, hold=None, profile=None):
         self.delays, self.chunks, self.fail, self.hold = delays or {}, chunks, fail, hold
         self.asked: list[str] = []
+        self.images: list[bytes | None] = []
         self.cleared = 0
         self.config = FakeJevConfig(profile)
 
@@ -159,8 +160,9 @@ class FakeJev:
         await asyncio.sleep(self.delays.get(q, 0))
         return decision(ok=not q.lower().startswith("okay"))
 
-    async def ask(self, q, decision=None):
+    async def ask(self, q, decision=None, image=None):
         self.asked.append(q)
+        self.images.append(image)
         if self.fail:
             raise self.fail
         for c in self.chunks:
@@ -290,9 +292,7 @@ def test_friendly_error_variants():
 
 def test_voice_fragments_merge_into_one_question(qtbot, make_controller):
     jev = FakeJev()
-    c, rec = make_controller(
-        jev, aggregator=UtteranceAggregator(quiet_s=0.2), answer_mode="auto"
-    )
+    c, rec = make_controller(jev, aggregator=UtteranceAggregator(quiet_s=0.2), answer_mode="auto")
     c.on_speech_started()
     c.on_transcript_event(TranscriptEvent(1, "Tell me about a time you failed.", True, 3))
     c.on_speech_started()  # second fragment still transcribing
@@ -330,8 +330,10 @@ def test_two_simultaneous_audio_sources_merge_and_tag_independently(qtbot, make_
     # directly) - otherwise the len(jev.asked) check can observably race ahead of signal
     # delivery and this assertion would read stale state.
     qtbot.waitUntil(
-        lambda: rec.has("q", 1, "Candidate: I used a hash map.", "voice:mic")
-        and rec.has("q", 2, "Interviewer: what is the time complexity?", "voice:loopback"),
+        lambda: (
+            rec.has("q", 1, "Candidate: I used a hash map.", "voice:mic")
+            and rec.has("q", 2, "Interviewer: what is the time complexity?", "voice:loopback")
+        ),
         timeout=3000,
     )
     assert set(jev.asked) == {
@@ -410,9 +412,7 @@ def test_new_interview_clears_pending_question(qtbot, make_controller):
 def test_auto_mode_still_answers_immediately(qtbot, make_controller):
     """answer_mode="auto" is the pre-Step-14 behavior, kept for anyone who wants it back."""
     jev = FakeJev()
-    c, rec = make_controller(
-        jev, aggregator=UtteranceAggregator(quiet_s=0.15), answer_mode="auto"
-    )
+    c, rec = make_controller(jev, aggregator=UtteranceAggregator(quiet_s=0.15), answer_mode="auto")
     pending = []
     c.question_pending.connect(lambda t, lag: pending.append(t))
     c.on_speech_started()
@@ -529,6 +529,79 @@ def test_answer_flags_nothing_when_the_number_is_in_the_profile(qtbot, make_cont
     c.answer_flags.connect(lambda g, f: flags.append(f))
     c.ask("Tell me about a time you improved performance.")
     qtbot.waitUntil(lambda: flags == [[]], timeout=3000)
+
+
+# ---------------- controller: screenshot attach (Step 20) ----------------
+SHOT = b"\x89PNG-screenshot"
+
+
+def test_attached_screenshot_goes_with_the_next_question_only(qtbot, make_controller):
+    jev = FakeJev()
+    c, rec = make_controller(jev)
+    c.attach_screenshot(SHOT)
+    c.ask("What is a mutex?")
+    c.ask("What is a lock?")
+    qtbot.waitUntil(lambda: rec.log.count(("busy", False)) == 2, timeout=3000)
+    assert jev.images == [SHOT, None]
+
+
+def test_screenshot_pending_signal_tracks_attach_and_consume(qtbot, make_controller):
+    c, _ = make_controller(FakeJev())
+    pending = []
+    c.screenshot_pending.connect(pending.append)
+    c.attach_screenshot(SHOT)
+    c.ask("What is a mutex?")
+    assert pending == [True, False]
+
+
+def test_pausing_or_a_new_interview_drops_the_attached_screenshot(qtbot, make_controller):
+    jev = FakeJev()
+    c, rec = make_controller(jev)
+    pending = []
+    c.screenshot_pending.connect(pending.append)
+    c.attach_screenshot(SHOT)
+    c.set_paused(True)
+    assert pending == [True, False]
+    c.attach_screenshot(SHOT)  # ignored while paused: nothing may be queued for later
+    assert pending == [True, False]
+    c.set_paused(False)
+    c.ask("What is a mutex?")
+    qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
+    assert jev.images == [None]
+
+    c.attach_screenshot(SHOT)
+    c.new_interview()
+    c.ask("What is a lock?")
+    qtbot.waitUntil(lambda: rec.log.count(("busy", False)) == 2, timeout=3000)
+    assert jev.images == [None, None]
+
+
+def test_manual_trigger_also_sends_the_attached_screenshot(qtbot, make_controller):
+    jev = FakeJev()
+    clock = Clock()
+    agg_ = UtteranceAggregator(quiet_s=0.15, clock=clock)
+    c, rec = make_controller(jev, aggregator=agg_, answer_mode="manual")
+    pending = []
+    c.question_pending.connect(lambda text, lag: pending.append(text))
+    c.on_speech_started()
+    c.on_transcript_event(TranscriptEvent(1, "What is a mutex?", True, 2))
+    clock.t += 0.3
+    qtbot.waitUntil(lambda: pending == ["What is a mutex?"], timeout=3000)
+    c.attach_screenshot(SHOT)
+    c.trigger_answer()
+    qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
+    assert jev.images == [SHOT]
+
+
+def test_redo_of_a_screenshot_question_keeps_the_screenshot(qtbot, make_controller):
+    jev = FakeJev(chunks=("fixed",))
+    c, rec = make_controller(jev)
+    c.attach_screenshot(SHOT)
+    c.ask("Find the second highest salary?")
+    qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
+    c.correct_category(Category.DATA_SQL)
+    qtbot.waitUntil(lambda: rec.log.count(("busy", False)) == 2, timeout=3000)
+    assert jev.images == [SHOT, SHOT]
 
 
 # ---------------- overlay ----------------
@@ -883,3 +956,73 @@ def test_end_to_end_typed_question_shows_answer(qtbot, tmp_path):
     assert o.chip.text().startswith("coding")
     assert not o.stop_btn.isEnabled()
     controller.shutdown()
+
+
+# ---------------- overlay: screenshot button (Step 20) ----------------
+class ShotController:
+    def __init__(self):
+        self.attached = []
+
+    def attach_screenshot(self, image):
+        self.attached.append(image)
+
+
+def test_overlay_screenshot_button_attaches_a_capture(overlay, monkeypatch):
+    import interview_assistant.ui.overlay as overlay_mod
+
+    monkeypatch.setattr(overlay_mod, "capture_screen_png", lambda: SHOT)
+    ctl = ShotController()
+    overlay._controller = ctl
+    overlay.screenshot_btn.click()
+    assert ctl.attached == [SHOT]
+
+
+def test_overlay_screenshot_is_blocked_without_consent(overlay, monkeypatch):
+    import interview_assistant.ui.overlay as overlay_mod
+
+    monkeypatch.setattr(overlay_mod, "capture_screen_png", lambda: pytest.fail("captured"))
+    ctl = ShotController()
+    overlay._controller = ctl
+    overlay.before_screenshot = lambda: False
+    overlay.screenshot_btn.click()
+    assert ctl.attached == []
+
+
+def test_overlay_screenshot_with_no_capture_available_attaches_nothing(overlay, monkeypatch):
+    import interview_assistant.ui.overlay as overlay_mod
+
+    monkeypatch.setattr(overlay_mod, "capture_screen_png", lambda: None)
+    ctl = ShotController()
+    overlay._controller = ctl
+    overlay.screenshot_btn.click()
+    assert ctl.attached == []
+
+
+def test_overlay_screenshot_without_a_controller_is_a_no_op(overlay):
+    overlay._controller = None
+    overlay._take_screenshot()  # must not raise
+
+
+def test_overlay_screenshot_button_shows_pending_state(overlay):
+    assert overlay.screenshot_btn.text() == "📷"
+    overlay.on_screenshot_pending(True)
+    assert "✓" in overlay.screenshot_btn.text()
+    assert "next question" in overlay.screenshot_btn.toolTip()
+    overlay.on_screenshot_pending(False)
+    assert overlay.screenshot_btn.text() == "📷"
+
+
+def test_overlay_screenshot_button_hides_in_bubble_mode(qtbot, tmp_path):
+    o = OverlayWindow(settings=QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat))
+    qtbot.addWidget(o)
+    o.toggle_bubble()
+    assert not o.screenshot_btn.isVisibleTo(o)
+    o.toggle_bubble()
+    assert o.screenshot_btn.isVisibleTo(o)
+
+
+def test_capture_screen_png_returns_png_bytes_or_nothing(qtbot):
+    from interview_assistant.ui.screenshot import capture_screen_png
+
+    image = capture_screen_png()
+    assert image is None or image.startswith(b"\x89PNG\r\n\x1a\n")

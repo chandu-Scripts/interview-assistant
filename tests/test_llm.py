@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import os
 
@@ -163,6 +164,79 @@ async def test_gemini_stream_and_request():
     roles = [c["role"] for c in seen["body"]["contents"]]
     assert roles == ["user", "model", "user"]
     assert seen["body"]["systemInstruction"]["parts"][0]["text"] == "S"
+
+
+# ---------------- vision (Step 20): an image rides with the current question only ----------------
+PNG = b"\x89PNG\r\n\x1a\nfake-image-bytes"
+PNG_B64 = base64.b64encode(PNG).decode()
+VISION_REQ = LLMRequest(
+    [Message("user", "a"), Message("assistant", "b"), Message("user", "c")], image=PNG
+)
+
+
+def test_openai_payload_attaches_image_to_last_user_message_only():
+    body = OpenAIProvider("k").build_payload(VISION_REQ)
+    assert body["messages"][0] == {"role": "user", "content": "a"}
+    assert body["messages"][1] == {"role": "assistant", "content": "b"}
+    assert body["messages"][2]["content"] == [
+        {"type": "text", "text": "c"},
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{PNG_B64}"}},
+    ]
+
+
+def test_anthropic_payload_attaches_image_block_before_text():
+    body = AnthropicProvider("k").build_payload(VISION_REQ)
+    assert body["messages"][0] == {"role": "user", "content": "a"}
+    assert body["messages"][2] == {
+        "role": "user",
+        "content": [
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": PNG_B64},
+            },
+            {"type": "text", "text": "c"},
+        ],
+    }
+
+
+def test_gemini_payload_attaches_inline_image_part_to_last_turn():
+    body = GeminiProvider("k").build_payload(VISION_REQ)
+    assert body["contents"][0]["parts"] == [{"text": "a"}]
+    assert body["contents"][2]["parts"] == [
+        {"text": "c"},
+        {"inlineData": {"mimeType": "image/png", "data": PNG_B64}},
+    ]
+
+
+def test_text_only_payloads_are_unchanged_by_the_image_support():
+    text_only = LLMRequest([Message("user", "Hi")])
+    assert OpenAIProvider("k").build_payload(text_only)["messages"] == [
+        {"role": "user", "content": "Hi"}
+    ]
+    assert AnthropicProvider("k").build_payload(text_only)["messages"] == [
+        {"role": "user", "content": "Hi"}
+    ]
+    assert GeminiProvider("k").build_payload(text_only)["contents"] == [
+        {"role": "user", "parts": [{"text": "Hi"}]}
+    ]
+
+
+async def test_image_is_sent_over_the_wire_by_each_provider():
+    seen = {}
+
+    def h(req):
+        seen[str(req.url)] = json.loads(req.content)
+        return httpx.Response(200, content=b"", headers={"content-type": "text/event-stream"})
+
+    for provider in (
+        OpenAIProvider("k", client=client(h)),
+        AnthropicProvider("k", client=client(h)),
+        GeminiProvider("k", client=client(h)),
+    ):
+        async for _ in provider.stream(VISION_REQ):
+            pass
+    assert len(seen) == 3
+    assert all(PNG_B64 in json.dumps(body) for body in seen.values())
 
 
 # ---------------- errors (all providers) ----------------

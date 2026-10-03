@@ -1,3 +1,4 @@
+import base64
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -30,10 +31,20 @@ class OpenAIProvider:
         self._url = base_url
 
     def build_payload(self, req: LLMRequest) -> dict[str, Any]:
-        msgs: list[dict[str, str]] = []
+        msgs: list[dict[str, Any]] = []
         if req.system:
             msgs.append({"role": "system", "content": req.system})
         msgs += [{"role": m.role, "content": m.content} for m in req.messages]
+        if req.image and msgs:
+            text = msgs[-1]["content"]
+            b64 = base64.b64encode(req.image).decode()
+            msgs[-1] = {
+                "role": msgs[-1]["role"],
+                "content": [
+                    {"type": "text", "text": text},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                ],
+            }
         body: dict[str, Any] = {
             "model": req.model or self.default_model,
             "messages": msgs,

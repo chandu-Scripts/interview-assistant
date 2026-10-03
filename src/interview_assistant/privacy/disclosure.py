@@ -24,6 +24,15 @@ CONSENT_TEXT = (
 )
 
 
+SCREENSHOT_CONSENT_TEXT = (
+    "A screenshot captures everything currently visible on your screen - not just the interview "
+    "app. It is sent to your AI provider along with your next question.\n\n"
+    "Before you use it, make sure nothing private is on screen (other windows, messages, "
+    "personal or confidential information). It only happens when you press the Screenshot "
+    "button or Ctrl+Shift+S, and only the next question carries it."
+)
+
+
 def describe_data_flow(
     stt_provider: str,
     llm_providers: Iterable[str],
@@ -44,7 +53,7 @@ def describe_data_flow(
         )
     ]
     if llms:
-        detail = "Questions and recent conversation"
+        detail = "Questions, recent conversation and any screenshot you attach"
         if profile_set:
             detail += " + your candidate profile"
         if redaction_on:

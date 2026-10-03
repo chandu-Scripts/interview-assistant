@@ -115,17 +115,21 @@ class MainWindow(QMainWindow):
                 controller.busy_changed.connect(self._refresh_history)
                 self.clear_button.clicked.connect(self._refresh_history)
             self.audio_panel.speech_changed.connect(
-                lambda on: controller.on_speech_started(audio_source)
-                if on
-                else controller.on_speech_ended()
+                lambda on: (
+                    controller.on_speech_started(audio_source)
+                    if on
+                    else controller.on_speech_ended()
+                )
             )
             self.transcript_panel.event_received.connect(controller.on_transcript_event)
             self.mic_transcript_received.connect(controller.on_transcript_event)
             if self.mic_panel is not None:
                 self.mic_panel.speech_changed.connect(
-                    lambda on: controller.on_speech_started(DeviceKind.MIC.value)
-                    if on
-                    else controller.on_speech_ended()
+                    lambda on: (
+                        controller.on_speech_started(DeviceKind.MIC.value)
+                        if on
+                        else controller.on_speech_ended()
+                    )
                 )
         if overlay is not None:
             if self.mic_panel is not None:
@@ -157,6 +161,7 @@ class MainWindow(QMainWindow):
         presentation: PresentationMode,
         dialog: PrivacyDialog,
         consent: ConsentGate | None = None,
+        screenshot_consent: ConsentGate | None = None,
     ) -> None:
         self._privacy, self._presentation, self.privacy_dialog = state, presentation, dialog
         self.privacy_button.setEnabled(True)
@@ -167,6 +172,8 @@ class MainWindow(QMainWindow):
             self.audio_panel.before_start = consent.ensure
             if self.mic_panel is not None:
                 self.mic_panel.before_start = consent.ensure
+        if screenshot_consent is not None and self.overlay is not None:
+            self.overlay.before_screenshot = screenshot_consent.ensure
         self._update_banner()
 
     def attach_settings(self, dialog: SettingsDialog) -> None:

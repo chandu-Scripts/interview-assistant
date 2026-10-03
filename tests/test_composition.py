@@ -267,3 +267,13 @@ def test_main_module_imports_and_exposes_entry_point():
     from interview_assistant import __main__ as entry
 
     assert callable(entry.main) and Path(entry.__file__).name == "__main__.py"
+
+
+def test_screenshot_asks_for_its_own_consent_notice_not_the_recording_one(parts_factory):
+    from interview_assistant.privacy.disclosure import CONSENT_TEXT, SCREENSHOT_CONSENT_TEXT
+
+    prompts = []
+    p = parts_factory(consent=lambda text: prompts.append(text) or False)
+    assert p.window.overlay.before_screenshot is not None
+    assert p.window.overlay.before_screenshot() is False
+    assert prompts == [SCREENSHOT_CONSENT_TEXT] and CONSENT_TEXT not in prompts
