@@ -179,3 +179,23 @@ def test_panel_no_devices(qtbot):
     panel = AudioPanel([], lambda d, **kw: None)
     qtbot.addWidget(panel)
     assert not panel.toggle_button.isEnabled()
+
+
+def test_panel_restrict_kind_filters_the_combo(qtbot):
+    """Step 19: a fixed-role panel (e.g. "Microphone" alongside a separate "System audio" one)
+    only ever lists devices of its own kind, regardless of what's passed in or found."""
+    panel = AudioPanel(DEVS, lambda d, **kw: None, restrict_kind=DeviceKind.MIC)
+    qtbot.addWidget(panel)
+    assert panel.device_combo.count() == 1
+    assert panel.device_combo.itemData(0).kind is DeviceKind.MIC
+
+    panel2 = AudioPanel(DEVS, lambda d, **kw: None, restrict_kind=DeviceKind.LOOPBACK)
+    qtbot.addWidget(panel2)
+    assert panel2.device_combo.count() == 1
+    assert panel2.device_combo.itemData(0).kind is DeviceKind.LOOPBACK
+
+
+def test_panel_restrict_kind_none_is_unrestricted_like_before(qtbot):
+    panel = AudioPanel(DEVS, lambda d, **kw: None)
+    qtbot.addWidget(panel)
+    assert panel.device_combo.count() == len(DEVS)

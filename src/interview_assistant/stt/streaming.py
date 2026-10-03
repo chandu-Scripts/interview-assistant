@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from interview_assistant.audio.types import TARGET_RATE
+from interview_assistant.audio.types import TARGET_RATE, DeviceKind
 from interview_assistant.stt.base import STTProvider, TranscriptEvent
 
 log = logging.getLogger(__name__)
@@ -31,11 +31,13 @@ class StreamingTranscriber:
         on_event: EventCallback,
         on_error: Callable[[Exception], None] | None = None,
         partials: bool = True,
+        source: DeviceKind | None = None,
     ) -> None:
         self._provider = provider
         self._partials = partials
         self._on_event = on_event
         self._on_error = on_error
+        self._source = source
         self._cv = threading.Condition()
         self._finals: deque[tuple[int, np.ndarray]] = deque()
         self._partial: tuple[int, np.ndarray] | None = None
@@ -122,9 +124,15 @@ class StreamingTranscriber:
                 with self._cv:
                     stale = not is_final and utt in self._finalized
                 if text and not stale:
-                    self._on_event(TranscriptEvent(utt, text, is_final, len(audio) / TARGET_RATE))
+                    self._on_event(
+                        TranscriptEvent(
+                            utt, text, is_final, len(audio) / TARGET_RATE, self._source
+                        )
+                    )
                 elif is_final:  # keep the utterance lifecycle observable even when empty
-                    self._on_event(TranscriptEvent(utt, "", True, len(audio) / TARGET_RATE))
+                    self._on_event(
+                        TranscriptEvent(utt, "", True, len(audio) / TARGET_RATE, self._source)
+                    )
             except Exception as e:
                 log.exception("Transcription failed")
                 if self._on_error:

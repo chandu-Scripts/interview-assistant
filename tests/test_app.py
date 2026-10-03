@@ -10,6 +10,7 @@ from interview_assistant.agents.types import Category, Decision
 from interview_assistant.app.aggregator import UtteranceAggregator
 from interview_assistant.app.async_runner import AsyncRunner
 from interview_assistant.app.controller import AssistantController, friendly_error
+from interview_assistant.audio.types import DeviceKind
 from interview_assistant.history.store import HistoryStore
 from interview_assistant.llm.router import (
     AllRoutesFailed,
@@ -45,7 +46,7 @@ def test_aggregator_single_utterance_released_after_quiet():
     a.final("Tell me about a conflict.")
     assert a.poll() is None  # too soon
     c.t += 1.1
-    assert a.poll() == "Tell me about a conflict."
+    assert a.poll() == ("Tell me about a conflict.", "")
     assert a.poll() is None
 
 
@@ -59,7 +60,10 @@ def test_aggregator_merges_split_question():
     assert a.poll() is None  # held: still transcribing
     a.final("What was the outcome?")
     c.t += 1.1
-    assert a.poll() == "Tell me about a time you resolved a conflict. What was the outcome?"
+    assert a.poll() == (
+        "Tell me about a time you resolved a conflict. What was the outcome?",
+        "",
+    )
 
 
 def test_aggregator_max_hold_and_stale_in_flight():
@@ -70,7 +74,7 @@ def test_aggregator_max_hold_and_stale_in_flight():
     c.t += 7
     assert a.poll() is None
     c.t += 2  # max hold exceeded
-    assert a.poll() == "Part one."
+    assert a.poll() == ("Part one.", "")
     c.t += 30  # stale start is discarded so it cannot block later questions
     a.poll()
     assert a.in_flight == 0
@@ -87,6 +91,38 @@ def test_aggregator_empty_final_and_reset():
     a.reset()
     c.t += 5
     assert a.poll() is None
+
+
+def test_aggregator_two_sources_dont_cross_contaminate():
+    """Step 19: a mic utterance and a loopback utterance in flight concurrently must merge
+    independently - neither source's text/timers can leak into the other's."""
+    a, c = agg(quiet_s=1.0)
+    a.speech_started("mic")
+    a.final("Candidate speaking,", "mic")
+    c.t += 0.3
+    a.speech_started("loopback")
+    a.final("Interviewer: what is a mutex?", "loopback")
+    assert a.poll() is None  # both still within their own quiet window
+    c.t += 1.1
+    # loopback's quiet window closed first (started 0.3s later but nothing extended it);
+    # poll() returns sources in the order first seen - "mic" was registered first.
+    first = a.poll()
+    second = a.poll()
+    assert {first, second} == {
+        ("Candidate speaking,", "mic"),
+        ("Interviewer: what is a mutex?", "loopback"),
+    }
+    assert a.poll() is None
+
+
+def test_aggregator_source_in_flight_count_is_independent():
+    a, c = agg(quiet_s=1.0, max_hold_s=8.0)
+    a.speech_started("mic")
+    a.speech_started("loopback")
+    a.final("loopback done", "loopback")
+    c.t += 1.1
+    assert a.poll() == ("loopback done", "loopback")
+    assert a.in_flight == 1  # the mic utterance is still in flight, untouched
 
 
 # ---------------- async runner ----------------
@@ -203,7 +239,11 @@ def test_new_question_cancels_running_answer(qtbot, make_controller):
     c.ask("First question here?")
     qtbot.waitUntil(lambda: rec.has("delta", 1, "a"), timeout=3000)
     c.ask("Second question here?")
-    qtbot.waitUntil(lambda: rec.has("done", 2, "p:m"), timeout=15000)
+    # Wait for busy_changed(False) specifically, not just "done" - they're two separate queued
+    # cross-thread signals emitted back-to-back from the background thread, and waiting only for
+    # "done" can let the check pass while "busy, False" is still in flight, so the final assertion
+    # below would race it.
+    qtbot.waitUntil(lambda: rec.has("busy", False), timeout=15000)
     assert ("done", 1, "p:m") not in rec.log  # first was cancelled mid-stream
     assert rec.has("q", 2, "Second question here?", "typed")
     late = [
@@ -262,6 +302,42 @@ def test_voice_fragments_merge_into_one_question(qtbot, make_controller):
     qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
     assert jev.asked == ["Tell me about a time you failed. What did you learn?"]
     assert rec.has("q", 1, "Tell me about a time you failed. What did you learn?", "voice")
+
+
+def test_two_simultaneous_audio_sources_merge_and_tag_independently(qtbot, make_controller):
+    """Step 19: a mic utterance and a loopback utterance in flight at the same time must not
+    merge into each other's text, and each ends up tagged "voice:<source>" once answered. Uses
+    an injected clock (like the pure aggregator tests above) so the quiet-window timing is
+    deterministic instead of racing real wall-clock time under system load."""
+    jev = FakeJev()
+    clock = Clock()
+    agg_ = UtteranceAggregator(quiet_s=0.15, clock=clock)
+    c, rec = make_controller(jev, aggregator=agg_, answer_mode="auto")
+    c.on_speech_started(DeviceKind.MIC.value)
+    c.on_transcript_event(
+        TranscriptEvent(1, "Candidate: I used a hash map.", True, 2, DeviceKind.MIC)
+    )
+    clock.t += 0.3
+    c.on_speech_started(DeviceKind.LOOPBACK.value)
+    c.on_transcript_event(
+        TranscriptEvent(
+            2, "Interviewer: what is the time complexity?", True, 2, DeviceKind.LOOPBACK
+        )
+    )
+    clock.t += 0.3  # past quiet_s for both sources now, regardless of real elapsed time
+    # Wait on the Recorder (populated only once its queued cross-thread signals are actually
+    # delivered) rather than jev.asked (a plain list the background asyncio thread mutates
+    # directly) - otherwise the len(jev.asked) check can observably race ahead of signal
+    # delivery and this assertion would read stale state.
+    qtbot.waitUntil(
+        lambda: rec.has("q", 1, "Candidate: I used a hash map.", "voice:mic")
+        and rec.has("q", 2, "Interviewer: what is the time complexity?", "voice:loopback"),
+        timeout=3000,
+    )
+    assert set(jev.asked) == {
+        "Candidate: I used a hash map.",
+        "Interviewer: what is the time complexity?",
+    }
 
 
 # ---------------- controller: manual-trigger answering (answer_mode) ----------------
@@ -370,7 +446,10 @@ def test_correct_category_redoes_with_new_specialist_and_logs_correction(qtbot, 
     c.ask("Find the second highest salary?")
     qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
     c.correct_category(Category.DATA_SQL)
-    qtbot.waitUntil(lambda: jev.asked == ["Find the second highest salary?"] * 2, timeout=3000)
+    # Wait on `corrected` itself (populated only once its own queued cross-thread signal is
+    # delivered), not on jev.asked/rec.log[-1] as a proxy for it - those are separate signals/state
+    # and waiting on one as a stand-in for another can race its actual delivery.
+    qtbot.waitUntil(lambda: len(corrected) == 1, timeout=3000)
     qtbot.waitUntil(lambda: rec.log[-1] == ("busy", False), timeout=3000)
     assert corrected == [("Find the second highest salary?", "coding", "data_sql")]
     turns = store.get_turns(store.list_sessions()[0].id)

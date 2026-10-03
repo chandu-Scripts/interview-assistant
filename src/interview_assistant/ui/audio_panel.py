@@ -37,9 +37,15 @@ class AudioPanel(QWidget):
         devices: list[AudioDevice] | None = None,
         capture_factory: CaptureFactory = AudioCapture.for_device,
         default_kind: DeviceKind | None = None,
+        restrict_kind: DeviceKind | None = None,
     ) -> None:
         super().__init__()
         self._default_kind = default_kind
+        # Step 19: when set, the combo only ever lists devices of this kind - used to make this
+        # panel a fixed-role "Microphone" or "System audio" row (composition.py constructs one of
+        # each for simultaneous capture) rather than a free pick-anything device selector. None
+        # (the default) keeps today's exact single-panel, pick-any-device behavior.
+        self._restrict_kind = restrict_kind
         self._factory = capture_factory
         # Optional gate run before capture starts (e.g. the recording-consent notice).
         self.before_start: Callable[[], bool] | None = None
@@ -93,6 +99,8 @@ class AudioPanel(QWidget):
         if self.recording:
             return
         devs = devices if isinstance(devices, list) else list_devices()
+        if self._restrict_kind is not None:
+            devs = [d for d in devs if d.kind is self._restrict_kind]
         self.device_combo.clear()
         for d in devs:
             self.device_combo.addItem(d.label, d)

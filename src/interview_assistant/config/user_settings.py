@@ -44,6 +44,7 @@ EDITABLE = frozenset(
         "relay_url",
         "relay_pending_id",
         "answer_mode",
+        "dual_audio_capture",
     }
 )
 

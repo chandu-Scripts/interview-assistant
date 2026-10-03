@@ -162,11 +162,17 @@ class SettingsDialog(QDialog):
         self.default_audio_kind = QComboBox()
         self.default_audio_kind.addItem("System audio (the interviewer's voice)", "loopback")
         self.default_audio_kind.addItem("Microphone", "mic")
+        self.dual_audio = QCheckBox("Capture system audio AND microphone at the same time")
+        self.dual_audio.setToolTip(
+            "Both sources are transcribed simultaneously instead of picking one above. Doubles "
+            "the local speech model's memory use (if using Local Whisper)."
+        )
         form.addRow("Speech-to-text", self.stt_provider)
         form.addRow("Local model", self.whisper_model)
         form.addRow("Language", self.stt_language)
         form.addRow("Vocabulary hint", self.stt_vocabulary)
         form.addRow("Pre-selected audio source", self.default_audio_kind)
+        form.addRow(self.dual_audio)
         return w
 
     def _profile_tab(self) -> QWidget:
@@ -284,6 +290,7 @@ class SettingsDialog(QDialog):
         self.stt_language.setText(s.stt_language or "")
         self.stt_vocabulary.setText(s.stt_vocabulary or "")
         self._select(self.default_audio_kind, s.default_audio_kind)
+        self.dual_audio.setChecked(s.dual_audio_capture)
         self.profile.setPlainText(s.candidate_profile or "")
         self.budget_on.setChecked(s.budget_usd is not None)
         self.budget_usd.setValue(s.budget_usd or 5.0)
@@ -331,6 +338,7 @@ class SettingsDialog(QDialog):
         values["stt_language"] = self.stt_language.text().strip() or None
         values["stt_vocabulary"] = self.stt_vocabulary.text().strip()
         values["default_audio_kind"] = self.default_audio_kind.currentData()
+        values["dual_audio_capture"] = self.dual_audio.isChecked()
         values["candidate_profile"] = self.profile.toPlainText().strip() or None
         values["budget_usd"] = self.budget_usd.value() if self.budget_on.isChecked() else None
         values["budget_scope"] = self.budget_scope.currentData()

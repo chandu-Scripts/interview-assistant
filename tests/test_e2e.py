@@ -18,6 +18,7 @@ from interview_assistant.app.controller import AssistantController
 from interview_assistant.app.interview_session import InterviewSessionManager, SessionDetails
 from interview_assistant.app.presentation import PresentationMode
 from interview_assistant.audio.capture import AudioCapture
+from interview_assistant.audio.types import DeviceKind
 from interview_assistant.cost.pricing import PriceBook
 from interview_assistant.cost.tracker import Budget, CostTracker, UsageStore
 from interview_assistant.history.store import HistoryStore
@@ -450,3 +451,80 @@ def test_everything_shuts_down_cleanly(make_stack):
     s.win.close()
     assert not s.panel.recording and not s.overlay.isVisible()
     assert s.history.current_session is None  # the session was closed
+
+
+# ---------------- Step 19: simultaneous mic + system audio capture ----------------
+def test_simultaneous_mic_and_loopback_capture_through_the_real_pipeline(qtbot, tmp_path):
+    """Two independent FakeSource -> AudioCapture -> VAD -> StreamingTranscriber pipelines (real
+    production code throughout, only the microphone/speaker hardware is faked), feeding ONE
+    AssistantController/UtteranceAggregator. The two utterances overlap in flight - mic speech
+    starts before loopback's has finalized - to exercise the aggregator's per-source bookkeeping
+    through real worker threads, not just a direct unit test of UtteranceAggregator itself."""
+    loop_src, mic_src = MortalSource(), MortalSource()
+    loop_panel = AudioPanel(
+        [DEVS[1]],
+        lambda d, **kw: AudioCapture(loop_src, d.channels, d.sample_rate, **kw),
+        restrict_kind=DeviceKind.LOOPBACK,
+    )
+    mic_panel = AudioPanel(
+        [DEVS[0]],
+        lambda d, **kw: AudioCapture(mic_src, d.channels, d.sample_rate, **kw),
+        restrict_kind=DeviceKind.MIC,
+    )
+    loop_stt = ScriptedSTT(["What is the time complexity?"])
+    mic_stt = ScriptedSTT(["What is a mutex?"])
+
+    prov = hash_provider()
+    chain = [Route("openai", prov.default_model)]
+    router = Router({"openai": prov}, RouterConfig(chains={"fast": chain, "smart": chain}))
+    jev = Jev(router, JevConfig(profile="Backend engineer"))
+    history = HistoryStore(tmp_path / "history.db")
+    controller = AssistantController(
+        jev,
+        aggregator=UtteranceAggregator(quiet_s=0.15),
+        poll_ms=10,
+        history=history,
+        answer_mode="auto",  # exercising the real pipeline end to end, not the manual-trigger gate
+    )
+    overlay = OverlayWindow(
+        controller, QSettings(str(tmp_path / "o.ini"), QSettings.Format.IniFormat)
+    )
+    win = MainWindow(
+        loop_panel,
+        loop_stt,
+        controller,
+        overlay,
+        partials=False,
+        history=history,
+        audio_source="loopback",
+        mic_panel=mic_panel,
+        mic_provider=mic_stt,
+    )
+    qtbot.addWidget(win)
+    qtbot.addWidget(overlay)
+    win.show()
+    try:
+        loop_panel.toggle_button.click()
+        mic_panel.toggle_button.click()
+        assert loop_panel.recording and mic_panel.recording
+
+        # Overlapping: loopback speech starts, then mic speech starts BEFORE loopback finalizes.
+        loop_src.push(np.concatenate([silence(0.2), tone(0.6)]))
+        mic_src.push(np.concatenate([silence(0.2), tone(0.6), silence(1.0)]))
+        loop_src.push(silence(1.0))  # loopback's own trailing silence, to finalize it too
+
+        def turns():
+            sessions = history.list_sessions()
+            return [t for s in reversed(sessions) for t in history.get_turns(s.id)]
+
+        qtbot.waitUntil(lambda: len(turns()) >= 2, timeout=8000)
+        by_source = {t.source: t for t in turns()}
+        assert by_source["voice:loopback"].question == "What is the time complexity?"
+        assert by_source["voice:mic"].question == "What is a mutex?"
+        # Neither source's text leaked into the other's.
+        assert "mutex" not in by_source["voice:loopback"].question
+        assert "time complexity" not in by_source["voice:mic"].question
+        assert by_source["voice:loopback"].answer and by_source["voice:mic"].answer
+    finally:
+        win.close()
+        history.close()

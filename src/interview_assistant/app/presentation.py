@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Sequence
 from typing import Protocol
 
 from PySide6.QtCore import QObject, Signal
@@ -33,13 +34,17 @@ class PresentationMode(QObject):
         self,
         hide: list[QWidget],
         main_window: QWidget | None,
-        audio: Stoppable | None = None,
+        audio: Stoppable | Sequence[Stoppable] | None = None,
         controller: object | None = None,
     ) -> None:
         super().__init__()
         self._hide = hide
         self._main = main_window
-        self._audio = audio
+        # Step 19: a single Stoppable still works (e.g. existing single-audio-panel callers);
+        # a sequence stops every simultaneous capture (mic + loopback) when presentation starts.
+        self._audio: Sequence[Stoppable] = (
+            [] if audio is None else audio if isinstance(audio, Sequence) else [audio]
+        )
         self._controller = controller
         self._active = False
         self._was_visible: list[QWidget] = []
@@ -60,8 +65,8 @@ class PresentationMode(QObject):
             return
         self._active = True
         # Stop everything that could produce content first, then hide.
-        if self._audio is not None:
-            self._audio.stop()
+        for audio in self._audio:
+            audio.stop()
         if self._controller is not None:
             stop = getattr(self._controller, "stop", None)
             if callable(stop):

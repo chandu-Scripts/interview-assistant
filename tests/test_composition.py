@@ -234,6 +234,35 @@ def test_interview_session_manager_is_wired_into_the_history_window(parts_factor
     assert hw.create_session_btn.isEnabled()
 
 
+def test_dual_audio_capture_off_by_default_wires_a_single_unrestricted_panel(parts_factory):
+    p = parts_factory()
+    assert p.window.mic_panel is None
+    assert p.window.audio_panel._restrict_kind is None  # free to pick any device, as always
+    assert p.window.mic_transcriber is None
+
+
+def test_dual_audio_capture_on_wires_two_fixed_role_panels(parts_factory):
+    from interview_assistant.audio.types import DeviceKind
+
+    p = parts_factory(dual_audio_capture=True)
+    assert p.window.mic_panel is not None
+    assert p.window.audio_panel._restrict_kind is DeviceKind.LOOPBACK
+    assert p.window.mic_panel._restrict_kind is DeviceKind.MIC
+    assert p.window.transcriber is not None and p.window.mic_transcriber is not None
+
+
+def test_presentation_mode_stops_both_captures_when_dual_audio_is_on(parts_factory):
+    p = parts_factory(dual_audio_capture=True)
+    if not p.window.audio_panel.toggle_button.isEnabled():
+        pytest.skip("no audio devices on this machine")
+    p.window.audio_panel.toggle_button.click()
+    if p.window.mic_panel.toggle_button.isEnabled():
+        p.window.mic_panel.toggle_button.click()
+    p.presentation.activate()
+    assert not p.window.audio_panel.recording
+    assert not p.window.mic_panel.recording
+
+
 def test_main_module_imports_and_exposes_entry_point():
     from interview_assistant import __main__ as entry
 

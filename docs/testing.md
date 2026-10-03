@@ -29,3 +29,16 @@ Timing-based tests use generous margins; if one flakes under load, widen the mar
 | small.en | 0.55 | 0.0% -> 0.0% |
 A 6 s question finishes transcribing ~1.1 s after speech ends with base.en (~3.3 s with small.en). Thread count (4 vs 8)
 made no difference. The overlay chip tooltip shows where the time went for every answer.
+
+## Dual audio capture (Step 19)
+`Settings.dual_audio_capture` runs mic and system-audio (loopback) as two fully independent
+pipelines: separate `AudioCapture`/`SpeechSegmenter` instances (already stateless per-instance, no
+change needed there), two `StreamingTranscriber`s, and - when `stt_provider="local"` - two loaded
+Whisper models instead of one. This is accepted as a straightforward **2x local-Whisper memory**
+cost for the feature and is off by default; a cloud STT provider (OpenAI/etc.) has no such cost
+since there's no local model to duplicate. `UtteranceAggregator` keys its in-flight bookkeeping by
+source string (`""`, `"mic"`, `"loopback"`) so a mic utterance and a loopback utterance in flight at
+the same time can never merge into each other's text, and `AssistantController` keys its
+in-flight-answer bookkeeping (`_committed_gen`, `_tasks`) by that same source string so a question
+from one source can never cancel or drop the other source's unrelated, concurrently-answering
+question - only a newer question from the *same* source still supersedes an older one.

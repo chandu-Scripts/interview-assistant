@@ -96,14 +96,31 @@ def build_app(
 
     stt = build_provider(settings)
     billed = getattr(stt, "metered", False)
+    # Step 19: simultaneous mic + system audio capture is opt-in (2x local-Whisper memory if
+    # stt_provider="local") - when on, the primary panel is always loopback (default_audio_kind
+    # is moot: there's no longer a single "the" source to pre-select) and a second, mic-only
+    # panel+transcriber run alongside it, each explicitly tagged so turns/history can tell them
+    # apart ("voice:loopback" / "voice:mic" - see AssistantController.on_transcript_event).
+    if settings.dual_audio_capture:
+        audio_kind, audio_source = DeviceKind.LOOPBACK, DeviceKind.LOOPBACK.value
+        mic_panel: AudioPanel | None = AudioPanel(
+            default_kind=DeviceKind.MIC, restrict_kind=DeviceKind.MIC
+        )
+        mic_provider: MeteredSTT | None = MeteredSTT(build_provider(settings), tracker.record_stt)
+    else:
+        audio_kind, audio_source = DeviceKind(settings.default_audio_kind), ""
+        mic_panel, mic_provider = None, None
     window = MainWindow(
-        AudioPanel(default_kind=DeviceKind(settings.default_audio_kind)),
+        AudioPanel(default_kind=audio_kind, restrict_kind=audio_kind if mic_panel else None),
         MeteredSTT(stt, tracker.record_stt),
         controller,
         overlay,
         partials=not billed,  # partials re-send the whole utterance: only free for local STT
         history=history,
         interview_sessions=interview_sessions,
+        audio_source=audio_source,
+        mic_panel=mic_panel,
+        mic_provider=mic_provider,
     )
 
     # ---- privacy: incognito, redaction, presentation mode, consent ----
@@ -111,7 +128,8 @@ def build_app(
         history, tracker, jev.config, incognito=settings.incognito, redact=settings.redact_pii
     )
     hidden: list[QWidget] = [w for w in (overlay, window.history_window) if w is not None]
-    presentation = PresentationMode(hidden, window, window.audio_panel, controller)
+    audio_stoppables = [window.audio_panel] + ([window.mic_panel] if window.mic_panel else [])
+    presentation = PresentationMode(hidden, window, audio_stoppables, controller)
 
     def flows() -> list[DataFlow]:
         return describe_data_flow(

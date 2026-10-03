@@ -78,6 +78,7 @@ class AssistantController(QObject):
         self._answer_mode = answer_mode
         self._pending_question: str | None = None
         self._pending_lag: float | None = None
+        self._pending_source: str = ""
         self._stopped_gen = 0
         self._paused = False
         self._last_speech_end: float | None = None
@@ -89,22 +90,32 @@ class AssistantController(QObject):
         self._runner = runner or AsyncRunner()
         self._agg = aggregator or UtteranceAggregator()
         self._gen = itertools.count(1)
-        # Touched only on the runner's loop thread:
-        self._committed_gen = 0
-        self._task: asyncio.Task | None = None
+        # Touched only on the runner's loop thread. Keyed by source ("typed"/"voice"/
+        # "voice:mic"/"voice:loopback") so that two simultaneous sources (Step 19's dual audio
+        # capture) never cancel or drop each other's in-flight answer - only a newer question
+        # from the SAME source supersedes an older one, matching the single-source behavior this
+        # replaces. `_active_gen`/`_active_source` track whichever answer is most recently active
+        # across all sources, for the single "stop" button/UI pane.
+        self._committed_gen: dict[str, int] = {}
+        self._tasks: dict[str, asyncio.Task] = {}
         self._active_gen = 0
+        self._active_source = ""
         self._timer = QTimer(self)
         self._timer.setInterval(poll_ms)
         self._timer.timeout.connect(self._poll)
         self._timer.start()
 
     # ---- inputs (UI thread) ----
-    def on_speech_started(self) -> None:
-        self._agg.speech_started()
+    def on_speech_started(self, source: str = "") -> None:
+        """`source`: "" for the app's single (today's default) audio source, or a DeviceKind's
+        value ("mic"/"loopback") when Step 19's simultaneous dual-source capture is active -
+        must match what on_transcript_event()'s events report, so they merge independently."""
+        self._agg.speech_started(source)
 
     def on_transcript_event(self, ev: TranscriptEvent) -> None:
+        source = ev.source.value if ev.source is not None else ""
         if ev.is_final:
-            self._agg.final(ev.text)
+            self._agg.final(ev.text, source)
             self.live_text.emit("")
         else:
             self.live_text.emit(ev.text)
@@ -116,6 +127,7 @@ class AssistantController(QObject):
             self._agg.reset()
             self._pending_question = None
             self._pending_lag = None
+            self._pending_source = ""
 
     @property
     def paused(self) -> bool:
@@ -139,10 +151,11 @@ class AssistantController(QObject):
         nothing is pending (e.g. the button was clicked twice, or the UI is stale)."""
         if self._pending_question is None or self._paused:
             return
-        text, lag = self._pending_question, self._pending_lag
+        text, lag, source = self._pending_question, self._pending_lag, self._pending_source
         self._pending_question = None
         self._pending_lag = None
-        self.ask(text, "voice", lag)
+        self._pending_source = ""
+        self.ask(text, "voice" if not source else f"voice:{source}", lag)
 
     def correct_category(self, category: Category) -> None:
         """The user says Jev picked the wrong specialist: redo the last question with this one.
@@ -161,6 +174,7 @@ class AssistantController(QObject):
         self._agg.reset()
         self._pending_question = None
         self._pending_lag = None
+        self._pending_source = ""
         if self._tracker is not None:
             self._tracker.new_session()
         if self._history is not None:
@@ -181,24 +195,30 @@ class AssistantController(QObject):
         if self._paused:
             self._agg.reset()
             return
-        if (question := self._agg.poll()) is not None:
+        if (result := self._agg.poll()) is not None:
+            question, source = result
             lag = None
             if self._last_speech_end is not None:
                 lag = max(0.0, time.monotonic() - self._last_speech_end)
             if self._answer_mode == "manual":
                 # Waits for trigger_answer() instead of answering immediately. A later poll()
                 # before that happens simply replaces the pending question (latest wins).
-                self._pending_question, self._pending_lag = question, lag
+                self._pending_question, self._pending_lag, self._pending_source = (
+                    question,
+                    lag,
+                    source,
+                )
                 self.question_pending.emit(question, lag)
             else:
-                self.ask(question, "voice", lag)
+                self.ask(question, "voice" if not source else f"voice:{source}", lag)
 
     # ---- runs on the asyncio thread ----
     def _stop_active(self) -> None:
-        if self._task is not None and not self._task.done():
+        task = self._tasks.get(self._active_source)
+        if task is not None and not task.done():
             gen = self._active_gen
             self._stopped_gen = gen
-            self._task.cancel()
+            task.cancel()
             self.answer_stopped.emit(gen)
 
     async def _run(self, gen: int, text: str, source: str, speech_lag: float | None = None) -> None:
@@ -214,7 +234,7 @@ class AssistantController(QObject):
         if not decision.should_answer and source == "voice":
             self.question_ignored.emit(text)
             return
-        if gen < self._committed_gen:  # a newer question was already answering
+        if gen < self._committed_gen.get(source, 0):  # a newer same-source question is answering
             return
         self._last_question, self._last_source, self._last_decision = text, source, decision
         await self._answer(gen, text, source, decision, asked_at, speech_lag)
@@ -262,11 +282,15 @@ class AssistantController(QObject):
             )
             return
         spent_before = self._tracker.total_usd() if self._tracker else 0.0
-        if self._task is not None and not self._task.done():
-            self._task.cancel()
+        prev_task = self._tasks.get(source)
+        if prev_task is not None and not prev_task.done():
+            prev_task.cancel()
         self._commit(gen, text, source)
-        self._task = asyncio.current_task()
+        current = asyncio.current_task()
+        assert current is not None
+        self._tasks[source] = current
         self._active_gen = gen
+        self._active_source = source
         self.busy_changed.emit(True)
         self.decision_ready.emit(gen, decision)
         start = time.monotonic()
@@ -327,6 +351,7 @@ class AssistantController(QObject):
             )
             if self._active_gen == gen:
                 self._active_gen = 0
+                self._active_source = ""
                 self.busy_changed.emit(False)
 
     def _unverified_claims(self, decision: Decision, question: str, answer: str) -> list[str]:
@@ -381,5 +406,5 @@ class AssistantController(QObject):
             log.exception("Could not save history")  # never break answering over storage
 
     def _commit(self, gen: int, text: str, source: str) -> None:
-        self._committed_gen = max(self._committed_gen, gen)
+        self._committed_gen[source] = max(self._committed_gen.get(source, 0), gen)
         self.question_started.emit(gen, text, source)
