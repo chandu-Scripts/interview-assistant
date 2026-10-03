@@ -710,18 +710,19 @@ def test_dialog_hotkey_bubble_round_trips_and_validates(qtbot, dialog):
 
 def test_dialog_dual_audio_toggle_round_trips(qtbot, dialog):
     d, _ = dialog
-    assert not d.dual_audio.isChecked()  # off by default
-    d.dual_audio.setChecked(True)
-    with qtbot.waitSignal(d.saved):
-        d.save_btn.click()
-    assert json.loads(settings_path().read_text(encoding="utf-8"))["dual_audio_capture"] is True
-    assert Settings(_env_file=None).dual_audio_capture is True
-    d.load()
-    assert d.dual_audio.isChecked()
+    assert d.dual_audio.isChecked()  # on by default: system audio and mic run together
     d.dual_audio.setChecked(False)
     with qtbot.waitSignal(d.saved):
         d.save_btn.click()
+    assert json.loads(settings_path().read_text(encoding="utf-8"))["dual_audio_capture"] is False
+    assert Settings(_env_file=None).dual_audio_capture is False
+    d.load()
+    assert not d.dual_audio.isChecked()
+    d.dual_audio.setChecked(True)  # back to the default: settings.json stores only differences
+    with qtbot.waitSignal(d.saved):
+        d.save_btn.click()
     assert "dual_audio_capture" not in json.loads(settings_path().read_text(encoding="utf-8"))
+    assert Settings(_env_file=None).dual_audio_capture is True
 
 
 def test_dialog_models_fill_from_key_test(qtbot, dialog):

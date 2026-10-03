@@ -35,7 +35,7 @@ made no difference. The overlay chip tooltip shows where the time went for every
 pipelines: separate `AudioCapture`/`SpeechSegmenter` instances (already stateless per-instance, no
 change needed there), two `StreamingTranscriber`s, and - when `stt_provider="local"` - two loaded
 Whisper models instead of one. This is accepted as a straightforward **2x local-Whisper memory**
-cost for the feature and is off by default; a cloud STT provider (OpenAI/etc.) has no such cost
+cost for the feature and is on by default; a cloud STT provider (OpenAI/etc.) has no such cost
 since there's no local model to duplicate. `UtteranceAggregator` keys its in-flight bookkeeping by
 source string (`""`, `"mic"`, `"loopback"`) so a mic utterance and a loopback utterance in flight at
 the same time can never merge into each other's text, and `AssistantController` keys its

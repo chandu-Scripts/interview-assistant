@@ -234,8 +234,8 @@ def test_interview_session_manager_is_wired_into_the_history_window(parts_factor
     assert hw.create_session_btn.isEnabled()
 
 
-def test_dual_audio_capture_off_by_default_wires_a_single_unrestricted_panel(parts_factory):
-    p = parts_factory()
+def test_dual_audio_capture_off_wires_a_single_unrestricted_panel(parts_factory):
+    p = parts_factory(dual_audio_capture=False)
     assert p.window.mic_panel is None
     assert p.window.audio_panel._restrict_kind is None  # free to pick any device, as always
     assert p.window.mic_transcriber is None

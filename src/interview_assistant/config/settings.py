@@ -48,8 +48,8 @@ class Settings(BaseSettings):
     default_audio_kind: Literal["loopback", "mic"] = "loopback"  # source pre-selected at start
     # Capture system audio AND the microphone at the same time instead of picking one
     # (default_audio_kind is ignored when this is on - both are always loopback+mic). Loads a
-    # second local speech-recognition model if stt_provider="local" (~2x memory); off by default.
-    dual_audio_capture: bool = False
+    # second local speech-recognition model if stt_provider="local" (~2x memory).
+    dual_audio_capture: bool = True
     # Hint for the local speech model (measured: halves technical-term errors). Empty = off.
     stt_vocabulary: str | None = DEFAULT_VOCABULARY
     openai_model: str = "gpt-4o-mini"
