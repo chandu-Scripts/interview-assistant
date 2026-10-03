@@ -39,6 +39,7 @@ from interview_assistant.ui.main_window import MainWindow
 from interview_assistant.ui.overlay import OverlayWindow
 from interview_assistant.ui.privacy_dialog import PrivacyDialog
 from interview_assistant.ui.settings_dialog import SettingsDialog
+from interview_assistant.ui.start_screen import StartScreen
 from interview_assistant.ui.tray import TrayController
 
 log = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class AppParts:
     controller: AssistantController
     overlay: OverlayWindow
     window: MainWindow
+    start_screen: StartScreen
     privacy: PrivacyState
     presentation: PresentationMode
     privacy_dialog: PrivacyDialog
@@ -131,7 +133,14 @@ def build_app(
     privacy = PrivacyState(
         history, tracker, jev.config, incognito=settings.incognito, redact=settings.redact_pii
     )
-    hidden: list[QWidget] = [w for w in (overlay, window.history_window) if w is not None]
+    start_screen = StartScreen(
+        history,
+        window.history_window.open_create_session,
+        window.show_history,
+    )
+    hidden: list[QWidget] = [
+        w for w in (overlay, window.history_window, start_screen) if w is not None
+    ]
     audio_stoppables = [window.audio_panel] + ([window.mic_panel] if window.mic_panel else [])
     presentation = PresentationMode(hidden, window, audio_stoppables, controller)
 
@@ -212,6 +221,7 @@ def build_app(
     sync_tray()
 
     return AppParts(
+        start_screen=start_screen,
         settings=settings,
         tracker=tracker,
         providers=providers,

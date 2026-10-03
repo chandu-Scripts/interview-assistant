@@ -100,6 +100,7 @@ def main() -> int:
     if settings.hotkey_chat:
         hotkeys.register(settings.hotkey_chat, parts.overlay.toggle_chat)
 
+    parts.start_screen.show()
     parts.overlay.show()
     parts.controller.notify_cost_changed()
     if parts.history.recovered_from is not None:
