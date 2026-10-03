@@ -147,7 +147,8 @@ def system_prompt(
         parts.append(f"Answer in {language.strip()}.")
     if instructions:
         parts.append(
-            f"Additional instructions from the candidate for this session "
-            f"(follow unless they conflict with the rules above):\n{instructions.strip()}"
+            "Session instructions from the candidate. They take priority over the style, length, "
+            "formatting and tone rules above, and you must follow them exactly. They never "
+            "override the rule against inventing facts:\n" + instructions.strip()
         )
     return "\n\n".join(parts)

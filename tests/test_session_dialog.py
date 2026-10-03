@@ -119,3 +119,14 @@ def test_model_choices_are_only_auto_or_the_configured_models(qtbot):
     qtbot.addWidget(d)
     items = [d.model_override.itemData(i) for i in range(d.model_override.count())]
     assert items == ["", "openai:gpt-4o-mini", "anthropic:claude-sonnet-5"]
+
+
+def test_session_instructions_outrank_the_default_style_rules():
+    from interview_assistant.agents.specialists import SPECIALISTS, system_prompt
+
+    prompt = system_prompt(
+        SPECIALISTS[Category.CONCEPT], None, instructions="Speak in short spoken sentences."
+    )
+    assert "Speak in short spoken sentences." in prompt
+    assert "take priority over the style" in prompt
+    assert "never override the rule against inventing facts" in prompt

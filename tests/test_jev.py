@@ -241,7 +241,7 @@ def test_system_prompt_partial_answer_preferences_omit_the_others():
 
 def test_system_prompt_includes_ai_instructions():
     p = system_prompt(SPECIALISTS[C.CODING], None, instructions="Always mention trade-offs.")
-    assert "Additional instructions from the candidate" in p
+    assert "Session instructions from the candidate" in p
     assert "Always mention trade-offs." in p
 
 
