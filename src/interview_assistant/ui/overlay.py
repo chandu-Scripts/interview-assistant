@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QSizeGrip,
     QSlider,
@@ -136,6 +137,7 @@ class OverlayWindow(QWidget):
         self.chat_btn = self._shortcut_button("Chat", "Ctrl ⇧ Space", "Type a question (toggle)")
         self.fix_btn = self._icon_button("✎", "Wrong specialist? Pick the right one and redo")
         self.collapse_btn = self._icon_button("–", "Collapse / expand")
+        self.more_btn = self._icon_button("⋮", "More: devices, history, settings, privacy")
         self.close_btn = QPushButton("End")
         self.close_btn.setObjectName("end")
         self.close_btn.setToolTip("Hide the overlay (Ctrl+H collapses it to a bubble)")
@@ -155,6 +157,7 @@ class OverlayWindow(QWidget):
             self.chat_btn,
             self.fix_btn,
             self.collapse_btn,
+            self.more_btn,
             self.close_btn,
             self.clear_btn,
         )
@@ -170,7 +173,7 @@ class OverlayWindow(QWidget):
         ):
             top_row.addWidget(w)
         top_row.addStretch(1)
-        for w in (self.fix_btn, self.collapse_btn, self.timer_label, self.close_btn):
+        for w in (self.fix_btn, self.collapse_btn, self.timer_label, self.more_btn, self.close_btn):
             top_row.addWidget(w)
         status_row = QHBoxLayout()
         status_row.setContentsMargins(0, 0, 0, 0)
@@ -300,6 +303,8 @@ class OverlayWindow(QWidget):
         QShortcut(QKeySequence("Escape"), self, self._stop)
         self.stop_btn.clicked.connect(self._stop)
 
+        self._menu_actions: list[tuple[str, Callable[[], None]]] = []
+        self._menu_devices: list[tuple[str, AudioPanel]] = []
         self._controller: AssistantController | None = None
         self._restore()
         self._set_busy(False)
@@ -524,6 +529,34 @@ class OverlayWindow(QWidget):
         self.dot.setStyleSheet(f"color: {DOT[state]}; font-size: 14px;")
         self.dot.setToolTip(state)
         self.status_label.setText(STATUS_TEXT[state])
+
+    def bind_menu(
+        self,
+        actions: list[tuple[str, Callable[[], None]]],
+        devices: list[tuple[str, AudioPanel]],
+    ) -> None:
+        """The ⋮ menu: pick each source's device, plus the actions that used to live in the
+        separate main window (History, Settings, Privacy, New interview, Show transcript)."""
+        self._menu_actions = actions
+        self._menu_devices = devices
+        self.more_btn.clicked.connect(self._show_more_menu)
+
+    def _build_more_menu(self) -> QMenu:
+        menu = QMenu(self)
+        for label, panel in self._menu_devices:
+            sub = menu.addMenu(f"{label} device")
+            combo = panel.device_combo
+            for i in range(combo.count()):
+                sub.addAction(combo.itemText(i), lambda i=i, c=combo: c.setCurrentIndex(i))
+        if self._menu_devices:
+            menu.addSeparator()
+        for label, action in self._menu_actions:
+            menu.addAction(label, action)
+        return menu
+
+    def _show_more_menu(self) -> None:
+        menu = self._build_more_menu()
+        menu.exec(self.more_btn.mapToGlobal(self.more_btn.rect().bottomLeft()))
 
     def _tick(self) -> None:
         secs = int(time.monotonic() - self._started)

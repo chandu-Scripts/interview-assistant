@@ -156,6 +156,20 @@ class MainWindow(QMainWindow):
             self._attach(provider)
         if mic_provider is not None and self.mic_panel is not None:
             self._attach_mic(mic_provider)
+        if overlay is not None:
+            devices = [("System audio", self.audio_panel)]
+            if self.mic_panel is not None:
+                devices.append(("Microphone", self.mic_panel))
+            overlay.bind_menu(
+                [
+                    ("History", self.history_button.click),
+                    ("Settings", self.settings_button.click),
+                    ("Privacy", self.privacy_button.click),
+                    ("New interview", self.clear_button.click),
+                    ("Show transcript window", self.show),
+                ],
+                devices,
+            )
 
     def attach_privacy(
         self,

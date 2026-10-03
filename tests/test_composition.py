@@ -277,3 +277,9 @@ def test_screenshot_asks_for_its_own_consent_notice_not_the_recording_one(parts_
     assert p.window.overlay.before_screenshot is not None
     assert p.window.overlay.before_screenshot() is False
     assert prompts == [SCREENSHOT_CONSENT_TEXT] and CONSENT_TEXT not in prompts
+
+
+def test_overlay_menu_carries_the_actions_of_the_old_main_window(parts_factory):
+    p = parts_factory()
+    labels = [label for label, _ in p.window.overlay._menu_actions]
+    assert labels == ["History", "Settings", "Privacy", "New interview", "Show transcript window"]

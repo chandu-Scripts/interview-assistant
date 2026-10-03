@@ -1139,3 +1139,19 @@ def test_audio_toggle_follows_the_real_panel_state(overlay):
 def test_mic_toggle_is_hidden_without_a_microphone_panel(overlay):
     overlay.bind_audio(FakeAudioPanel(), None)
     assert not overlay.mic_toggle.isVisibleTo(overlay)
+
+
+def test_more_menu_switches_devices_and_runs_the_window_actions(overlay):
+    from PySide6.QtWidgets import QComboBox
+
+    calls = []
+    panel = FakeAudioPanel()
+    panel.device_combo = QComboBox()
+    panel.device_combo.addItems(["Speakers", "Headset"])
+    overlay.bind_menu([("History", lambda: calls.append("history"))], [("System audio", panel)])
+    menu = overlay._build_more_menu()
+    device_menu = next(a.menu() for a in menu.actions() if a.menu() is not None)
+    device_menu.actions()[1].trigger()
+    assert panel.device_combo.currentIndex() == 1
+    next(a for a in menu.actions() if a.text() == "History").trigger()
+    assert calls == ["history"]
