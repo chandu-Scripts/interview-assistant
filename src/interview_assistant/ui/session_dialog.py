@@ -8,10 +8,13 @@ This dialog only collects a SessionDetails - it does not touch Jev/history itsel
 separate so each half is trivially testable on its own. Wiring a button to open this dialog is
 Step 18 (the session dashboard)."""
 
+from pathlib import Path
+
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -23,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from interview_assistant.app.attachments import ATTACHMENT_FILTER, AttachmentError, read_attachment
 from interview_assistant.app.interview_session import SessionDetails
 from interview_assistant.llm.router_factory import parse_chain
 
@@ -81,10 +85,18 @@ class SessionDialog(QDialog):
         self.resume_override.setPlaceholderText(
             "Optional - overrides your profile (Settings -> Profile) for this session only"
         )
+        self.resume_status = QLabel("")
+        attach_resume = QPushButton("Attach resume…")
+        attach_resume.setToolTip("Load the resume text from a PDF, DOCX, TXT or MD file")
+        attach_resume.clicked.connect(
+            lambda: self._attach_into(self.resume_override, self.resume_status)
+        )
         form.addRow("Company", self.company)
         form.addRow("Role", self.role_title)
         form.addRow("Job Description", self.job_description)
         form.addRow("Resume (optional)", self.resume_override)
+        form.addRow(attach_resume)
+        form.addRow(self.resume_status)
         return w
 
     def _preferences_page(self) -> QWidget:
@@ -104,12 +116,32 @@ class SessionDialog(QDialog):
         self.ai_instructions.setPlaceholderText(
             "Optional - extra notes the AI should use during this session"
         )
+        self.prompt_status = QLabel("")
+        attach_prompt = QPushButton("Attach prompt…")
+        attach_prompt.setToolTip("Load AI instructions from a PDF, DOCX, TXT or MD file")
+        attach_prompt.clicked.connect(
+            lambda: self._attach_into(self.ai_instructions, self.prompt_status)
+        )
         form.addRow("Model (advanced)", self.model_override)
         form.addRow("Answer format", self.answer_format)
         form.addRow("Answer length", self.answer_length)
         form.addRow("Answer tone", self.answer_tone)
         form.addRow("AI instructions", self.ai_instructions)
+        form.addRow(attach_prompt)
+        form.addRow(self.prompt_status)
         return w
+
+    def _attach_into(self, target: QPlainTextEdit, status: QLabel) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Attach file", "", ATTACHMENT_FILTER)
+        if not path:
+            return
+        try:
+            text = read_attachment(Path(path))
+        except AttachmentError as e:
+            status.setText(str(e))
+            return
+        target.setPlainText(text)
+        status.setText(f"Attached {Path(path).name} ({len(text)} characters)")
 
     # ---- wizard flow ----
     def _update_buttons(self) -> None:
