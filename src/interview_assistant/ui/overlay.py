@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable
 
 from PySide6.QtCore import QPoint, QSettings, Qt, QTimer
@@ -22,24 +23,29 @@ from interview_assistant.app.controller import AssistantController
 from interview_assistant.cost.tracker import BudgetLevel, BudgetState, Summary, format_usd
 from interview_assistant.ui.screenshot import capture_screen_png
 
-# Light, translucent "glass" card (Step 15) - was a dark card before; every color below was
-# re-picked for contrast against a near-white background, not just swapped.
-BG = QColor(255, 255, 255, 235)
-BORDER = QColor(214, 217, 226)
+# Dark translucent live bar, matching the Parakeet layout the user asked for: one toolbar with
+# labelled shortcut buttons, a listening line under it, and the answer panel below.
+BG = QColor(22, 24, 32, 235)
+BORDER = QColor(58, 62, 76)
 STYLE = """
-QLabel { color: #1d2030; }
+QLabel { color: #e8eaf2; }
 #title { font-weight: 600; }
-#chip { color: #4a63d6; font-size: 11px; }
-#question { color: #6b7185; font-size: 12px; }
-#warn { color: #b5650a; font-size: 11px; }
-QTextBrowser { background: transparent; color: #1d2030; border: none; font-size: 14px; }
-QLineEdit { background: rgba(0,0,0,0.04); color: #1d2030; border: 1px solid #d6d9e2;
+#chip { color: #9fb4ff; font-size: 11px; }
+#question { color: #aab0c4; font-size: 12px; }
+#warn { color: #ffb86b; font-size: 11px; }
+#timer { color: #e8eaf2; font-size: 12px; }
+#status { color: #aab0c4; font-size: 12px; }
+QTextBrowser { background: transparent; color: #e8eaf2; border: none; font-size: 14px; }
+QLineEdit { background: rgba(255,255,255,0.06); color: #e8eaf2; border: 1px solid #3a3e4c;
             border-radius: 6px; padding: 4px 8px; }
-QPushButton { background: rgba(0,0,0,0.05); color: #1d2030; border: none;
-              border-radius: 6px; padding: 4px 10px; }
-QPushButton:hover { background: rgba(0,0,0,0.10); }
-QPushButton:disabled { color: #a7acbd; }
+QPushButton { background: rgba(255,255,255,0.08); color: #e8eaf2; border: none;
+              border-radius: 8px; padding: 5px 10px; }
+QPushButton:hover { background: rgba(255,255,255,0.16); }
+QPushButton:disabled { color: #5d6276; background: rgba(255,255,255,0.04); }
 #iconbtn { padding: 2px 8px; font-weight: bold; }
+#pill { font-weight: 600; }
+#end { background: #d6363f; color: #ffffff; font-weight: 600; }
+#end:hover { background: #e5484f; }
 """
 COST_COLOR = {
     BudgetLevel.OK: "#1f9d55",
@@ -47,8 +53,14 @@ COST_COLOR = {
     BudgetLevel.EXCEEDED: "#d6363f",
 }
 DOT = {"idle": "#9aa0b4", "listening": "#d32f2f", "thinking": "#d98c1f", "answering": "#1f9d55"}
+STATUS_TEXT = {
+    "idle": "Ready",
+    "listening": "Listening…",
+    "thinking": "Thinking…",
+    "answering": "Answering…",
+}
 BUBBLE_SIZE = 48
-SCREENSHOT_TIP = "Attach a screenshot of your screen to your next question (Ctrl+Shift+S)"
+SCREENSHOT_TIP = "Attach a screenshot of your screen to your next question (Ctrl+Shift+Enter)"
 
 
 class OverlayWindow(QWidget):
@@ -93,37 +105,60 @@ class OverlayWindow(QWidget):
         self.dot = QLabel("●")
         self.title = QLabel("Interview Assistant")
         self.title.setObjectName("title")
+        self.status_label = QLabel("Ready")
+        self.status_label.setObjectName("status")
         self.chip = QLabel("")
         self.chip.setObjectName("chip")
         self.cost_label = QLabel("")
         self.cost_label.setToolTip("Session cost")
-        self.screenshot_btn = self._icon_button("📷", SCREENSHOT_TIP)
-        self.chat_btn = self._icon_button("Chat", "Type a question (toggle)")
+        self.timer_label = QLabel("00:00")
+        self.timer_label.setObjectName("timer")
+        self.timer_label.setToolTip("Time since the overlay started")
+        self.answer_btn = self._shortcut_button("Answer", "Ctrl ↵", "Answer the question above")
+        self.answer_btn.setEnabled(False)
+        self.screenshot_btn = self._shortcut_button("Screenshot", "Ctrl ⇧ ↵", SCREENSHOT_TIP)
+        self.chat_btn = self._shortcut_button("Chat", "Ctrl ⇧ `", "Type a question (toggle)")
         self.fix_btn = self._icon_button("✎", "Wrong specialist? Pick the right one and redo")
         self.collapse_btn = self._icon_button("–", "Collapse / expand")
-        self.close_btn = self._icon_button("✕", "Hide overlay")
+        self.close_btn = QPushButton("End")
+        self.close_btn.setObjectName("end")
+        self.close_btn.setToolTip("Hide the overlay (Ctrl+H collapses it to a bubble)")
+        self.clear_btn = QPushButton("Clear")
+        self.clear_btn.setToolTip("Clear the answers on screen (history is kept)")
         # Widgets hidden in bubble mode (everything except the status dot, which IS the bubble).
         self._header_extras = (
             self.title,
+            self.status_label,
             self.chip,
             self.cost_label,
+            self.timer_label,
+            self.answer_btn,
             self.screenshot_btn,
             self.chat_btn,
             self.fix_btn,
             self.collapse_btn,
             self.close_btn,
+            self.clear_btn,
         )
-        header = QHBoxLayout()
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        w: QWidget
+        for w in (self.answer_btn, self.screenshot_btn, self.chat_btn):
+            top_row.addWidget(w)
+        top_row.addStretch(1)
+        for w in (self.fix_btn, self.collapse_btn, self.timer_label, self.close_btn):
+            top_row.addWidget(w)
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        for w in (self.dot, self.status_label, self.title):
+            status_row.addWidget(w)
+        status_row.addWidget(self.chip, 1)
+        status_row.addWidget(self.cost_label)
+        status_row.addWidget(self.clear_btn)
+        header = QVBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
-        for w in (self.dot, self.title, self.chip):
-            header.addWidget(w)
-        header.addStretch(1)
-        header.addWidget(self.cost_label)
-        header.addWidget(self.screenshot_btn)
-        header.addWidget(self.chat_btn)
-        header.addWidget(self.fix_btn)
-        header.addWidget(self.collapse_btn)
-        header.addWidget(self.close_btn)
+        header.addLayout(top_row)
+        header.addLayout(status_row)
         self.header = QWidget()
         self.header.setLayout(header)
 
@@ -173,9 +208,6 @@ class OverlayWindow(QWidget):
         self.chat_row.setLayout(chat_row)
         self.chat_row.setVisible(False)
 
-        self.answer_btn = QPushButton("Answer")
-        self.answer_btn.setToolTip("Answer the question above (Ctrl+Enter)")
-        self.answer_btn.setEnabled(False)
         self.stop_btn = QPushButton("Stop")
         self.copy_btn = QPushButton("Copy")
         self.opacity = QSlider(Qt.Orientation.Horizontal)
@@ -185,7 +217,7 @@ class OverlayWindow(QWidget):
         footer = QHBoxLayout()
         footer.setContentsMargins(0, 0, 0, 0)
         footer.addStretch(1)
-        for extra in (self.answer_btn, self.stop_btn, self.copy_btn, self.opacity):
+        for extra in (self.stop_btn, self.copy_btn, self.opacity):
             footer.addWidget(extra)
         self.footer = QWidget()
         self.footer.setLayout(footer)
@@ -227,7 +259,14 @@ class OverlayWindow(QWidget):
         self.ask_btn.clicked.connect(self._submit_typed)
         self.answer_btn.clicked.connect(self._trigger_answer)
         self.screenshot_btn.clicked.connect(self._take_screenshot)
+        QShortcut(QKeySequence("Ctrl+Shift+Return"), self, self._take_screenshot)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, self._take_screenshot)
+        self.clear_btn.clicked.connect(self._clear_view)
+        self._clock = QTimer(self)
+        self._clock.setInterval(1000)
+        self._started = time.monotonic()
+        self._clock.timeout.connect(self._tick)
+        self._clock.start()
         QShortcut(QKeySequence("Ctrl+Return"), self, self._trigger_answer)
         QShortcut(QKeySequence("Ctrl+Enter"), self, self._trigger_answer)  # numpad Enter
         self.prev_btn.clicked.connect(self.prev_qa)
@@ -248,6 +287,12 @@ class OverlayWindow(QWidget):
     def _icon_button(self, text: str, tip: str) -> QPushButton:
         b = QPushButton(text)
         b.setObjectName("iconbtn")
+        b.setToolTip(tip)
+        return b
+
+    def _shortcut_button(self, label: str, keys: str, tip: str) -> QPushButton:
+        b = QPushButton(f"{label}   {keys}")
+        b.setObjectName("pill")
         b.setToolTip(tip)
         return b
 
@@ -272,7 +317,9 @@ class OverlayWindow(QWidget):
 
     # ---- controller events (all run on the UI thread) ----
     def on_screenshot_pending(self, pending: bool) -> None:
-        self.screenshot_btn.setText("📷 ✓" if pending else "📷")
+        self.screenshot_btn.setText(
+            "Screenshot ✓   Ctrl ⇧ ↵" if pending else "Screenshot   Ctrl ⇧ ↵"
+        )
         self.screenshot_btn.setToolTip(
             "Screenshot attached - it goes with your next question" if pending else SCREENSHOT_TIP
         )
@@ -427,6 +474,17 @@ class OverlayWindow(QWidget):
             state = "listening"
         self.dot.setStyleSheet(f"color: {DOT[state]}; font-size: 14px;")
         self.dot.setToolTip(state)
+        self.status_label.setText(STATUS_TEXT[state])
+
+    def _tick(self) -> None:
+        secs = int(time.monotonic() - self._started)
+        self.timer_label.setText(f"{secs // 60:02d}:{secs % 60:02d}")
+
+    def _clear_view(self) -> None:
+        """Clears what is on screen only; the Q&A history and the saved history are untouched."""
+        self._text = ""
+        self.answer.clear()
+        self._hide_warning()
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy

@@ -1004,12 +1004,13 @@ def test_overlay_screenshot_without_a_controller_is_a_no_op(overlay):
 
 
 def test_overlay_screenshot_button_shows_pending_state(overlay):
-    assert overlay.screenshot_btn.text() == "📷"
+    assert overlay.screenshot_btn.text().startswith("Screenshot")
+    assert "✓" not in overlay.screenshot_btn.text()
     overlay.on_screenshot_pending(True)
     assert "✓" in overlay.screenshot_btn.text()
     assert "next question" in overlay.screenshot_btn.toolTip()
     overlay.on_screenshot_pending(False)
-    assert overlay.screenshot_btn.text() == "📷"
+    assert "✓" not in overlay.screenshot_btn.text()
 
 
 def test_overlay_screenshot_button_hides_in_bubble_mode(qtbot, tmp_path):
