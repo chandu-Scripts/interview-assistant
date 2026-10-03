@@ -2,7 +2,7 @@
 
 1. Details - session type (Interview or Regular), company, role, job description, and a CV/Resume
    dropdown that lists resumes used before, with "Attach new resume" for a new file.
-2. Preferences - language, model, answer format/length/tone, AI instructions (typed or attached),
+2. Preferences - language, model, answer format/length/tone, AI instructions (typed),
    Auto Generate and Save Transcript.
 
 No "paste a job link" import and no Documents picker (not wanted), and no cross-user Question
@@ -175,12 +175,6 @@ class SessionDialog(QWidget):
         self.ai_instructions.setPlaceholderText(
             "Optional - extra notes the AI should use during this session"
         )
-        self.prompt_status = QLabel("")
-        attach_prompt = QPushButton("Attach prompt…")
-        attach_prompt.setToolTip("Load AI instructions from a PDF, DOCX, TXT or MD file")
-        attach_prompt.clicked.connect(
-            lambda: self._attach_into(self.ai_instructions, self.prompt_status)
-        )
         self.auto_generate = QCheckBox("Answer questions automatically (Beta)")
         self.auto_generate.setToolTip("Off: you press Answer or Ctrl+Enter for each question")
         self.save_transcript = QCheckBox("Save this session's transcript")
@@ -191,23 +185,9 @@ class SessionDialog(QWidget):
         form.addRow("Answer length", self.answer_length)
         form.addRow("Answer tone", self.answer_tone)
         form.addRow("AI instructions", self.ai_instructions)
-        form.addRow(attach_prompt)
-        form.addRow(self.prompt_status)
         form.addRow(self.auto_generate)
         form.addRow(self.save_transcript)
         return w
-
-    def _attach_into(self, target: QPlainTextEdit, status: QLabel) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Attach file", "", ATTACHMENT_FILTER)
-        if not path:
-            return
-        try:
-            text = read_attachment(Path(path))
-        except AttachmentError as e:
-            status.setText(str(e))
-            return
-        target.setPlainText(text)
-        status.setText(f"Attached {Path(path).name} ({len(text)} characters)")
 
     # ---- wizard flow ----
     def _update_buttons(self) -> None:

@@ -1,8 +1,6 @@
 import pytest
 
 from interview_assistant.app.attachments import MAX_CHARS, AttachmentError, read_attachment
-from interview_assistant.ui import session_dialog
-from interview_assistant.ui.session_dialog import SessionDialog
 
 
 def minimal_pdf(text: str) -> bytes:
@@ -72,40 +70,3 @@ def test_long_attachments_are_capped(tmp_path):
     path = tmp_path / "long.txt"
     path.write_text("x" * (MAX_CHARS + 500), encoding="utf-8")
     assert len(read_attachment(path)) == MAX_CHARS
-
-
-def test_dialog_attach_fills_the_field_and_reports_the_file(qtbot, tmp_path, monkeypatch):
-    resume = tmp_path / "cv.txt"
-    resume.write_text("Chandrashekhar, Azure data engineer", encoding="utf-8")
-    monkeypatch.setattr(
-        session_dialog.QFileDialog, "getOpenFileName", lambda *a, **k: (str(resume), "")
-    )
-    d = SessionDialog()
-    qtbot.addWidget(d)
-    d._attach_into(d.ai_instructions, d.prompt_status)
-    assert d.ai_instructions.toPlainText() == "Chandrashekhar, Azure data engineer"
-    assert "Attached cv.txt" in d.prompt_status.text()
-
-
-def test_dialog_attach_reports_an_unsupported_file_and_keeps_the_field(
-    qtbot, tmp_path, monkeypatch
-):
-    bad = tmp_path / "photo.png"
-    bad.write_bytes(b"\x89PNG")
-    monkeypatch.setattr(
-        session_dialog.QFileDialog, "getOpenFileName", lambda *a, **k: (str(bad), "")
-    )
-    d = SessionDialog()
-    qtbot.addWidget(d)
-    d.ai_instructions.setPlainText("keep me")
-    d._attach_into(d.ai_instructions, d.prompt_status)
-    assert d.ai_instructions.toPlainText() == "keep me"
-    assert "Unsupported file type" in d.prompt_status.text()
-
-
-def test_cancelling_the_file_picker_changes_nothing(qtbot, monkeypatch):
-    monkeypatch.setattr(session_dialog.QFileDialog, "getOpenFileName", lambda *a, **k: ("", ""))
-    d = SessionDialog()
-    qtbot.addWidget(d)
-    d._attach_into(d.ai_instructions, d.prompt_status)
-    assert d.ai_instructions.toPlainText() == "" and d.prompt_status.text() == ""
