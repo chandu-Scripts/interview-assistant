@@ -1036,3 +1036,22 @@ def test_typed_text_is_answered_even_when_it_is_not_phrased_as_a_question(qtbot,
     qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
     assert jev.asked == ["Okay, write prime code"]
     assert rec.has("done", 1, "p:m")
+
+
+def test_answer_button_answers_a_spoken_phrase_the_classifier_calls_not_a_question(
+    qtbot, make_controller
+):
+    jev = FakeJev()
+    clock = Clock()
+    agg_ = UtteranceAggregator(quiet_s=0.15, clock=clock)
+    c, rec = make_controller(jev, aggregator=agg_, answer_mode="manual")
+    pending = []
+    c.question_pending.connect(lambda text, lag: pending.append(text))
+    phrase = "Okay, difference between a list and a tuple."  # FakeJev: "okay..." is not a question
+    c.on_speech_started()
+    c.on_transcript_event(TranscriptEvent(1, phrase, True, 2))
+    clock.t += 0.3
+    qtbot.waitUntil(lambda: pending == [phrase], timeout=3000)
+    c.trigger_answer()
+    qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
+    assert jev.asked == [phrase]

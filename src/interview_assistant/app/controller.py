@@ -154,15 +154,23 @@ class AssistantController(QObject):
             self._pending_image = None
             self.screenshot_pending.emit(False)
 
-    def ask(self, text: str, source: str = "typed", speech_lag: float | None = None) -> None:
-        """`speech_lag`: seconds from the end of the speech to now (voice questions only)."""
+    def ask(
+        self,
+        text: str,
+        source: str = "typed",
+        speech_lag: float | None = None,
+        explicit: bool = False,
+    ) -> None:
+        """`speech_lag`: seconds from the end of the speech to now (voice questions only).
+        `explicit`: the user asked for this answer (Answer button), so it is never dropped as
+        "not a question"."""
         text = text.strip()
         if text and not self._paused:
             gen = next(self._gen)
             image, self._pending_image = self._pending_image, None
             if image is not None:
                 self.screenshot_pending.emit(False)
-            self._runner.submit(self._run(gen, text, source, speech_lag, image))
+            self._runner.submit(self._run(gen, text, source, speech_lag, image, explicit))
 
     def stop(self) -> None:
         self._runner.call_soon(self._stop_active)
@@ -176,7 +184,7 @@ class AssistantController(QObject):
         self._pending_question = None
         self._pending_lag = None
         self._pending_source = ""
-        self.ask(text, "voice" if not source else f"voice:{source}", lag)
+        self.ask(text, "voice" if not source else f"voice:{source}", lag, explicit=True)
 
     def correct_category(self, category: Category) -> None:
         """The user says Jev picked the wrong specialist: redo the last question with this one.
@@ -250,6 +258,7 @@ class AssistantController(QObject):
         source: str,
         speech_lag: float | None = None,
         image: bytes | None = None,
+        explicit: bool = False,
     ) -> None:
         asked_at = time.time()  # history order follows when the question was asked
         try:
@@ -260,11 +269,12 @@ class AssistantController(QObject):
             self.answer_failed.emit(gen, friendly_error(e))
             self._save(text, source, None, asked_at, status="error", error=friendly_error(e))
             return
-        if not decision.should_answer and source == "voice":
+        if not decision.should_answer and source == "voice" and not explicit:
             self.question_ignored.emit(text)
             return
-        if not decision.should_answer and source == "typed":
-            # Typed text is an explicit request even when it isn't phrased as a question.
+        if not decision.should_answer and (source == "typed" or explicit):
+            # Typed text and the Answer button are explicit requests, even when the text isn't
+            # phrased as a question.
             decision = self._jev.manual_decision(Category.GENERAL)
         if gen < self._committed_gen.get(source, 0):  # a newer same-source question is answering
             return
