@@ -538,11 +538,12 @@ def test_screenshot_button_sends_the_capture_with_the_next_question_only(make_st
     monkeypatch.setattr(overlay_mod, "capture_screen_png", lambda: shot)
     prov = hash_provider()
     s = make_stack({"openai": prov}, [])
-    s.overlay.screenshot_btn.click()
+    s.overlay.screenshot_btn.click()  # answered immediately, no question needed
+    s.wait_turns(1)
     s.overlay.input.setText(TWO_SUM)
     s.overlay.ask_btn.click()
-    s.wait_turns(1)
+    s.wait_turns(2)
     s.overlay.input.setText("Write a function to reverse a linked list.")
     s.overlay.ask_btn.click()
-    s.wait_turns(2)
-    assert [r.image for r in prov.requests] == [shot, None]
+    s.wait_turns(3)
+    assert [r.image for r in prov.requests] == [shot, None, None]

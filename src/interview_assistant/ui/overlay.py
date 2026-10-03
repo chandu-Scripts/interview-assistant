@@ -519,14 +519,15 @@ class OverlayWindow(QWidget):
         self._controller.trigger_answer()
 
     def take_screenshot(self) -> None:
-        """Explicit user action only (button or Ctrl+Shift+S) - never captured automatically."""
+        """Explicit user action only (button or shortcut) - never captured automatically. The
+        screenshot is answered immediately."""
         if self._controller is None:
             return
         if self.before_screenshot is not None and not self.before_screenshot():
             return
         image = capture_screen_png()
         if image is not None:
-            self._controller.attach_screenshot(image)
+            self._controller.ask_screenshot(image)
 
     def _toggle_fix_row(self) -> None:
         # Track state explicitly: fix_row.isVisible() is unreliable while the window itself is
@@ -596,7 +597,8 @@ class OverlayWindow(QWidget):
 
     # ---- Q&A history stack (in-memory, this session only - not the persistent SQLite history) ----
     def _display_question(self, text: str, source: str) -> None:
-        self.question.setText(("🎤 " if source == "voice" else "⌨ ") + text)
+        icon = {"voice": "🎤 ", "screenshot": "📷 "}.get(source, "⌨ ")
+        self.question.setText(icon + text)
 
     def _update_nav(self) -> None:
         n = len(self._qa_history)

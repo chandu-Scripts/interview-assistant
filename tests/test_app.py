@@ -966,6 +966,9 @@ class ShotController:
     def attach_screenshot(self, image):
         self.attached.append(image)
 
+    def ask_screenshot(self, image):
+        self.attached.append(image)
+
 
 def test_overlay_screenshot_button_attaches_a_capture(overlay, monkeypatch):
     import interview_assistant.ui.overlay as overlay_mod
@@ -1062,3 +1065,14 @@ def test_answer_with_nothing_waiting_says_so_instead_of_doing_nothing(overlay):
     overlay._controller = type("C", (), {"trigger_answer": lambda self: calls.append(1)})()
     overlay.answer_now()
     assert calls == [] and "no question waiting" in overlay.chip.text()
+
+
+def test_screenshot_is_answered_immediately_with_a_prompt_about_the_screen(qtbot, make_controller):
+    from interview_assistant.app.controller import SCREENSHOT_PROMPT
+
+    jev = FakeJev()
+    c, rec = make_controller(jev)
+    c.ask_screenshot(SHOT)
+    qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
+    assert jev.asked == [SCREENSHOT_PROMPT] and jev.images == [SHOT]
+    assert rec.has("q", 1, SCREENSHOT_PROMPT, "screenshot")

@@ -18,6 +18,12 @@ from interview_assistant.stt.base import TranscriptEvent
 log = logging.getLogger(__name__)
 
 
+SCREENSHOT_PROMPT = (
+    "Answer the question or task shown in this screenshot. If it is a coding problem, "
+    "write the solution."
+)
+
+
 class JevLike(Protocol):
     async def decide(self, question: str) -> Decision: ...
 
@@ -148,6 +154,11 @@ class AssistantController(QObject):
             return
         self._pending_image = image
         self.screenshot_pending.emit(True)
+
+    def ask_screenshot(self, image: bytes) -> None:
+        """Answer whatever the screenshot shows, right away - no follow-up question needed."""
+        self.attach_screenshot(image)
+        self.ask(SCREENSHOT_PROMPT, "screenshot", explicit=True)
 
     def _drop_pending_image(self) -> None:
         if self._pending_image is not None:
