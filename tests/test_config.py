@@ -779,28 +779,17 @@ def test_session_dialog_advances_to_preferences_and_back(qtbot):
     assert d.pages.currentIndex() == 0 and not d.back_btn.isVisibleTo(d)
 
 
-def test_session_dialog_rejects_an_invalid_model_override(qtbot):
-    d = SessionDialog()
-    qtbot.addWidget(d)
-    d.company.setText("Google")
-    d.next_btn.click()
-    d.model_override.setText("nomodel")
-    d.next_btn.click()
-    assert d.pages.currentIndex() == 1  # still on preferences - not accepted
-    assert "Model override" in d.message.text()
-
-
 def test_session_dialog_emits_created_with_collected_details(qtbot):
-    d = SessionDialog()
+    d = SessionDialog(None, ["openai:gpt-4o"])
     qtbot.addWidget(d)
     d.company.setText("Google")
     d.role_title.setText("Software Engineer")
     d.job_description.setPlainText("Build search infra.")
     d.next_btn.click()
-    d.model_override.setText("openai:gpt-4o")
-    d.answer_format.setCurrentText("Bullet points")
-    d.answer_length.setCurrentText("Short")
-    d.answer_tone.setCurrentText("Formal")
+    d.model_override.setCurrentIndex(d.model_override.findData("openai:gpt-4o"))
+    d.answer_format.setCurrentIndex(d.answer_format.findText("Bullet points"))
+    d.answer_length.setCurrentIndex(d.answer_length.findText("Short"))
+    d.answer_tone.setCurrentIndex(d.answer_tone.findText("Formal"))
     d.ai_instructions.setPlainText("Be concise.")
     with qtbot.waitSignal(d.created) as sig:
         d.next_btn.click()

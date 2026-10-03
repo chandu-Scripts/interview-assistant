@@ -106,3 +106,16 @@ def test_language_other_than_english_is_put_in_the_prompt():
     assert "Answer in Hindi." in system_prompt(spec, None, language="Hindi")
     assert "Answer in" not in system_prompt(spec, None, language="English")
     assert "Answer in" not in system_prompt(spec, None)
+
+
+def test_fixed_fields_cannot_be_typed_into(qtbot):
+    d = dialog(qtbot)
+    for combo in (d.answer_format, d.answer_tone, d.language, d.model_override):
+        assert not combo.isEditable()
+
+
+def test_model_choices_are_only_auto_or_the_configured_models(qtbot):
+    d = SessionDialog(None, ["openai:gpt-4o-mini", "anthropic:claude-sonnet-5"])
+    qtbot.addWidget(d)
+    items = [d.model_override.itemData(i) for i in range(d.model_override.count())]
+    assert items == ["", "openai:gpt-4o-mini", "anthropic:claude-sonnet-5"]

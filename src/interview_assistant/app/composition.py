@@ -165,12 +165,25 @@ def build_app(
         qapp.quit()
 
     overlay.end_requested.connect(end_session_and_close)
+    model_choices = [
+        f"{provider}:{model}"
+        for provider, model in (
+            ("openai", settings.openai_model),
+            ("openai", settings.openai_smart_model),
+            ("anthropic", settings.anthropic_model),
+            ("anthropic", settings.anthropic_fast_model),
+            ("gemini", settings.gemini_model),
+            ("gemini", settings.gemini_fast_model),
+        )
+        if provider in providers
+    ]
     start_screen = StartScreen(
         history,
         ResumeLibrary(data_dir(settings) / "resumes.json"),
         interview_sessions.activate,
         connect_session,
         window.show_history,
+        model_choices=model_choices,
     )
     hidden: list[QWidget] = [
         w for w in (overlay, window.history_window, start_screen) if w is not None

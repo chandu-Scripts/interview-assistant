@@ -50,9 +50,12 @@ class SessionDialog(QWidget):
     created = Signal(object)  # SessionDetails
     cancelled = Signal()
 
-    def __init__(self, library: ResumeLibrary | None = None) -> None:
+    def __init__(
+        self, library: ResumeLibrary | None = None, model_choices: list[str] | None = None
+    ) -> None:
         super().__init__()
         self._library = library
+        self._model_choices = model_choices or []
         self._resume_texts: dict[str, str] = {}
         self._chosen_resume = NO_RESUME
 
@@ -159,17 +162,18 @@ class SessionDialog(QWidget):
         w = QWidget()
         form = QFormLayout(w)
         self.language = QComboBox()
-        self.language.setEditable(True)
         self.language.addItems(LANGUAGES)  # English first: the default for most interviews
-        self.model_override = QLineEdit()
-        self.model_override.setPlaceholderText("auto (e.g. openai:gpt-4o)")
+        self.model_override = (
+            QComboBox()
+        )  # fixed choices only: Auto, or one of the configured models
+        self.model_override.addItem("Auto (recommended)", "")
+        for model in self._model_choices:
+            self.model_override.addItem(model, model)
         self.answer_format = QComboBox()
-        self.answer_format.setEditable(True)
         self.answer_format.addItems(ANSWER_FORMATS)
         self.answer_length = QComboBox()
         self.answer_length.addItems(ANSWER_LENGTHS)
         self.answer_tone = QComboBox()
-        self.answer_tone.setEditable(True)
         self.answer_tone.addItems(ANSWER_TONES)
         self.ai_instructions = QPlainTextEdit()
         self.ai_instructions.setPlaceholderText(
@@ -230,7 +234,7 @@ class SessionDialog(QWidget):
 
     def collect(self) -> SessionDetails:
         """Raises ValueError with a user-readable reason if the model override is invalid."""
-        model_override = self.model_override.text().strip()
+        model_override = self.model_override.currentData() or ""
         if model_override:
             try:
                 parse_chain(model_override)

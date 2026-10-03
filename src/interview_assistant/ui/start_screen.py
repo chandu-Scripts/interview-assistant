@@ -86,10 +86,12 @@ class StartScreen(QWidget):
         activate: Callable[[SessionDetails], InterviewSession],
         on_connect: Callable[[], None],
         on_dashboard: Callable[[], None],
+        model_choices: list[str] | None = None,
     ) -> None:
         super().__init__()
         self._store = store
         self._library = library
+        self._model_choices = model_choices or []
         self._activate = activate
         self._on_connect = on_connect
         self._connecting: InterviewSession | None = None
@@ -102,7 +104,7 @@ class StartScreen(QWidget):
         self.pages = QStackedWidget()
         self.pages.addWidget(self._list_page(on_dashboard))
         self.pages.addWidget(self._connect_page())
-        self.create_page = SessionDialog(library)
+        self.create_page = SessionDialog(library, self._model_choices)
         self.create_page.created.connect(self._session_created)
         self.create_page.cancelled.connect(self._show_list)
         self.pages.addWidget(self.create_page)
