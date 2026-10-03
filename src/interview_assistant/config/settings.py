@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     hotkey_overlay: str = "ctrl+alt+o"  # show/hide the overlay; empty = disabled
     hotkey_bubble: str = "ctrl+h"  # collapse/restore to a small bubble; empty = disabled
     hotkey_answer: str = "ctrl+enter"  # answer the waiting question from any window; empty = off
+    hotkey_screenshot: str = "ctrl+shift+enter"  # attach a screenshot from any window; empty = off
     history_retention_days: int | None = None  # auto-delete sessions older than this
     data_dir: str | None = None  # default: %APPDATA%/InterviewAssistant
     pricing_file: str | None = None  # JSON overrides, see cost/pricing.py

@@ -95,6 +95,8 @@ def main() -> int:
         hotkeys.register(settings.hotkey_bubble, parts.overlay.toggle_bubble)
     if settings.hotkey_answer:
         hotkeys.register(settings.hotkey_answer, parts.controller.trigger_answer)
+    if settings.hotkey_screenshot:
+        hotkeys.register(settings.hotkey_screenshot, parts.overlay.take_screenshot)
 
     parts.window.show()
     parts.overlay.show()

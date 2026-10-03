@@ -258,9 +258,9 @@ class OverlayWindow(QWidget):
         self.input.returnPressed.connect(self._submit_typed)
         self.ask_btn.clicked.connect(self._submit_typed)
         self.answer_btn.clicked.connect(self._trigger_answer)
-        self.screenshot_btn.clicked.connect(self._take_screenshot)
-        QShortcut(QKeySequence("Ctrl+Shift+Return"), self, self._take_screenshot)
-        QShortcut(QKeySequence("Ctrl+Shift+S"), self, self._take_screenshot)
+        self.screenshot_btn.clicked.connect(self.take_screenshot)
+        QShortcut(QKeySequence("Ctrl+Shift+Return"), self, self.take_screenshot)
+        QShortcut(QKeySequence("Ctrl+Shift+S"), self, self.take_screenshot)
         self.clear_btn.clicked.connect(self._clear_view)
         self._clock = QTimer(self)
         self._clock.setInterval(1000)
@@ -511,7 +511,7 @@ class OverlayWindow(QWidget):
         if self._controller is not None:
             self._controller.trigger_answer()
 
-    def _take_screenshot(self) -> None:
+    def take_screenshot(self) -> None:
         """Explicit user action only (button or Ctrl+Shift+S) - never captured automatically."""
         if self._controller is None:
             return

@@ -151,6 +151,7 @@ def build_app(
         (settings.hotkey_overlay, "show/hide overlay"),
         (settings.hotkey_bubble, "collapse overlay to a bubble"),
         (settings.hotkey_answer, "answer the waiting question"),
+        (settings.hotkey_screenshot, "attach a screenshot to the next question"),
     )
     hint = ", ".join(f"{key} = {what}" for key, what in hotkey_pairs if key)
     privacy_dialog = PrivacyDialog(privacy, presentation, flows, hint)

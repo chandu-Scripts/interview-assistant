@@ -1000,7 +1000,7 @@ def test_overlay_screenshot_with_no_capture_available_attaches_nothing(overlay, 
 
 def test_overlay_screenshot_without_a_controller_is_a_no_op(overlay):
     overlay._controller = None
-    overlay._take_screenshot()  # must not raise
+    overlay.take_screenshot()  # must not raise
 
 
 def test_overlay_screenshot_button_shows_pending_state(overlay):
