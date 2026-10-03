@@ -263,6 +263,9 @@ class AssistantController(QObject):
         if not decision.should_answer and source == "voice":
             self.question_ignored.emit(text)
             return
+        if not decision.should_answer and source == "typed":
+            # Typed text is an explicit request even when it isn't phrased as a question.
+            decision = self._jev.manual_decision(Category.GENERAL)
         if gen < self._committed_gen.get(source, 0):  # a newer same-source question is answering
             return
         self._last_question, self._last_source, self._last_decision = text, source, decision

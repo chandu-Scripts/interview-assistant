@@ -1026,3 +1026,12 @@ def test_capture_screen_png_returns_png_bytes_or_nothing(qtbot):
 
     image = capture_screen_png()
     assert image is None or image.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_typed_text_is_answered_even_when_it_is_not_phrased_as_a_question(qtbot, make_controller):
+    jev = FakeJev()
+    c, rec = make_controller(jev)
+    c.ask("Okay, write prime code")  # FakeJev classifies "okay..." as NOT_A_QUESTION
+    qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
+    assert jev.asked == ["Okay, write prime code"]
+    assert rec.has("done", 1, "p:m")
