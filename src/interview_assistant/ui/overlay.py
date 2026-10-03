@@ -257,7 +257,7 @@ class OverlayWindow(QWidget):
         self.opacity.valueChanged.connect(self._set_opacity)
         self.input.returnPressed.connect(self._submit_typed)
         self.ask_btn.clicked.connect(self._submit_typed)
-        self.answer_btn.clicked.connect(self._trigger_answer)
+        self.answer_btn.clicked.connect(self.answer_now)
         self.screenshot_btn.clicked.connect(self.take_screenshot)
         QShortcut(QKeySequence("Ctrl+Shift+Return"), self, self.take_screenshot)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, self.take_screenshot)
@@ -267,8 +267,8 @@ class OverlayWindow(QWidget):
         self._started = time.monotonic()
         self._clock.timeout.connect(self._tick)
         self._clock.start()
-        QShortcut(QKeySequence("Ctrl+Return"), self, self._trigger_answer)
-        QShortcut(QKeySequence("Ctrl+Enter"), self, self._trigger_answer)  # numpad Enter
+        QShortcut(QKeySequence("Ctrl+Return"), self, self.answer_now)
+        QShortcut(QKeySequence("Ctrl+Enter"), self, self.answer_now)  # numpad Enter
         self.prev_btn.clicked.connect(self.prev_qa)
         self.next_btn.clicked.connect(self.next_qa)
         QShortcut(QKeySequence("Ctrl+Left"), self, self.prev_qa)
@@ -507,9 +507,16 @@ class OverlayWindow(QWidget):
         if self._controller is not None:
             self._controller.stop()
 
-    def _trigger_answer(self) -> None:
-        if self._controller is not None:
-            self._controller.trigger_answer()
+    def answer_now(self) -> None:
+        """Answer the waiting question (Answer button, Ctrl+Enter, or the global hotkey)."""
+        if self._controller is None:
+            return
+        if not self.answer_btn.isEnabled():
+            self.chip.setText(
+                "no question waiting - speak one, or type it in Chat (Ctrl+Shift+Space)"
+            )
+            return
+        self._controller.trigger_answer()
 
     def take_screenshot(self) -> None:
         """Explicit user action only (button or Ctrl+Shift+S) - never captured automatically."""

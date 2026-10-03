@@ -1055,3 +1055,10 @@ def test_answer_button_answers_a_spoken_phrase_the_classifier_calls_not_a_questi
     c.trigger_answer()
     qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
     assert jev.asked == [phrase]
+
+
+def test_answer_with_nothing_waiting_says_so_instead_of_doing_nothing(overlay):
+    calls = []
+    overlay._controller = type("C", (), {"trigger_answer": lambda self: calls.append(1)})()
+    overlay.answer_now()
+    assert calls == [] and "no question waiting" in overlay.chip.text()
