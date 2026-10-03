@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from interview_assistant.app.interview_session import InterviewSessionManager, SessionDetails
 from interview_assistant.history.store import (
     ExportFormat,
     HistoryStore,
@@ -26,13 +27,21 @@ from interview_assistant.history.store import (
     SessionInfo,
     StoredTurn,
 )
+from interview_assistant.ui.session_dialog import SessionDialog
 
 Confirm = Callable[[str], bool]
 PickPath = Callable[[str], str | None]
+DialogFactory = Callable[[], SessionDialog]
 
 
 def _stamp(ts: float) -> str:
     return time.strftime("%b %d %H:%M", time.localtime(ts))
+
+
+def _duration(seconds: float) -> str:
+    total_min = max(0, int(seconds // 60))
+    h, m = divmod(total_min, 60)
+    return f"{h}h {m}m" if h else f"{m}m"
 
 
 def _default_confirm(text: str) -> bool:
@@ -57,11 +66,16 @@ class HistoryWindow(QWidget):
         store: HistoryStore,
         confirm: Confirm = _default_confirm,
         pick_path: PickPath = _default_pick_path,
+        session_manager: InterviewSessionManager | None = None,
+        session_dialog_factory: DialogFactory = SessionDialog,
     ) -> None:
         super().__init__()
         self._store = store
         self._confirm = confirm
         self._pick_path = pick_path
+        self._session_manager = session_manager
+        self._session_dialog_factory = session_dialog_factory
+        self._session_dialog: SessionDialog | None = None  # kept alive while open (non-modal)
         self.setWindowTitle("Interview history")
         self.resize(900, 560)
 
@@ -71,9 +85,12 @@ class HistoryWindow(QWidget):
         self.save_box = QCheckBox("Save history")
         self.save_box.setChecked(store.enabled)
         self.sessions = QListWidget()
+        self.create_session_btn = QPushButton("+ Create Session")
+        self.create_session_btn.setEnabled(session_manager is not None)
         self.turns = QListWidget()
         self.detail = QTextBrowser()
         self.status = QLabel("")
+        self.view_transcript_btn = QPushButton("View Transcript")
         self.export_btn = QPushButton("Export session…")
         self.export_all_btn = QPushButton("Export all…")
         self.del_turn_btn = QPushButton("Delete question")
@@ -83,16 +100,22 @@ class HistoryWindow(QWidget):
         top = QHBoxLayout()
         top.addWidget(self.search, 1)
         top.addWidget(self.save_box)
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.addWidget(self.sessions, 1)
+        left_layout.addWidget(self.create_session_btn)
         right = QSplitter(Qt.Orientation.Vertical)
         right.addWidget(self.turns)
         right.addWidget(self.detail)
         right.setSizes([160, 340])
         main = QSplitter()
-        main.addWidget(self.sessions)
+        main.addWidget(left)
         main.addWidget(right)
         main.setSizes([280, 620])
         buttons = QHBoxLayout()
         for b in (
+            self.view_transcript_btn,
             self.export_btn,
             self.export_all_btn,
             self.del_turn_btn,
@@ -115,6 +138,8 @@ class HistoryWindow(QWidget):
         self.save_box.toggled.connect(self._toggle_saving)
         self.sessions.currentItemChanged.connect(lambda *_: self._load_turns())
         self.turns.currentItemChanged.connect(lambda *_: self._show_turn())
+        self.create_session_btn.clicked.connect(self.open_create_session)
+        self.view_transcript_btn.clicked.connect(self.view_transcript)
         self.export_btn.clicked.connect(self.export_session)
         self.export_all_btn.clicked.connect(self.export_all)
         self.del_turn_btn.clicked.connect(self.delete_turn)
@@ -128,9 +153,13 @@ class HistoryWindow(QWidget):
         self.sessions.blockSignals(True)
         self.sessions.clear()
         for s in self._store.list_sessions():
-            item = QListWidgetItem(
-                f"{_stamp(s.started_at)} · {s.turns} Q · ${s.cost_usd:.4f}\n{s.title}"
-            )
+            header = f"{_stamp(s.started_at)} · {s.turns} Q · ${s.cost_usd:.4f}"
+            if s.duration_s is not None:
+                header += f" · {_duration(s.duration_s)}"
+            title = s.title
+            if s.company:  # linked to an InterviewSession (Step 17) - show company/role instead
+                title = f"{s.company} — {s.role_title}" if s.role_title else s.company
+            item = QListWidgetItem(f"{header}\n{title}")
             item.setData(Qt.ItemDataRole.UserRole, s)
             self.sessions.addItem(item)
             if s.id == keep:
@@ -219,6 +248,7 @@ class HistoryWindow(QWidget):
     def _update_buttons(self) -> None:
         self.del_turn_btn.setEnabled(self._current_turn() is not None)
         has_session = self._current_session_id() is not None
+        self.view_transcript_btn.setEnabled(has_session)
         self.export_btn.setEnabled(has_session)
         self.del_session_btn.setEnabled(has_session)
         self.export_all_btn.setEnabled(self.sessions.count() > 0)
@@ -228,6 +258,27 @@ class HistoryWindow(QWidget):
     def _toggle_saving(self, on: bool) -> None:
         self._store.enabled = on
         self.status.setText("History is being saved" if on else "History saving is OFF")
+
+    def open_create_session(self) -> None:
+        if self._session_manager is None:
+            return
+        dialog = self._session_dialog_factory()
+        dialog.created.connect(self._activate_session)
+        dialog.show()
+        self._session_dialog = dialog  # non-modal: keep a reference so it isn't garbage-collected
+
+    def _activate_session(self, details: SessionDetails) -> None:
+        if self._session_manager is None:
+            return
+        session = self._session_manager.activate(details)
+        self.status.setText(f"Interview session created: {session.company or 'Untitled'}")
+
+    def view_transcript(self) -> None:
+        """The whole session's Q&A, rendered inline (reuses export_session's own Markdown
+        rendering) rather than only as a file-export action."""
+        sid = self._current_session_id()
+        if sid is not None:
+            self.detail.setMarkdown(self._store.export_session(sid, "md"))
 
     def export_session(self) -> None:
         sid = self._current_session_id()

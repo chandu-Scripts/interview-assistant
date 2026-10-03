@@ -115,6 +115,16 @@ class SessionInfo:
     title: str
     turns: int
     cost_usd: float
+    # From the linked InterviewSession (Step 17), if any - "" / None when this session was never
+    # tied to one (the original, still-supported way: just a bucket of turns with no upfront
+    # metadata).
+    company: str = ""
+    role_title: str = ""
+    interview_session_id: int | None = None
+
+    @property
+    def duration_s(self) -> float | None:
+        return None if self.ended_at is None else self.ended_at - self.started_at
 
 
 @dataclass(frozen=True)
@@ -389,12 +399,18 @@ class HistoryStore:
         with self._lock:
             rows = self._db.execute(
                 """SELECT s.id, s.started_at, s.ended_at, s.title, COUNT(t.id) AS n,
-                          COALESCE(SUM(t.cost_usd), 0) AS cost
-                   FROM sessions s LEFT JOIN turns t ON t.session_id = s.id
+                          COALESCE(SUM(t.cost_usd), 0) AS cost,
+                          i.company, i.role_title, s.interview_session_id
+                   FROM sessions s
+                   LEFT JOIN turns t ON t.session_id = s.id
+                   LEFT JOIN interview_sessions i ON i.id = s.interview_session_id
                    GROUP BY s.id ORDER BY s.started_at DESC, s.id DESC LIMIT ?""",
                 (limit,),
             ).fetchall()
-        return [SessionInfo(r[0], r[1], r[2], r[3], r[4], r[5]) for r in rows]
+        return [
+            SessionInfo(r[0], r[1], r[2], r[3], r[4], r[5], r[6] or "", r[7] or "", r[8])
+            for r in rows
+        ]
 
     def get_turns(self, session_id: int) -> list[StoredTurn]:
         with self._lock:

@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QPushButton, QVB
 
 from interview_assistant import __version__
 from interview_assistant.app.controller import AssistantController
+from interview_assistant.app.interview_session import InterviewSessionManager
 from interview_assistant.app.presentation import PresentationMode
 from interview_assistant.cost.tracker import format_usd
 from interview_assistant.history.store import HistoryStore
@@ -31,6 +32,7 @@ class MainWindow(QMainWindow):
         overlay: OverlayWindow | None = None,
         partials: bool = True,
         history: HistoryStore | None = None,
+        interview_sessions: InterviewSessionManager | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Interview Assistant")
@@ -47,7 +49,11 @@ class MainWindow(QMainWindow):
         self.clear_button.setToolTip("Clear the conversation context and start a new cost session")
         self.cost_label = QLabel("")
         self.history_button = QPushButton("History")
-        self.history_window = HistoryWindow(history) if history is not None else None
+        self.history_window = (
+            HistoryWindow(history, session_manager=interview_sessions)
+            if history is not None
+            else None
+        )
         self.settings_button = QPushButton("Settings")
         self.settings_button.setEnabled(False)  # enabled by attach_settings()
         self.settings_dialog: SettingsDialog | None = None

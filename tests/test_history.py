@@ -5,7 +5,9 @@ import threading
 import pytest
 from PySide6.QtCore import Qt
 
+from interview_assistant.agents.jev import JevConfig
 from interview_assistant.app.controller import AssistantController
+from interview_assistant.app.interview_session import InterviewSessionManager
 from interview_assistant.cost.pricing import PriceBook
 from interview_assistant.cost.tracker import Budget, CostTracker
 from interview_assistant.history.store import SCHEMA_VERSION, HistoryStore, TurnRecord, fts_query
@@ -577,9 +579,9 @@ class Prompts:
         return self.path
 
 
-def make_window(qtbot, store, **kw):
+def make_window(qtbot, store, session_manager=None, **kw):
     p = Prompts(**kw)
-    w = HistoryWindow(store, p.confirm, p.pick)
+    w = HistoryWindow(store, p.confirm, p.pick, session_manager=session_manager)
     qtbot.addWidget(w)
     return w, p
 
@@ -668,6 +670,65 @@ def test_window_refresh_picks_up_new_turns(qtbot, store):
     w.refresh()
     assert w.sessions.count() == 1 and w.turns.count() == 1 and w.del_turn_btn.isEnabled()
     assert w.sessions.item(0).data(Qt.ItemDataRole.UserRole).title == "brand new"
+
+
+# ---------------- history window: session dashboard (Step 18) ----------------
+def test_window_shows_company_role_and_duration_for_linked_sessions(qtbot, store):
+    iid = store.create_interview_session(company="Google", role_title="SWE")
+    store.set_active_interview_session(iid)
+    store.add_turn(turn("q1", "a1"))
+    store.end_session()
+    store.end_interview_session(iid)
+
+    w, _ = make_window(qtbot, store)
+    text = w.sessions.item(0).text()
+    assert "Google — SWE" in text
+    assert " · " in text and "m" in text  # a duration like "0m" once ended_at is set
+
+
+def test_window_unlinked_sessions_still_show_their_plain_title(qtbot, store):
+    w, _ = make_window(qtbot, filled(store))
+    assert "URL shortener" in w.sessions.item(0).text()
+
+
+def test_window_create_session_button_disabled_without_a_manager(qtbot, store):
+    w, _ = make_window(qtbot, store)
+    assert not w.create_session_btn.isEnabled()
+    w.open_create_session()
+    assert w._session_dialog is None  # a no-op: nothing to activate into
+
+
+def test_window_create_session_opens_dialog_and_activates_on_created(qtbot, store):
+    mgr = InterviewSessionManager(JevConfig(), store, base_profile=None)
+    w, _ = make_window(qtbot, store, session_manager=mgr)
+    assert w.create_session_btn.isEnabled()
+
+    w.open_create_session()
+    dialog = w._session_dialog
+    assert dialog is not None
+    dialog.company.setText("Google")
+    dialog.next_btn.click()  # Details -> Preferences
+    with qtbot.waitSignal(dialog.created):
+        dialog.next_btn.click()  # Preferences -> create
+
+    assert mgr.current is not None and mgr.current.company == "Google"
+    assert "Google" in w.status.text()
+    assert store.list_interview_sessions()[0].company == "Google"  # really persisted, not just set
+
+
+def test_window_view_transcript_renders_full_session_inline(qtbot, store):
+    w, _ = make_window(qtbot, filled(store))
+    w.sessions.setCurrentRow(1)  # the older, 2-turn session
+    assert w.view_transcript_btn.isEnabled()
+    w.view_transcript()
+    text = w.detail.toPlainText()
+    assert "Tell me about a conflict" in text and "What is a mutex?" in text
+    assert "I mediated." in text and "A lock." in text
+
+
+def test_view_transcript_button_disabled_with_no_session_selected(qtbot, store):
+    w, _ = make_window(qtbot, store)
+    assert not w.view_transcript_btn.isEnabled()
 
 
 def test_route_event_import_used():

@@ -224,6 +224,16 @@ def test_old_history_is_purged_at_startup(qtbot, tmp_path, monkeypatch):
         qtbot.addWidget(parts.overlay)
 
 
+def test_interview_session_manager_is_wired_into_the_history_window(parts_factory):
+    """Step 18: the session dashboard's "+ Create Session" button needs the same
+    InterviewSessionManager instance build_app() constructs - not a second, disconnected one."""
+    p = parts_factory()
+    hw = p.window.history_window
+    assert hw is not None
+    assert hw._session_manager is p.interview_sessions
+    assert hw.create_session_btn.isEnabled()
+
+
 def test_main_module_imports_and_exposes_entry_point():
     from interview_assistant import __main__ as entry
 

@@ -103,6 +103,7 @@ def build_app(
         overlay,
         partials=not billed,  # partials re-send the whole utterance: only free for local STT
         history=history,
+        interview_sessions=interview_sessions,
     )
 
     # ---- privacy: incognito, redaction, presentation mode, consent ----
