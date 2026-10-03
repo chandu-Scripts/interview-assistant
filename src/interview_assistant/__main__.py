@@ -97,6 +97,8 @@ def main() -> int:
         hotkeys.register(settings.hotkey_answer, parts.controller.trigger_answer)
     if settings.hotkey_screenshot:
         hotkeys.register(settings.hotkey_screenshot, parts.overlay.take_screenshot)
+    if settings.hotkey_chat:
+        hotkeys.register(settings.hotkey_chat, parts.overlay.toggle_chat)
 
     parts.window.show()
     parts.overlay.show()

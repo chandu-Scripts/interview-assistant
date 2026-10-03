@@ -237,12 +237,14 @@ class SettingsDialog(QDialog):
         self.hotkey_bubble = QLineEdit()
         self.hotkey_answer = QLineEdit()
         self.hotkey_screenshot = QLineEdit()
+        self.hotkey_chat = QLineEdit()
         for e in (
             self.hotkey_presentation,
             self.hotkey_overlay,
             self.hotkey_bubble,
             self.hotkey_answer,
             self.hotkey_screenshot,
+            self.hotkey_chat,
         ):
             e.setPlaceholderText("e.g. ctrl+alt+p (empty = disabled)")
         form.addRow(self.incognito)
@@ -253,6 +255,7 @@ class SettingsDialog(QDialog):
         form.addRow("Hotkey: collapse to bubble", self.hotkey_bubble)
         form.addRow("Hotkey: answer from any window", self.hotkey_answer)
         form.addRow("Hotkey: screenshot from any window", self.hotkey_screenshot)
+        form.addRow("Hotkey: show/hide chat from any window", self.hotkey_chat)
         return w
 
     def _shared_access_tab(
@@ -318,6 +321,7 @@ class SettingsDialog(QDialog):
         self.hotkey_bubble.setText(s.hotkey_bubble)
         self.hotkey_answer.setText(s.hotkey_answer)
         self.hotkey_screenshot.setText(s.hotkey_screenshot)
+        self.hotkey_chat.setText(s.hotkey_chat)
         for row in self.key_rows.values():
             row.refresh()
         self.relay_panel.refresh()
@@ -369,6 +373,7 @@ class SettingsDialog(QDialog):
             ("hotkey_bubble", self.hotkey_bubble),
             ("hotkey_answer", self.hotkey_answer),
             ("hotkey_screenshot", self.hotkey_screenshot),
+            ("hotkey_chat", self.hotkey_chat),
         ):
             spec = edit.text().strip()
             if spec:

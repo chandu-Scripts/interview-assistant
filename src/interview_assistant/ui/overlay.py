@@ -117,7 +117,7 @@ class OverlayWindow(QWidget):
         self.answer_btn = self._shortcut_button("Answer", "Ctrl ↵", "Answer the question above")
         self.answer_btn.setEnabled(False)
         self.screenshot_btn = self._shortcut_button("Screenshot", "Ctrl ⇧ ↵", SCREENSHOT_TIP)
-        self.chat_btn = self._shortcut_button("Chat", "Ctrl ⇧ `", "Type a question (toggle)")
+        self.chat_btn = self._shortcut_button("Chat", "Ctrl ⇧ Space", "Type a question (toggle)")
         self.fix_btn = self._icon_button("✎", "Wrong specialist? Pick the right one and redo")
         self.collapse_btn = self._icon_button("–", "Collapse / expand")
         self.close_btn = QPushButton("End")
@@ -250,7 +250,7 @@ class OverlayWindow(QWidget):
         self.fix_btn.clicked.connect(self._toggle_fix_row)
         self.fix_apply_btn.clicked.connect(self._apply_fix)
         self.fix_btn.setEnabled(False)
-        self.chat_btn.clicked.connect(self._toggle_chat_row)
+        self.chat_btn.clicked.connect(self.toggle_chat)
         self.collapse_btn.clicked.connect(self.toggle_collapsed)
         self.close_btn.clicked.connect(self.hide)
         self.copy_btn.clicked.connect(self.copy_answer)
@@ -527,7 +527,7 @@ class OverlayWindow(QWidget):
         self._fix_row_open = not self._fix_row_open
         self.fix_row.setVisible(self._fix_row_open)
 
-    def _toggle_chat_row(self) -> None:
+    def toggle_chat(self) -> None:
         # Same explicit-flag idiom as _toggle_fix_row, and for the same reason. Unlike the fix
         # row, this one is left open after sending a question - it's a small persistent chat box,
         # not a one-shot action.

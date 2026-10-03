@@ -24,7 +24,7 @@ _MODS = {
 }
 
 
-_NAMED_KEYS = {"enter": 0x0D, "return": 0x0D}
+_NAMED_KEYS = {"enter": 0x0D, "return": 0x0D, "space": 0x20}
 
 
 class MSG(ctypes.Structure):
@@ -57,7 +57,7 @@ def parse_hotkey(spec: str) -> tuple[int, int]:
         vk = _NAMED_KEYS[key]
     else:
         raise ValueError(
-            f"unsupported key {key!r} in {spec!r} (use a letter, digit, F1-F12 or enter)"
+            f"unsupported key {key!r} in {spec!r} (use a letter, digit, F1-F12, enter or space)"
         )
     return modifiers, vk
 
