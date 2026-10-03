@@ -186,6 +186,9 @@ class AssistantController(QObject):
                 self.screenshot_pending.emit(False)
             self._runner.submit(self._run(gen, text, source, speech_lag, image, explicit))
 
+    def set_answer_mode(self, mode: Literal["manual", "auto"]) -> None:
+        self._answer_mode = mode
+
     def stop(self) -> None:
         self._runner.call_soon(self._stop_active)
 

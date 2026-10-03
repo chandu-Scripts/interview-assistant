@@ -283,3 +283,29 @@ def test_overlay_menu_carries_the_actions_of_the_old_main_window(parts_factory):
     p = parts_factory()
     labels = [label for label, _ in p.window.overlay._menu_actions]
     assert labels == ["History", "Settings", "Privacy", "New interview", "Show transcript window"]
+
+
+def test_session_choices_drive_answer_mode_and_saving_until_the_session_ends(parts_factory):
+    from interview_assistant.app.interview_session import SessionDetails
+
+    p = parts_factory()
+    assert p.controller._answer_mode == "manual" and not p.privacy.incognito
+    p.interview_sessions.activate(
+        SessionDetails(company="Accenture", auto_generate=True, save_transcript=False)
+    )
+    assert p.controller._answer_mode == "auto" and p.privacy.incognito
+    p.interview_sessions.end_active()
+    assert p.controller._answer_mode == "manual" and not p.privacy.incognito
+
+
+def test_end_saves_the_session_and_closes_the_app(parts_factory):
+    from interview_assistant.app.interview_session import SessionDetails
+
+    app = StubApp()
+    p = parts_factory(qapp=app)
+    p.interview_sessions.activate(SessionDetails(company="Accenture"))
+    p.overlay.close_btn.click()
+    assert app.quit_calls == 1
+    assert p.interview_sessions.current is None
+    (session,) = p.history.list_interview_sessions()
+    assert session.ended_at is not None

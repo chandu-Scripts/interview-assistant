@@ -6,6 +6,7 @@ HistoryStore.set_active_interview_session(). The dialog that collects SessionDet
 (ui/session_dialog.py) stays free of this wiring so it's trivially testable on its own.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from interview_assistant.agents.jev import JevConfig
@@ -44,6 +45,9 @@ class InterviewSessionManager:
         self._history = history
         self._base_profile = base_profile  # the global candidate_profile, before any override
         self.current: InterviewSession | None = None
+        # Told when a session starts (its details) or ends (None), so the rest of the app can apply
+        # per-session choices such as auto answering and transcript saving.
+        self.on_change: Callable[[SessionDetails | None], None] | None = None
 
     def activate(self, details: SessionDetails) -> InterviewSession:
         self.end_active()
@@ -74,6 +78,8 @@ class InterviewSessionManager:
         self._config.answer_length = details.answer_length
         self._config.answer_tone = details.answer_tone
         self._config.language = details.language
+        if self.on_change is not None:
+            self.on_change(details)
         return session
 
     def end_active(self) -> None:
@@ -91,3 +97,5 @@ class InterviewSessionManager:
         self._config.answer_length = ""
         self._config.answer_tone = ""
         self._config.language = "English"
+        if self.on_change is not None:
+            self.on_change(None)

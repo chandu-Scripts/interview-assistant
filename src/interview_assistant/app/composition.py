@@ -12,9 +12,10 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from interview_assistant.agents.jev import Jev, JevConfig
 from interview_assistant.app.controller import AssistantController
-from interview_assistant.app.interview_session import InterviewSessionManager
+from interview_assistant.app.interview_session import InterviewSessionManager, SessionDetails
 from interview_assistant.app.presentation import PresentationMode
 from interview_assistant.app.restart import request_restart
+from interview_assistant.app.resume_library import ResumeLibrary
 from interview_assistant.audio.types import DeviceKind
 from interview_assistant.config.keys import KeyStore
 from interview_assistant.config.settings import Settings
@@ -133,9 +134,42 @@ def build_app(
     privacy = PrivacyState(
         history, tracker, jev.config, incognito=settings.incognito, redact=settings.redact_pii
     )
+    session_incognito_before: dict[str, bool] = {}
+
+    def apply_session_options(details: SessionDetails | None) -> None:
+        if details is None:
+            controller.set_answer_mode(settings.answer_mode)
+            if "incognito" in session_incognito_before:
+                privacy.set_incognito(session_incognito_before.pop("incognito"))
+            return
+        controller.set_answer_mode("auto" if details.auto_generate else "manual")
+        if not details.save_transcript and not privacy.incognito:
+            session_incognito_before["incognito"] = privacy.incognito
+            privacy.set_incognito(True)
+
+    interview_sessions.on_change = apply_session_options
+
+    def connect_session() -> None:
+        if not window.audio_panel.recording:
+            window.audio_panel.start()
+        if window.mic_panel is not None and not window.mic_panel.recording:
+            window.mic_panel.start()
+        overlay.show()
+        overlay.raise_()
+
+    def end_session_and_close() -> None:
+        interview_sessions.end_active()
+        window.audio_panel.stop()
+        if window.mic_panel is not None:
+            window.mic_panel.stop()
+        qapp.quit()
+
+    overlay.end_requested.connect(end_session_and_close)
     start_screen = StartScreen(
         history,
-        window.history_window.open_create_session,
+        ResumeLibrary(data_dir(settings) / "resumes.json"),
+        interview_sessions.activate,
+        connect_session,
         window.show_history,
     )
     hidden: list[QWidget] = [

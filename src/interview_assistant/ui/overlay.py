@@ -1,7 +1,7 @@
 import time
 from collections.abc import Callable
 
-from PySide6.QtCore import QPoint, QSettings, Qt, QTimer
+from PySide6.QtCore import QPoint, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -84,6 +84,8 @@ class OverlayWindow(QWidget):
     makes no attempt to hide itself from screen capture; that is Step 10's explicit mode.
     """
 
+    end_requested = Signal()  # the End button: the app ends the session and closes
+
     def __init__(
         self, controller: AssistantController | None = None, settings: QSettings | None = None
     ) -> None:
@@ -140,7 +142,7 @@ class OverlayWindow(QWidget):
         self.more_btn = self._icon_button("⋮", "More: devices, history, settings, privacy")
         self.close_btn = QPushButton("End")
         self.close_btn.setObjectName("end")
-        self.close_btn.setToolTip("Hide the overlay (Ctrl+H collapses it to a bubble)")
+        self.close_btn.setToolTip("End the session and close the app")
         self.clear_btn = QPushButton("Clear")
         self.clear_btn.setToolTip("Clear the answers on screen (history is kept)")
         # Widgets hidden in bubble mode (everything except the status dot, which IS the bubble).
@@ -279,7 +281,7 @@ class OverlayWindow(QWidget):
         self.fix_btn.setEnabled(False)
         self.chat_btn.clicked.connect(self.toggle_chat)
         self.collapse_btn.clicked.connect(self.toggle_collapsed)
-        self.close_btn.clicked.connect(self.hide)
+        self.close_btn.clicked.connect(self.end_requested)
         self.copy_btn.clicked.connect(self.copy_answer)
         self.opacity.valueChanged.connect(self._set_opacity)
         self.input.returnPressed.connect(self._submit_typed)
