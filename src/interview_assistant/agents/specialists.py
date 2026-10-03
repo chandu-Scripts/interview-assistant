@@ -118,6 +118,7 @@ def system_prompt(
     answer_format: str = "",
     answer_length: str = "",
     answer_tone: str = "",
+    language: str = "English",
 ) -> str:
     """The extra keyword-only args come from an active "Create Interview Session" (Step 17);
     every one of them defaults to empty, so a plain call behaves exactly as it always did."""
@@ -142,6 +143,8 @@ def system_prompt(
     )
     if prefs:
         parts.append(f"Answer preferences for this session - {prefs}.")
+    if language.strip() and language.strip().lower() != "english":
+        parts.append(f"Answer in {language.strip()}.")
     if instructions:
         parts.append(
             f"Additional instructions from the candidate for this session "

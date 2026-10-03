@@ -11,7 +11,7 @@ from typing import Literal
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 Status = Literal["complete", "interrupted", "stopped", "error"]
 ExportFormat = Literal["md", "json"]
 
@@ -28,7 +28,11 @@ CREATE TABLE interview_sessions (
     answer_format TEXT NOT NULL DEFAULT '',
     answer_length TEXT NOT NULL DEFAULT '',
     answer_tone TEXT NOT NULL DEFAULT '',
-    model_route_override TEXT NOT NULL DEFAULT ''
+    model_route_override TEXT NOT NULL DEFAULT '',
+    session_type TEXT NOT NULL DEFAULT 'Interview',
+    language TEXT NOT NULL DEFAULT 'English',
+    auto_generate INTEGER NOT NULL DEFAULT 0,
+    save_transcript INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE sessions (
     id INTEGER PRIMARY KEY,
@@ -146,6 +150,10 @@ class InterviewSession:
     answer_length: str = ""
     answer_tone: str = ""
     model_route_override: str = ""
+    session_type: str = "Interview"
+    language: str = "English"
+    auto_generate: bool = False
+    save_transcript: bool = True
 
     @property
     def duration_s(self) -> float | None:
@@ -271,6 +279,17 @@ class HistoryStore:
                     "ALTER TABLE sessions ADD COLUMN interview_session_id "
                     "INTEGER REFERENCES interview_sessions(id)"
                 )
+                self._db.execute("PRAGMA user_version = 3")
+                self._db.commit()
+                version = 3
+            if version == 3:
+                for column in (
+                    "session_type TEXT NOT NULL DEFAULT 'Interview'",
+                    "language TEXT NOT NULL DEFAULT 'English'",
+                    "auto_generate INTEGER NOT NULL DEFAULT 0",
+                    "save_transcript INTEGER NOT NULL DEFAULT 1",
+                ):
+                    self._db.execute(f"ALTER TABLE interview_sessions ADD COLUMN {column}")
                 self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
                 self._db.commit()
                 version = SCHEMA_VERSION
@@ -314,14 +333,19 @@ class HistoryStore:
         answer_length: str = "",
         answer_tone: str = "",
         model_route_override: str = "",
+        session_type: str = "Interview",
+        language: str = "English",
+        auto_generate: bool = False,
+        save_transcript: bool = True,
     ) -> int:
         with self._lock:
             cur = self._db.execute(
                 """INSERT INTO interview_sessions(
                        created_at, company, role_title, job_description, resume_override,
                        ai_instructions, answer_format, answer_length, answer_tone,
-                       model_route_override
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       model_route_override, session_type, language, auto_generate,
+                       save_transcript
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     self._clock(),
                     company,
@@ -333,6 +357,10 @@ class HistoryStore:
                     answer_length,
                     answer_tone,
                     model_route_override,
+                    session_type,
+                    language,
+                    int(auto_generate),
+                    int(save_transcript),
                 ),
             )
             self._db.commit()
@@ -368,7 +396,10 @@ class HistoryStore:
 
     @staticmethod
     def _interview_session(r: sqlite3.Row) -> InterviewSession:
-        return InterviewSession(**{k: r[k] for k in r.keys()})
+        fields = {k: r[k] for k in r.keys()}
+        fields["auto_generate"] = bool(fields["auto_generate"])
+        fields["save_transcript"] = bool(fields["save_transcript"])
+        return InterviewSession(**fields)
 
     def add_turn(self, turn: TurnRecord) -> int | None:
         """Store a turn (opening a session lazily). Returns its id, or None when disabled."""

@@ -796,7 +796,6 @@ def test_session_dialog_emits_created_with_collected_details(qtbot):
     d.company.setText("Google")
     d.role_title.setText("Software Engineer")
     d.job_description.setPlainText("Build search infra.")
-    d.resume_override.setPlainText("5y Python")
     d.next_btn.click()
     d.model_override.setText("openai:gpt-4o")
     d.answer_format.setCurrentText("Bullet points")
@@ -807,7 +806,7 @@ def test_session_dialog_emits_created_with_collected_details(qtbot):
         d.next_btn.click()
     (got,) = sig.args
     assert got.company == "Google" and got.role_title == "Software Engineer"
-    assert got.job_description == "Build search infra." and got.resume_override == "5y Python"
+    assert got.job_description == "Build search infra." and got.resume_override == ""
     assert got.model_route_override == "openai:gpt-4o"
     assert (got.answer_format, got.answer_length, got.answer_tone) == (
         "Bullet points",

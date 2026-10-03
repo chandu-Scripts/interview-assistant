@@ -30,6 +30,7 @@ class JevConfig:
     answer_format: str = ""
     answer_length: str = ""
     answer_tone: str = ""
+    language: str = "English"
 
 
 class Jev:
@@ -94,6 +95,7 @@ class Jev:
                 answer_format=self.config.answer_format,
                 answer_length=self.config.answer_length,
                 answer_tone=self.config.answer_tone,
+                language=self.config.language,
             ),
             max_tokens=spec.max_tokens,
             image=image,

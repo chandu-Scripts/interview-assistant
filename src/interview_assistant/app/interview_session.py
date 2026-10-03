@@ -21,11 +21,16 @@ class SessionDetails:
     role_title: str = ""
     job_description: str = ""
     resume_override: str = ""  # empty = fall back to the global candidate_profile
+    resume_name: str = ""  # which saved resume it came from ("" = none)
     ai_instructions: str = ""
     answer_format: str = ""
     answer_length: str = ""
     answer_tone: str = ""
     model_route_override: str = ""
+    session_type: str = "Interview"
+    language: str = "English"
+    auto_generate: bool = False
+    save_transcript: bool = True
 
 
 class InterviewSessionManager:
@@ -52,6 +57,10 @@ class InterviewSessionManager:
             answer_length=details.answer_length,
             answer_tone=details.answer_tone,
             model_route_override=details.model_route_override,
+            session_type=details.session_type,
+            language=details.language,
+            auto_generate=details.auto_generate,
+            save_transcript=details.save_transcript,
         )
         session = self._history.get_interview_session(session_id)
         assert session is not None  # just inserted, under the same lock
@@ -64,6 +73,7 @@ class InterviewSessionManager:
         self._config.answer_format = details.answer_format
         self._config.answer_length = details.answer_length
         self._config.answer_tone = details.answer_tone
+        self._config.language = details.language
         return session
 
     def end_active(self) -> None:
@@ -80,3 +90,4 @@ class InterviewSessionManager:
         self._config.answer_format = ""
         self._config.answer_length = ""
         self._config.answer_tone = ""
+        self._config.language = "English"

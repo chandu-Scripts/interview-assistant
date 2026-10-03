@@ -82,9 +82,9 @@ def test_dialog_attach_fills_the_field_and_reports_the_file(qtbot, tmp_path, mon
     )
     d = SessionDialog()
     qtbot.addWidget(d)
-    d._attach_into(d.resume_override, d.resume_status)
-    assert d.resume_override.toPlainText() == "Chandrashekhar, Azure data engineer"
-    assert "Attached cv.txt" in d.resume_status.text()
+    d._attach_into(d.ai_instructions, d.prompt_status)
+    assert d.ai_instructions.toPlainText() == "Chandrashekhar, Azure data engineer"
+    assert "Attached cv.txt" in d.prompt_status.text()
 
 
 def test_dialog_attach_reports_an_unsupported_file_and_keeps_the_field(
@@ -107,5 +107,5 @@ def test_cancelling_the_file_picker_changes_nothing(qtbot, monkeypatch):
     monkeypatch.setattr(session_dialog.QFileDialog, "getOpenFileName", lambda *a, **k: ("", ""))
     d = SessionDialog()
     qtbot.addWidget(d)
-    d._attach_into(d.resume_override, d.resume_status)
-    assert d.resume_override.toPlainText() == "" and d.resume_status.text() == ""
+    d._attach_into(d.ai_instructions, d.prompt_status)
+    assert d.ai_instructions.toPlainText() == "" and d.prompt_status.text() == ""
