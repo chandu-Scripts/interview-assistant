@@ -15,6 +15,7 @@ from interview_assistant.agents.jev import Jev, JevConfig
 from interview_assistant.agents.types import Category
 from interview_assistant.app.aggregator import UtteranceAggregator
 from interview_assistant.app.controller import AssistantController
+from interview_assistant.app.interview_session import InterviewSessionManager, SessionDetails
 from interview_assistant.app.presentation import PresentationMode
 from interview_assistant.audio.capture import AudioCapture
 from interview_assistant.cost.pricing import PriceBook
@@ -209,6 +210,36 @@ def test_manual_mode_waits_for_answer_button_then_streams(make_stack, qtbot):
     s.answered("hash map.")
     (turn,) = s.wait_turns(1)
     assert (turn.question, turn.source) == (TWO_SUM, "voice")
+
+
+def test_creating_and_activating_an_interview_session_flows_into_the_prompt(make_stack):
+    """End-to-end through the real pipeline: activating a session (Step 17) mutates the live
+    Jev config, and the very next real request carries its job description/instructions/answer
+    preferences - and tags the saved turn's history with the session via the DB link."""
+    prov = hash_provider()
+    s = make_stack({"openai": prov}, [TWO_SUM])
+    mgr = InterviewSessionManager(s.jev.config, s.history, base_profile="Backend engineer")
+    session = mgr.activate(
+        SessionDetails(
+            company="Google",
+            role_title="Software Engineer",
+            job_description="Build search infrastructure.",
+            ai_instructions="Always mention time complexity.",
+            answer_format="Bullet points",
+        )
+    )
+
+    s.speak()
+    s.answered("hash map.")
+    sent = prov.requests[-1].system
+    assert "Google" in sent and "Build search infrastructure." in sent
+    assert "Always mention time complexity." in sent and "Bullet points" in sent
+
+    (turn,) = s.wait_turns(1)
+    row = s.history._db.execute(
+        "SELECT interview_session_id FROM sessions WHERE id = ?", (turn.session_id,)
+    ).fetchone()
+    assert row[0] == session.id
 
 
 def test_filler_is_ignored_and_never_saved(make_stack):

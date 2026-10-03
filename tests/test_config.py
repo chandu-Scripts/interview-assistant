@@ -34,6 +34,7 @@ from interview_assistant.ui.key_row import KeyRow
 from interview_assistant.ui.main_window import MainWindow
 from interview_assistant.ui.onboarding import OnboardingWizard, needs_onboarding
 from interview_assistant.ui.relay_panel import RelayPanel
+from interview_assistant.ui.session_dialog import SessionDialog
 from interview_assistant.ui.settings_dialog import SettingsDialog
 
 KEYS = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY")
@@ -737,6 +738,79 @@ def test_main_window_settings_button(qtbot, dialog):
     win.show_settings()
     assert d.isVisible()
     d.close()
+
+
+# ---------------- session dialog (Step 17: "Create Interview Session") ----------------
+def test_session_dialog_starts_on_details_and_requires_a_company(qtbot):
+    d = SessionDialog()
+    qtbot.addWidget(d)
+    assert d.pages.currentIndex() == 0
+    assert not d.back_btn.isVisibleTo(d) and d.next_btn.text() == "Next"
+    d.next_btn.click()
+    assert d.pages.currentIndex() == 0  # blocked: no company yet
+    assert "company" in d.message.text().lower()
+
+
+def test_session_dialog_advances_to_preferences_and_back(qtbot):
+    d = SessionDialog()
+    qtbot.addWidget(d)
+    d.company.setText("Google")
+    d.next_btn.click()
+    assert d.pages.currentIndex() == 1
+    assert d.back_btn.isVisibleTo(d) and d.next_btn.text() == "Create Interview Session"
+    d.back_btn.click()
+    assert d.pages.currentIndex() == 0 and not d.back_btn.isVisibleTo(d)
+
+
+def test_session_dialog_rejects_an_invalid_model_override(qtbot):
+    d = SessionDialog()
+    qtbot.addWidget(d)
+    d.company.setText("Google")
+    d.next_btn.click()
+    d.model_override.setText("nomodel")
+    d.next_btn.click()
+    assert d.pages.currentIndex() == 1  # still on preferences - not accepted
+    assert "Model override" in d.message.text()
+
+
+def test_session_dialog_emits_created_with_collected_details(qtbot):
+    d = SessionDialog()
+    qtbot.addWidget(d)
+    d.company.setText("Google")
+    d.role_title.setText("Software Engineer")
+    d.job_description.setPlainText("Build search infra.")
+    d.resume_override.setPlainText("5y Python")
+    d.next_btn.click()
+    d.model_override.setText("openai:gpt-4o")
+    d.answer_format.setCurrentText("Bullet points")
+    d.answer_length.setCurrentText("Short")
+    d.answer_tone.setCurrentText("Formal")
+    d.ai_instructions.setPlainText("Be concise.")
+    with qtbot.waitSignal(d.created) as sig:
+        d.next_btn.click()
+    (got,) = sig.args
+    assert got.company == "Google" and got.role_title == "Software Engineer"
+    assert got.job_description == "Build search infra." and got.resume_override == "5y Python"
+    assert got.model_route_override == "openai:gpt-4o"
+    assert (got.answer_format, got.answer_length, got.answer_tone) == (
+        "Bullet points",
+        "Short",
+        "Formal",
+    )
+    assert got.ai_instructions == "Be concise."
+
+
+def test_session_dialog_defaults_are_all_empty(qtbot):
+    d = SessionDialog()
+    qtbot.addWidget(d)
+    d.company.setText("Google")
+    d.next_btn.click()
+    with qtbot.waitSignal(d.created) as sig:
+        d.next_btn.click()
+    (got,) = sig.args
+    assert got.role_title == "" and got.job_description == "" and got.resume_override == ""
+    assert got.model_route_override == "" and got.ai_instructions == ""
+    assert got.answer_format == "" and got.answer_length == "" and got.answer_tone == ""
 
 
 # ---------------- onboarding ----------------

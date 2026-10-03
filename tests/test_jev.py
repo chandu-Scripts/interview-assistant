@@ -200,6 +200,51 @@ def test_data_sql_prompt_covers_ties_null_alternative_and_index():
     assert "index" in p.lower() and "schema" in p.lower()
 
 
+# ---------------- specialists: Step 17 session context (company/JD/instructions/preferences) ----
+def test_system_prompt_with_no_session_context_is_unchanged():
+    """Every new kwarg defaults to empty, so an old-style call behaves exactly as it always did."""
+    p = system_prompt(SPECIALISTS[C.CODING], "5 yrs Python")
+    assert "This interview is for" not in p
+    assert "Answer preferences for this session" not in p
+    assert "Additional instructions" not in p
+
+
+def test_system_prompt_includes_company_and_job_description():
+    p = system_prompt(
+        SPECIALISTS[C.CODING], None, company="Google", job_description="Build search infra."
+    )
+    assert "This interview is for the following role" in p
+    assert "Company: Google" in p and "Build search infra." in p
+
+
+def test_system_prompt_job_description_alone_is_included_without_a_company_line():
+    p = system_prompt(SPECIALISTS[C.CODING], None, job_description="Build search infra.")
+    assert "Company:" not in p and "Build search infra." in p
+
+
+def test_system_prompt_includes_answer_preferences():
+    p = system_prompt(
+        SPECIALISTS[C.CODING],
+        None,
+        answer_format="Bullet points",
+        answer_length="Short",
+        answer_tone="Formal",
+    )
+    assert "Answer preferences for this session" in p
+    assert "format: Bullet points" in p and "length: Short" in p and "tone: Formal" in p
+
+
+def test_system_prompt_partial_answer_preferences_omit_the_others():
+    p = system_prompt(SPECIALISTS[C.CODING], None, answer_tone="Casual")
+    assert "tone: Casual" in p and "format:" not in p and "length:" not in p
+
+
+def test_system_prompt_includes_ai_instructions():
+    p = system_prompt(SPECIALISTS[C.CODING], None, instructions="Always mention trade-offs.")
+    assert "Additional instructions from the candidate" in p
+    assert "Always mention trade-offs." in p
+
+
 def test_manual_decision_builds_a_confident_user_sourced_decision():
     jev, _ = make_jev(["ok"])
     d = jev.manual_decision(C.DATA_SQL)

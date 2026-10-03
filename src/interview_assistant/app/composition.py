@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from interview_assistant.agents.jev import Jev, JevConfig
 from interview_assistant.app.controller import AssistantController
+from interview_assistant.app.interview_session import InterviewSessionManager
 from interview_assistant.app.presentation import PresentationMode
 from interview_assistant.app.restart import request_restart
 from interview_assistant.audio.types import DeviceKind
@@ -46,6 +47,7 @@ class AppParts:
     providers: dict[str, LLMProvider]
     jev: Jev
     history: HistoryStore
+    interview_sessions: InterviewSessionManager
     controller: AssistantController
     overlay: OverlayWindow
     window: MainWindow
@@ -85,6 +87,7 @@ def build_app(
     if settings.history_retention_days:
         removed = history.purge_older_than(settings.history_retention_days)
         log.info("Retention purge removed %d old session(s)", removed)
+    interview_sessions = InterviewSessionManager(jev.config, history, settings.candidate_profile)
     controller = AssistantController(
         jev, tracker=tracker, history=history, answer_mode=settings.answer_mode
     )
@@ -181,6 +184,7 @@ def build_app(
         providers=providers,
         jev=jev,
         history=history,
+        interview_sessions=interview_sessions,
         controller=controller,
         overlay=overlay,
         window=window,

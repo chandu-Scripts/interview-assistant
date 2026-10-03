@@ -21,6 +21,15 @@ class JevConfig:
     history_chars: int = 3000  # hard cap on context size
     classify_timeout_s: float = 2.5
     redact: bool = False  # mask PII/secrets in everything sent to AI providers (togglable live)
+    # Per-session context (Step 17's "Create Interview Session"); empty by default, mutated live
+    # when a session is activated/ended - the same pattern already used above for `redact`
+    # (see privacy/state.py's PrivacyState, and app/interview_session.py's InterviewSessionManager).
+    company: str = ""
+    job_description: str = ""
+    instructions: str = ""
+    answer_format: str = ""
+    answer_length: str = ""
+    answer_tone: str = ""
 
 
 class Jev:
@@ -75,7 +84,16 @@ class Jev:
         spec = SPECIALISTS[decision.category]
         request = LLMRequest(
             self._messages(question),
-            system=system_prompt(spec, self.config.profile),
+            system=system_prompt(
+                spec,
+                self.config.profile,
+                company=self.config.company,
+                job_description=self.config.job_description,
+                instructions=self.config.instructions,
+                answer_format=self.config.answer_format,
+                answer_length=self.config.answer_length,
+                answer_tone=self.config.answer_tone,
+            ),
             max_tokens=spec.max_tokens,
         )
         parts: list[str] = []

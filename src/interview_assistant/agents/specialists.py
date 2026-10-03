@@ -108,8 +108,43 @@ ANSWERABLE_CATEGORIES: list[Category] = [
 ]
 
 
-def system_prompt(spec: Specialist, profile: str | None) -> str:
+def system_prompt(
+    spec: Specialist,
+    profile: str | None,
+    *,
+    company: str = "",
+    job_description: str = "",
+    instructions: str = "",
+    answer_format: str = "",
+    answer_length: str = "",
+    answer_tone: str = "",
+) -> str:
+    """The extra keyword-only args come from an active "Create Interview Session" (Step 17);
+    every one of them defaults to empty, so a plain call behaves exactly as it always did."""
     parts = [BASE, spec.prompt]
     if profile:
         parts.append(f"Candidate profile (ground truth, do not contradict):\n{profile.strip()}")
+    if company or job_description:
+        role = "\n".join(
+            x
+            for x in (f"Company: {company.strip()}" if company else "", job_description.strip())
+            if x
+        )
+        parts.append(f"This interview is for the following role:\n{role}")
+    prefs = "; ".join(
+        f"{label}: {value.strip()}"
+        for label, value in (
+            ("format", answer_format),
+            ("length", answer_length),
+            ("tone", answer_tone),
+        )
+        if value
+    )
+    if prefs:
+        parts.append(f"Answer preferences for this session - {prefs}.")
+    if instructions:
+        parts.append(
+            f"Additional instructions from the candidate for this session "
+            f"(follow unless they conflict with the rules above):\n{instructions.strip()}"
+        )
     return "\n\n".join(parts)

@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 from interview_assistant.app.controller import AssistantController
 from interview_assistant.cost.pricing import PriceBook
 from interview_assistant.cost.tracker import Budget, CostTracker
-from interview_assistant.history.store import HistoryStore, TurnRecord, fts_query
+from interview_assistant.history.store import SCHEMA_VERSION, HistoryStore, TurnRecord, fts_query
 from interview_assistant.llm.router import RouteEvent
 from interview_assistant.ui.history_window import HistoryWindow
 from tests.test_app import FakeJev
@@ -74,6 +74,143 @@ def test_disabled_store_writes_nothing(store):
     assert store.counts() == (0, 0)
     store.enabled = True
     assert store.add_turn(turn())
+
+
+# ---------------- interview sessions (Step 17: "Create Interview Session") ----------------
+def test_create_get_list_and_end_interview_session(store):
+    assert store.list_interview_sessions() == []
+    sid = store.create_interview_session(
+        company="Google",
+        role_title="Software Engineer",
+        job_description="Build search infra.",
+        resume_override="5y Python",
+        ai_instructions="Be concise.",
+        answer_format="Bullet points",
+        answer_length="Short",
+        answer_tone="Formal",
+        model_route_override="openai:gpt-4o",
+    )
+    assert sid
+    got = store.get_interview_session(sid)
+    assert got is not None
+    assert (got.company, got.role_title, got.job_description) == (
+        "Google",
+        "Software Engineer",
+        "Build search infra.",
+    )
+    assert got.ended_at is None and got.duration_s is None
+    assert [s.id for s in store.list_interview_sessions()] == [sid]
+
+    store.end_interview_session(sid)
+    ended = store.get_interview_session(sid)
+    assert ended is not None
+    assert ended.ended_at is not None and ended.duration_s is not None and ended.duration_s >= 0
+
+
+def test_get_interview_session_missing_returns_none(store):
+    assert store.get_interview_session(999) is None
+
+
+def test_interview_sessions_newest_first(store):
+    a = store.create_interview_session(company="A")
+    b = store.create_interview_session(company="B")
+    assert [s.id for s in store.list_interview_sessions()] == [b, a]
+
+
+def test_active_interview_session_tags_new_turn_sessions(store):
+    """set_active_interview_session() only affects a NEWLY opened turn-session, not one already
+    in progress - matches add_turn()'s existing lazy-open behavior."""
+    store.add_turn(turn("before activation"))  # opens a turn-session with no interview_session_id
+    iid = store.create_interview_session(company="Acme")
+    store.set_active_interview_session(iid)
+    store.add_turn(turn("still in the same open turn-session"))
+    store.end_session()  # close it so the next add_turn opens a fresh, now-tagged one
+
+    store.add_turn(turn("after activation"))
+    sessions = store.list_sessions()
+    untagged = next(s for s in sessions if s.title == "before activation")
+    tagged = next(s for s in sessions if s.title == "after activation")
+    # SessionInfo doesn't expose interview_session_id directly; check via the raw turns table.
+    row_untagged = store._db.execute(
+        "SELECT interview_session_id FROM sessions WHERE id = ?", (untagged.id,)
+    ).fetchone()
+    row_tagged = store._db.execute(
+        "SELECT interview_session_id FROM sessions WHERE id = ?", (tagged.id,)
+    ).fetchone()
+    assert row_untagged[0] is None
+    assert row_tagged[0] == iid
+
+    store.set_active_interview_session(None)
+    store.end_session()
+    store.add_turn(turn("after deactivation"))
+    deactivated = next(s for s in store.list_sessions() if s.title == "after deactivation")
+    row = store._db.execute(
+        "SELECT interview_session_id FROM sessions WHERE id = ?", (deactivated.id,)
+    ).fetchone()
+    assert row[0] is None
+
+
+_V2_SCHEMA = """
+CREATE TABLE sessions (
+    id INTEGER PRIMARY KEY,
+    started_at REAL NOT NULL,
+    ended_at REAL,
+    title TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE turns (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    ts REAL NOT NULL,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'typed',
+    status TEXT NOT NULL DEFAULT 'complete',
+    category TEXT NOT NULL DEFAULT '',
+    agent TEXT NOT NULL DEFAULT '',
+    tier TEXT NOT NULL DEFAULT '',
+    confidence REAL,
+    decision_source TEXT NOT NULL DEFAULT '',
+    route TEXT NOT NULL DEFAULT '',
+    first_token_s REAL,
+    total_s REAL,
+    cost_usd REAL,
+    error TEXT NOT NULL DEFAULT '',
+    corrected_from TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX turns_session ON turns(session_id, ts);
+CREATE VIRTUAL TABLE turns_fts USING fts5(
+    question, answer, content='turns', content_rowid='id', tokenize='porter unicode61'
+);
+CREATE TRIGGER turns_ai AFTER INSERT ON turns BEGIN
+    INSERT INTO turns_fts(rowid, question, answer) VALUES (new.id, new.question, new.answer);
+END;
+"""
+
+
+def test_migration_from_v2_adds_interview_sessions_table_and_column(tmp_path):
+    """A database created by the pre-Step-17 app (no interview_sessions table, no
+    interview_session_id column) must open and gain both, without disturbing existing data."""
+    path = tmp_path / "h.db"
+    raw = sqlite3.connect(path)
+    raw.executescript(_V2_SCHEMA)
+    raw.execute("INSERT INTO sessions(started_at, title) VALUES (1000.0, 'old session')")
+    raw.execute(
+        "INSERT INTO turns(session_id, ts, question, answer) VALUES (1, 1000.0, 'old q', 'old a')"
+    )
+    raw.execute("PRAGMA user_version = 2")
+    raw.commit()
+    raw.close()
+
+    store = HistoryStore(path)
+    assert store.recovered_from is None  # a version upgrade is not "damage"
+    (existing,) = store.get_turns(1)
+    assert existing.question == "old q"  # pre-existing data survived the migration
+    sid = store.create_interview_session(company="Acme")  # the new table works
+    assert store.get_interview_session(sid) is not None
+    assert store.list_interview_sessions() == [store.get_interview_session(sid)]
+    raw2 = sqlite3.connect(path)
+    assert raw2.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    store.close()
 
 
 def test_reopen_persists_and_migration_is_idempotent(tmp_path):
@@ -146,7 +283,7 @@ def test_migration_from_v1_adds_corrected_from_column(tmp_path):
     new_session = next(s for s in store.list_sessions() if s.id != 1)
     assert store.get_turns(new_session.id)[-1].corrected_from == "hr"
     raw2 = sqlite3.connect(path)
-    assert raw2.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert raw2.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     raw2.close()
     store.close()
 

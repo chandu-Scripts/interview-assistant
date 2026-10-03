@@ -11,16 +11,31 @@ from typing import Literal
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 Status = Literal["complete", "interrupted", "stopped", "error"]
 ExportFormat = Literal["md", "json"]
 
 _SCHEMA = """
+CREATE TABLE interview_sessions (
+    id INTEGER PRIMARY KEY,
+    created_at REAL NOT NULL,
+    ended_at REAL,
+    company TEXT NOT NULL DEFAULT '',
+    role_title TEXT NOT NULL DEFAULT '',
+    job_description TEXT NOT NULL DEFAULT '',
+    resume_override TEXT NOT NULL DEFAULT '',
+    ai_instructions TEXT NOT NULL DEFAULT '',
+    answer_format TEXT NOT NULL DEFAULT '',
+    answer_length TEXT NOT NULL DEFAULT '',
+    answer_tone TEXT NOT NULL DEFAULT '',
+    model_route_override TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE sessions (
     id INTEGER PRIMARY KEY,
     started_at REAL NOT NULL,
     ended_at REAL,
-    title TEXT NOT NULL DEFAULT ''
+    title TEXT NOT NULL DEFAULT '',
+    interview_session_id INTEGER REFERENCES interview_sessions(id)
 );
 CREATE TABLE turns (
     id INTEGER PRIMARY KEY,
@@ -103,6 +118,31 @@ class SessionInfo:
 
 
 @dataclass(frozen=True)
+class InterviewSession:
+    """Created BEFORE a call starts (Step 17's "Create Interview Session"), unlike `sessions`
+    above (an auto-opened bucket of turns with no upfront metadata). A turn-grouping `sessions`
+    row may optionally link back to one via its interview_session_id - see
+    HistoryStore.set_active_interview_session()."""
+
+    id: int
+    created_at: float
+    ended_at: float | None
+    company: str = ""
+    role_title: str = ""
+    job_description: str = ""
+    resume_override: str = ""
+    ai_instructions: str = ""
+    answer_format: str = ""
+    answer_length: str = ""
+    answer_tone: str = ""
+    model_route_override: str = ""
+
+    @property
+    def duration_s(self) -> float | None:
+        return None if self.ended_at is None else self.ended_at - self.created_at
+
+
+@dataclass(frozen=True)
 class SearchHit:
     turn: StoredTurn
     snippet: str  # matching excerpt with [brackets] around the hit
@@ -152,6 +192,7 @@ class HistoryStore:
         except sqlite3.Error:
             log.warning("FTS5 secure-delete unavailable; deletions rely on compaction")
         self._session_id: int | None = None
+        self._active_interview_session_id: int | None = None
 
     def _open(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, check_same_thread=False)
@@ -194,6 +235,32 @@ class HistoryStore:
                 self._db.execute(
                     "ALTER TABLE turns ADD COLUMN corrected_from TEXT NOT NULL DEFAULT ''"
                 )
+                self._db.execute("PRAGMA user_version = 2")
+                self._db.commit()
+                version = 2
+            if version == 2:
+                self._db.executescript(
+                    """
+                    CREATE TABLE interview_sessions (
+                        id INTEGER PRIMARY KEY,
+                        created_at REAL NOT NULL,
+                        ended_at REAL,
+                        company TEXT NOT NULL DEFAULT '',
+                        role_title TEXT NOT NULL DEFAULT '',
+                        job_description TEXT NOT NULL DEFAULT '',
+                        resume_override TEXT NOT NULL DEFAULT '',
+                        ai_instructions TEXT NOT NULL DEFAULT '',
+                        answer_format TEXT NOT NULL DEFAULT '',
+                        answer_length TEXT NOT NULL DEFAULT '',
+                        answer_tone TEXT NOT NULL DEFAULT '',
+                        model_route_override TEXT NOT NULL DEFAULT ''
+                    );
+                    """
+                )
+                self._db.execute(
+                    "ALTER TABLE sessions ADD COLUMN interview_session_id "
+                    "INTEGER REFERENCES interview_sessions(id)"
+                )
                 self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
                 self._db.commit()
                 version = SCHEMA_VERSION
@@ -225,6 +292,74 @@ class HistoryStore:
                 self._db.commit()
             self._session_id = None
 
+    # ---- interview sessions (Step 17: created before a call starts) ----
+    def create_interview_session(
+        self,
+        company: str = "",
+        role_title: str = "",
+        job_description: str = "",
+        resume_override: str = "",
+        ai_instructions: str = "",
+        answer_format: str = "",
+        answer_length: str = "",
+        answer_tone: str = "",
+        model_route_override: str = "",
+    ) -> int:
+        with self._lock:
+            cur = self._db.execute(
+                """INSERT INTO interview_sessions(
+                       created_at, company, role_title, job_description, resume_override,
+                       ai_instructions, answer_format, answer_length, answer_tone,
+                       model_route_override
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    self._clock(),
+                    company,
+                    role_title,
+                    job_description,
+                    resume_override,
+                    ai_instructions,
+                    answer_format,
+                    answer_length,
+                    answer_tone,
+                    model_route_override,
+                ),
+            )
+            self._db.commit()
+            return int(cur.lastrowid or 0)
+
+    def get_interview_session(self, session_id: int) -> InterviewSession | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM interview_sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+        return self._interview_session(row) if row else None
+
+    def list_interview_sessions(self, limit: int = 200) -> list[InterviewSession]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM interview_sessions ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [self._interview_session(r) for r in rows]
+
+    def end_interview_session(self, session_id: int) -> None:
+        with self._lock:
+            self._db.execute(
+                "UPDATE interview_sessions SET ended_at = ? WHERE id = ?",
+                (self._clock(), session_id),
+            )
+            self._db.commit()
+
+    def set_active_interview_session(self, interview_session_id: int | None) -> None:
+        """Tags any NEW turn-grouping `sessions` row opened by add_turn() from now on with this
+        interview session - does not retroactively tag the one currently open, if any."""
+        with self._lock:
+            self._active_interview_session_id = interview_session_id
+
+    @staticmethod
+    def _interview_session(r: sqlite3.Row) -> InterviewSession:
+        return InterviewSession(**{k: r[k] for k in r.keys()})
+
     def add_turn(self, turn: TurnRecord) -> int | None:
         """Store a turn (opening a session lazily). Returns its id, or None when disabled."""
         if not self.writable or not turn.question.strip():
@@ -233,8 +368,9 @@ class HistoryStore:
             now = self._clock()
             if self._session_id is None:
                 cur = self._db.execute(
-                    "INSERT INTO sessions(started_at, title) VALUES (?, ?)",
-                    (now, turn.question.strip()[:60]),
+                    "INSERT INTO sessions(started_at, title, interview_session_id) "
+                    "VALUES (?, ?, ?)",
+                    (now, turn.question.strip()[:60], self._active_interview_session_id),
                 )
                 self._session_id = int(cur.lastrowid or 0)
             d = asdict(turn)
