@@ -61,6 +61,10 @@ class OverlayWindow(QWidget):
         self._settings = settings or QSettings("InterviewAssistant", "Overlay")
         self._gen = 0
         self._text = ""
+        self._current_question = ""
+        self._current_source = "typed"
+        self._qa_history: list[tuple[str, str, str]] = []  # (question, answer, source)
+        self._history_index = 0  # == len(self._qa_history) means "viewing the live answer"
         self._drag: QPoint | None = None
         self._press_global: QPoint | None = None
         self._collapsed = False
@@ -117,6 +121,18 @@ class OverlayWindow(QWidget):
         self.question = QLabel("Waiting for a question…")
         self.question.setObjectName("question")
         self.question.setWordWrap(True)
+        self.prev_btn = self._icon_button("◀", "Previous answer (Ctrl+Left)")
+        self.next_btn = self._icon_button("▶", "Next answer (Ctrl+Right)")
+        self.history_label = QLabel("")
+        self.history_label.setObjectName("question")
+        nav_row = QHBoxLayout()
+        nav_row.setContentsMargins(0, 0, 0, 0)
+        nav_row.addWidget(self.prev_btn)
+        nav_row.addWidget(self.history_label, 1)
+        nav_row.addWidget(self.next_btn)
+        self.nav_row = QWidget()
+        self.nav_row.setLayout(nav_row)
+        self.nav_row.setVisible(False)  # appears once there's at least one completed answer
         self.warn_label = QLabel("")
         self.warn_label.setObjectName("warn")
         self.warn_label.setWordWrap(True)
@@ -169,6 +185,7 @@ class OverlayWindow(QWidget):
         body = QVBoxLayout(self.body)
         body.setContentsMargins(0, 0, 0, 0)
         body.addWidget(self.question)
+        body.addWidget(self.nav_row)
         body.addWidget(self.warn_label)
         body.addWidget(self.fix_row)
         body.addWidget(self.chat_row)
@@ -202,6 +219,10 @@ class OverlayWindow(QWidget):
         self.answer_btn.clicked.connect(self._trigger_answer)
         QShortcut(QKeySequence("Ctrl+Return"), self, self._trigger_answer)
         QShortcut(QKeySequence("Ctrl+Enter"), self, self._trigger_answer)  # numpad Enter
+        self.prev_btn.clicked.connect(self.prev_qa)
+        self.next_btn.clicked.connect(self.next_qa)
+        QShortcut(QKeySequence("Ctrl+Left"), self, self.prev_qa)
+        QShortcut(QKeySequence("Ctrl+Right"), self, self.next_qa)
         QShortcut(QKeySequence("Escape"), self, self._stop)
         self.stop_btn.clicked.connect(self._stop)
 
@@ -243,8 +264,10 @@ class OverlayWindow(QWidget):
         self._text = ""
         self._answer_cost = None
         self._last_decision = None
+        self._current_question, self._current_source = text, source
+        self._history_index = len(self._qa_history)  # a new question always means "live"
         self.answer.clear()
-        self.question.setText(("🎤 " if source == "voice" else "⌨ ") + text)
+        self._display_question(text, source)
         self.chip.setText("classifying…")
         self.chip.setToolTip("")
         self._hide_warning()
@@ -253,10 +276,11 @@ class OverlayWindow(QWidget):
         self.fix_btn.setEnabled(False)
         self.answer_btn.setEnabled(False)
         self._update_dot(thinking=True)
+        self._update_nav()
 
     def on_question_pending(self, text: str, lag: object) -> None:
         """Manual mode: a voice question was heard and is waiting for Answer/Ctrl+Enter."""
-        self.question.setText(f"🎤 {text}")
+        self._display_question(text, "voice")
         self.chip.setText("ready - press Answer")
         self.chip.setToolTip("")
         self.answer_btn.setEnabled(True)
@@ -291,6 +315,9 @@ class OverlayWindow(QWidget):
         if gen != self._gen:
             return
         self._render()
+        self._qa_history.append((self._current_question, self._text, self._current_source))
+        self._history_index = len(self._qa_history)  # still live, now one past the new entry
+        self._update_nav()
         cat = self.chip.text().split(" · ")[0]
         cost = f" · {format_usd(self._answer_cost)}" if self._answer_cost is not None else ""
         self.chip.setText(f"{cat} · {route} · {first_token_s:.1f}s{cost}")
@@ -368,6 +395,8 @@ class OverlayWindow(QWidget):
 
     # ---- rendering ----
     def _render(self) -> None:
+        if self._history_index < len(self._qa_history):
+            return  # the user is reviewing a past answer (prev_qa) - don't hijack their view
         bar = self.answer.verticalScrollBar()
         at_bottom = bar.value() >= bar.maximum() - 4
         self.answer.setMarkdown(self._text)
@@ -431,7 +460,13 @@ class OverlayWindow(QWidget):
         self.fix_row.setVisible(False)
 
     def copy_answer(self) -> None:
-        QApplication.clipboard().setText(self._text)
+        """Copies whatever is currently shown - the live answer, or a past one if navigating
+        the Q&A history (see prev_qa/next_qa)."""
+        if self._history_index < len(self._qa_history):
+            text = self._qa_history[self._history_index][1]
+        else:
+            text = self._text
+        QApplication.clipboard().setText(text)
 
     def toggle_collapsed(self) -> None:
         self._collapsed = not self._collapsed
@@ -465,6 +500,45 @@ class OverlayWindow(QWidget):
     @property
     def bubbled(self) -> bool:
         return self._bubble
+
+    # ---- Q&A history stack (in-memory, this session only - not the persistent SQLite history) ----
+    def _display_question(self, text: str, source: str) -> None:
+        self.question.setText(("🎤 " if source == "voice" else "⌨ ") + text)
+
+    def _update_nav(self) -> None:
+        n = len(self._qa_history)
+        self.nav_row.setVisible(n > 0)
+        if n == 0:
+            return
+        live = self._history_index >= n
+        self.history_label.setText("Live" if live else f"{self._history_index + 1} of {n}")
+        self.prev_btn.setEnabled(self._history_index > 0)
+        self.next_btn.setEnabled(not live)
+
+    def _show_at(self, index: int) -> None:
+        """Read-only: displays a past Q&A without touching self._text or re-triggering anything."""
+        if index >= len(self._qa_history):
+            self._display_question(self._current_question, self._current_source)
+            self._render()  # restores the live answer
+        else:
+            question, answer, source = self._qa_history[index]
+            self._display_question(question, source)
+            self.answer.setMarkdown(answer)
+        self._update_nav()
+
+    def prev_qa(self) -> None:
+        """One step per call, on purpose: the first prev_qa() from live lands on index
+        len-1, which holds the SAME content as what was just live (confirming "yes, this is
+        your most recent answer, 2 of 2") - a second call is needed to reach genuinely older
+        content. Not a bug; matches how the index/count label should read."""
+        if self._history_index > 0:
+            self._history_index -= 1
+            self._show_at(self._history_index)
+
+    def next_qa(self) -> None:
+        if self._history_index < len(self._qa_history):
+            self._history_index += 1
+            self._show_at(self._history_index)
 
     def _set_opacity(self, value: int) -> None:
         self.setWindowOpacity(value / 100)

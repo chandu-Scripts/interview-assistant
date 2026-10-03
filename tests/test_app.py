@@ -620,6 +620,92 @@ def test_overlay_copy(overlay):
     assert QApplication.clipboard().text() == "copy me"
 
 
+# ---------------- overlay: Q&A history stack ----------------
+def complete_turn(overlay, gen: int, question: str, answer: str, source: str = "typed") -> None:
+    """A full question->answer cycle, as the controller's real signals would drive it."""
+    overlay.on_question(gen, question, source)
+    overlay.on_delta(gen, answer)
+    overlay.on_finished(gen, "p:m", 0.5, 1.0)
+
+
+def test_nav_row_hidden_until_first_completed_answer(overlay):
+    assert not overlay.nav_row.isVisibleTo(overlay)
+    complete_turn(overlay, 1, "q1", "a1")
+    assert overlay.nav_row.isVisibleTo(overlay)
+    assert overlay.history_label.text() == "Live"
+    assert overlay.prev_btn.isEnabled()  # one entry exists - there's somewhere to go back to
+    assert not overlay.next_btn.isEnabled()  # already at the newest; nothing "after" live
+
+
+def test_prev_next_navigate_past_answers_read_only(overlay):
+    complete_turn(overlay, 1, "q1", "a1")
+    complete_turn(overlay, 2, "q2", "a2")
+    assert overlay.history_label.text() == "Live"
+    assert overlay.answer.toPlainText() == "a2"
+
+    overlay.prev_qa()  # one step back from live lands on the same (newest) entry, now labeled
+    assert overlay.history_label.text() == "2 of 2"
+    assert overlay.answer.toPlainText() == "a2" and "q2" in overlay.question.text()
+
+    overlay.prev_qa()  # a second step reaches the genuinely older entry
+    assert overlay.history_label.text() == "1 of 2"
+    assert overlay.answer.toPlainText() == "a1" and "q1" in overlay.question.text()
+    assert overlay.prev_btn.isEnabled() is False  # at the oldest entry
+    assert overlay.next_btn.isEnabled()
+
+    overlay.next_qa()
+    overlay.next_qa()
+    assert overlay.history_label.text() == "Live"
+    assert overlay.answer.toPlainText() == "a2" and "q2" in overlay.question.text()
+    assert not overlay.next_btn.isEnabled()
+
+    overlay.next_qa()  # already live - a no-op, not an error
+    assert overlay.history_label.text() == "Live"
+
+
+def test_navigating_history_does_not_re_trigger_an_answer(overlay):
+    calls = []
+    overlay._controller = type("C", (), {"ask": lambda self, *a, **k: calls.append(a)})()
+    complete_turn(overlay, 1, "q1", "a1")
+    overlay.prev_qa()
+    overlay.next_qa()
+    assert calls == []
+
+
+def test_copy_while_navigating_copies_the_past_answer_not_the_live_one(overlay):
+    complete_turn(overlay, 1, "q1", "a1")
+    complete_turn(overlay, 2, "q2", "a2")
+    overlay.prev_qa()
+    overlay.prev_qa()  # now at the genuinely older entry (see test_prev_next_... for why twice)
+    overlay.copy_answer()
+    assert QApplication.clipboard().text() == "a1"
+    overlay.next_qa()
+    overlay.next_qa()
+    overlay.copy_answer()
+    assert QApplication.clipboard().text() == "a2"
+
+
+def test_streaming_deltas_do_not_hijack_a_navigated_history_view(overlay):
+    """A new answer streaming in while the user is reviewing an older one must not yank the
+    display back to live out from under them (on_delta/_render is guarded for this)."""
+    complete_turn(overlay, 1, "q1", "a1")
+    overlay.prev_qa()
+    assert overlay.answer.toPlainText() == "a1"
+    overlay.on_question(2, "q2", "typed")  # a genuinely new question DOES force back to live
+    assert overlay.history_label.text() == "Live"
+    overlay.on_delta(2, "a2-partial")
+    overlay._render()  # normally fired by the coalescing timer
+    assert overlay.answer.toPlainText() == "a2-partial"
+
+
+def test_new_question_while_viewing_history_resets_to_live_first(overlay):
+    complete_turn(overlay, 1, "q1", "a1")
+    overlay.prev_qa()
+    assert overlay.history_label.text() == "1 of 1"
+    overlay.on_question(2, "q2", "voice")
+    assert overlay.history_label.text() == "Live" and "q2" in overlay.question.text()
+
+
 # ---------------- overlay: "wrong specialist?" fix control ----------------
 def test_overlay_fix_button_gated_by_decision(overlay):
     assert not overlay.fix_btn.isEnabled()
