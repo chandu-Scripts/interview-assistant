@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from interview_assistant.app.attachments import MAX_CHARS, AttachmentError, read_attachment
