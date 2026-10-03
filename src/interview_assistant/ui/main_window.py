@@ -64,6 +64,8 @@ class MainWindow(QMainWindow):
         self.mic_transcriber: StreamingTranscriber | None = None
         self.controller = controller
         self.overlay = overlay
+        if overlay is not None:
+            overlay.bind_audio(self.audio_panel, self.mic_panel)
         self.overlay_button = QPushButton("Show overlay")
         self.clear_button = QPushButton("New interview")
         self.clear_button.setToolTip("Clear the conversation context and start a new cost session")

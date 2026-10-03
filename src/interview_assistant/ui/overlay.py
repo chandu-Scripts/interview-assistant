@@ -21,6 +21,7 @@ from interview_assistant.agents.specialists import ANSWERABLE_CATEGORIES, LABELS
 from interview_assistant.agents.types import Category, Decision
 from interview_assistant.app.controller import DETECTED_QUESTION_PREFIX, AssistantController
 from interview_assistant.cost.tracker import BudgetLevel, BudgetState, Summary, format_usd
+from interview_assistant.ui.audio_panel import AudioPanel
 from interview_assistant.ui.screenshot import capture_screen_png
 
 # Dark translucent live bar, matching the Parakeet layout the user asked for: one toolbar with
@@ -44,6 +45,8 @@ QPushButton:hover { background: rgba(255,255,255,0.16); }
 QPushButton:disabled { color: #5d6276; background: rgba(255,255,255,0.04); }
 #iconbtn { padding: 2px 8px; font-weight: bold; }
 #pill { font-weight: 600; }
+#audio { padding: 4px 8px; }
+#audio:checked { background: #d6363f; color: #ffffff; }
 #end { background: #d6363f; color: #ffffff; font-weight: 600; }
 #end:hover { background: #e5484f; }
 """
@@ -96,7 +99,7 @@ class OverlayWindow(QWidget):
         self._collapsed = False
         self._bubble = False
         self._expanded_height = 340
-        self._restore_width = 460
+        self._restore_width = 680
         self._listening = False
         self._busy = False
         self._answer_cost: float | None = None
@@ -109,7 +112,7 @@ class OverlayWindow(QWidget):
         self.setWindowTitle("Interview Assistant Overlay")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setMinimumSize(320, 90)
+        self.setMinimumSize(640, 90)
         self.setStyleSheet(STYLE)
 
         self.dot = QLabel("●")
@@ -124,6 +127,9 @@ class OverlayWindow(QWidget):
         self.timer_label = QLabel("00:00")
         self.timer_label.setObjectName("timer")
         self.timer_label.setToolTip("Time since the overlay started")
+        self.system_toggle = self._audio_toggle("🔊", "System audio (what the interviewer says)")
+        self.mic_toggle = self._audio_toggle("🎤", "Microphone (what you say)")
+        self.mic_toggle.setVisible(False)  # shown once bind_audio() gets a microphone panel
         self.answer_btn = self._shortcut_button("Answer", "Ctrl ↵", "Answer the question above")
         self.answer_btn.setEnabled(False)
         self.screenshot_btn = self._shortcut_button("Screenshot", "Ctrl ⇧ ↵", SCREENSHOT_TIP)
@@ -137,6 +143,8 @@ class OverlayWindow(QWidget):
         self.clear_btn.setToolTip("Clear the answers on screen (history is kept)")
         # Widgets hidden in bubble mode (everything except the status dot, which IS the bubble).
         self._header_extras = (
+            self.system_toggle,
+            self.mic_toggle,
             self.title,
             self.status_label,
             self.chip,
@@ -153,7 +161,13 @@ class OverlayWindow(QWidget):
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
         w: QWidget
-        for w in (self.answer_btn, self.screenshot_btn, self.chat_btn):
+        for w in (
+            self.system_toggle,
+            self.mic_toggle,
+            self.answer_btn,
+            self.screenshot_btn,
+            self.chat_btn,
+        ):
             top_row.addWidget(w)
         top_row.addStretch(1)
         for w in (self.fix_btn, self.collapse_btn, self.timer_label, self.close_btn):
@@ -299,6 +313,24 @@ class OverlayWindow(QWidget):
         b.setObjectName("iconbtn")
         b.setToolTip(tip)
         return b
+
+    def _audio_toggle(self, icon: str, tip: str) -> QPushButton:
+        b = QPushButton(icon)
+        b.setObjectName("audio")
+        b.setCheckable(True)
+        b.setToolTip(tip + " - click to turn on or off")
+        return b
+
+    def bind_audio(self, system: AudioPanel, mic: AudioPanel | None = None) -> None:
+        """The toggles start and stop the real capture panels, so their state always matches."""
+        system.recording_changed.connect(self.system_toggle.setChecked)
+        self.system_toggle.setChecked(system.recording)
+        self.system_toggle.clicked.connect(system.toggle)
+        if mic is not None:
+            self.mic_toggle.setVisible(True)
+            mic.recording_changed.connect(self.mic_toggle.setChecked)
+            self.mic_toggle.setChecked(mic.recording)
+            self.mic_toggle.clicked.connect(mic.toggle)
 
     def _shortcut_button(self, label: str, keys: str, tip: str) -> QPushButton:
         b = QPushButton(f"{label}   {keys}")
@@ -604,7 +636,7 @@ class OverlayWindow(QWidget):
             self.setMinimumSize(BUBBLE_SIZE, BUBBLE_SIZE)
             self.resize(BUBBLE_SIZE, BUBBLE_SIZE)
         else:
-            self.setMinimumSize(320, 90)
+            self.setMinimumSize(640, 90)
             self.resize(self._restore_width, 48 if self._collapsed else self._expanded_height)
         self.update()  # repaint with the bubble's round-vs-rounded-rect shape
 
@@ -693,7 +725,7 @@ class OverlayWindow(QWidget):
         geo = s.value("geometry")
         if geo is not None and self.restoreGeometry(geo):
             return
-        self.resize(460, 340)
+        self.resize(680, 340)
         screen = QGuiApplication.primaryScreen()
         if screen is not None:
             area = screen.availableGeometry()

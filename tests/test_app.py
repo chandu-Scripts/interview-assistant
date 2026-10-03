@@ -2,7 +2,7 @@ import asyncio
 import pathlib
 
 import pytest
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QObject, QSettings, Qt, Signal
 from PySide6.QtWidgets import QApplication
 
 from interview_assistant.agents.jev import Jev, JevConfig
@@ -1098,3 +1098,44 @@ def test_screenshot_answer_shows_the_detected_question_above_its_answer(qtbot, o
     assert "Question:" not in overlay.answer.toPlainText()
     overlay.on_finished(1, "openai:gpt-4o-mini", 0.8, 1.2)
     assert overlay._qa_history[-1][0] == "write query for top 3 employees"
+
+
+class FakeAudioPanel(QObject):
+    recording_changed = Signal(bool)
+
+    def __init__(self):
+        super().__init__()
+        self.recording = False
+        self.toggles = 0
+
+    def toggle(self):
+        self.toggles += 1
+        self.recording = not self.recording
+        self.recording_changed.emit(self.recording)
+
+
+def test_audio_toggles_turn_each_source_on_and_off_with_a_red_state(overlay):
+    system, mic = FakeAudioPanel(), FakeAudioPanel()
+    overlay.bind_audio(system, mic)
+    assert not overlay.system_toggle.isChecked() and overlay.mic_toggle.isVisibleTo(overlay)
+    overlay.system_toggle.click()
+    assert system.toggles == 1 and overlay.system_toggle.isChecked()
+    assert mic.toggles == 0 and not overlay.mic_toggle.isChecked()  # independent sources
+    overlay.mic_toggle.click()
+    assert overlay.mic_toggle.isChecked() and overlay.system_toggle.isChecked()
+    overlay.system_toggle.click()
+    assert not overlay.system_toggle.isChecked() and overlay.mic_toggle.isChecked()
+
+
+def test_audio_toggle_follows_the_real_panel_state(overlay):
+    system = FakeAudioPanel()
+    overlay.bind_audio(system)
+    system.toggle()  # started elsewhere (e.g. the main window) - the toggle must still show it
+    assert overlay.system_toggle.isChecked()
+    system.toggle()
+    assert not overlay.system_toggle.isChecked()
+
+
+def test_mic_toggle_is_hidden_without_a_microphone_panel(overlay):
+    overlay.bind_audio(FakeAudioPanel(), None)
+    assert not overlay.mic_toggle.isVisibleTo(overlay)
