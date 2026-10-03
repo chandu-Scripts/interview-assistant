@@ -121,3 +121,28 @@ def test_details_of_carries_every_saved_choice(qtbot):
 
 def _saved(store, company):
     return store.get_interview_session(store.create_interview_session(company=company))
+
+
+def test_create_session_opens_inside_the_same_window(qtbot):
+    screen = make(qtbot, HistoryStore(":memory:"))
+    screen.create_btn.click()
+    assert screen.pages.currentWidget() is screen.create_page
+    assert screen.pages.indexOf(screen.create_page) == 2 and screen.create_page.isWindow() is False
+
+
+def test_cancelling_create_returns_to_the_list(qtbot):
+    screen = make(qtbot, HistoryStore(":memory:"))
+    screen.create_btn.click()
+    screen.create_page.cancel_btn.click()
+    assert screen.pages.currentIndex() == 0
+
+
+def test_finishing_create_goes_on_to_connect(qtbot):
+    store = HistoryStore(":memory:")
+    screen = make(qtbot, store, activate=lambda d: _saved(store, d.company))
+    screen.create_btn.click()
+    screen.create_page.company.setText("Google")
+    screen.create_page.next_btn.click()
+    screen.create_page.next_btn.click()
+    assert screen.pages.currentIndex() == 1
+    assert "Google" in screen.connect_summary.text()

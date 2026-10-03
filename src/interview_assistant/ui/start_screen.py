@@ -34,6 +34,12 @@ QPushButton:hover { background: rgba(255,255,255,0.16); }
 QPushButton:disabled { color: #5d6276; background: rgba(255,255,255,0.04); }
 #create, #connect { background: #2f9e5b; color: #ffffff; font-weight: 600; }
 #create:hover, #connect:hover { background: #38b56a; }
+QPushButton:checked { background: #2f9e5b; color: #ffffff; }
+QLineEdit, QPlainTextEdit, QComboBox { background: rgba(255,255,255,0.06); color: #e8eaf2;
+    border: 1px solid #3a3e4c; border-radius: 6px; padding: 4px 8px; }
+QComboBox QAbstractItemView { background: #1d2029; color: #e8eaf2;
+    selection-background-color: #2f9e5b; }
+QCheckBox { color: #e8eaf2; }
 """
 
 
@@ -86,17 +92,20 @@ class StartScreen(QWidget):
         self._library = library
         self._activate = activate
         self._on_connect = on_connect
-        self._dialog: SessionDialog | None = None
         self._connecting: InterviewSession | None = None
         self.setObjectName("start")
         self.setWindowTitle("Interview Assistant")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet(STYLE)
-        self.resize(560, 520)
+        self.resize(560, 600)
 
         self.pages = QStackedWidget()
         self.pages.addWidget(self._list_page(on_dashboard))
         self.pages.addWidget(self._connect_page())
+        self.create_page = SessionDialog(library)
+        self.create_page.created.connect(self._session_created)
+        self.create_page.cancelled.connect(self._show_list)
+        self.pages.addWidget(self.create_page)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 16, 18, 16)
         layout.addWidget(self.pages)
@@ -184,10 +193,7 @@ class StartScreen(QWidget):
 
     # ---- actions ----
     def _open_create(self) -> None:
-        dialog = SessionDialog(self._library)
-        dialog.created.connect(self._session_created)
-        dialog.show()
-        self._dialog = dialog  # non-modal: keep a reference so it isn't garbage-collected
+        self.pages.setCurrentWidget(self.create_page)
 
     def _session_created(self, details: SessionDetails) -> None:
         self._show_connect(self._activate(details))

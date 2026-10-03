@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
-    QDialog,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -44,13 +43,15 @@ NO_RESUME = ""
 ATTACH_NEW = "__attach__"
 
 
-class SessionDialog(QDialog):
+class SessionDialog(QWidget):
+    """A page, not a window: the start screen shows it in its own window. Emits `created` with the
+    details when the session is created, or `cancelled`; either way it returns to its first page."""
+
     created = Signal(object)  # SessionDetails
+    cancelled = Signal()
 
     def __init__(self, library: ResumeLibrary | None = None) -> None:
         super().__init__()
-        self.setWindowTitle("Create Interview Session")
-        self.resize(500, 520)
         self._library = library
         self._resume_texts: dict[str, str] = {}
         self._chosen_resume = NO_RESUME
@@ -77,7 +78,7 @@ class SessionDialog(QDialog):
 
         self.back_btn.clicked.connect(self._back)
         self.next_btn.clicked.connect(self._next_or_create)
-        self.cancel_btn.clicked.connect(self.reject)
+        self.cancel_btn.clicked.connect(self._cancel)
         self._update_buttons()
 
     # ---- details (step 1) ----
@@ -236,7 +237,16 @@ class SessionDialog(QDialog):
         if self._library is not None and details.resume_name:
             self._library.touch(details.resume_name)
         self.created.emit(details)
-        self.accept()
+        self._reset()
+
+    def _cancel(self) -> None:
+        self._reset()
+        self.cancelled.emit()
+
+    def _reset(self) -> None:
+        self.pages.setCurrentIndex(0)
+        self.message.setText("")
+        self._update_buttons()
 
     def collect(self) -> SessionDetails:
         """Raises ValueError with a user-readable reason if the model override is invalid."""
