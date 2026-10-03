@@ -1076,3 +1076,25 @@ def test_screenshot_is_answered_immediately_with_a_prompt_about_the_screen(qtbot
     qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
     assert jev.asked == [SCREENSHOT_PROMPT] and jev.images == [SHOT]
     assert rec.has("q", 1, SCREENSHOT_PROMPT, "screenshot")
+
+
+def test_split_detected_question_separates_the_question_from_the_answer():
+    from interview_assistant.ui.overlay import split_detected_question
+
+    assert split_detected_question("Question: write query for top 3\n\nWITH x AS (") == (
+        "write query for top 3",
+        "WITH x AS (",
+    )
+    assert split_detected_question("Question: still typing") == ("still typing", "")
+    assert split_detected_question("plain answer") == (None, "plain answer")
+
+
+def test_screenshot_answer_shows_the_detected_question_above_its_answer(qtbot, overlay):
+    overlay.on_question(1, "Reading the screenshot…", "screenshot")
+    assert overlay.question.text() == "📷 Reading the screenshot…"
+    overlay.on_delta(1, "Question: write query for top 3 employees\n\nWITH ranked AS (")
+    qtbot.waitUntil(lambda: "WITH ranked" in overlay.answer.toPlainText(), timeout=2000)
+    assert "write query for top 3 employees" in overlay.question.text()
+    assert "Question:" not in overlay.answer.toPlainText()
+    overlay.on_finished(1, "openai:gpt-4o-mini", 0.8, 1.2)
+    assert overlay._qa_history[-1][0] == "write query for top 3 employees"

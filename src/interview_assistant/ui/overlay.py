@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from interview_assistant.agents.specialists import ANSWERABLE_CATEGORIES, LABELS
 from interview_assistant.agents.types import Category, Decision
-from interview_assistant.app.controller import AssistantController
+from interview_assistant.app.controller import DETECTED_QUESTION_PREFIX, AssistantController
 from interview_assistant.cost.tracker import BudgetLevel, BudgetState, Summary, format_usd
 from interview_assistant.ui.screenshot import capture_screen_png
 
@@ -61,6 +61,16 @@ STATUS_TEXT = {
 }
 BUBBLE_SIZE = 48
 SCREENSHOT_TIP = "Attach a screenshot of your screen to your next question (Ctrl+Shift+Enter)"
+
+
+def split_detected_question(text: str) -> tuple[str | None, str]:
+    """A screenshot answer starts with a 'Question:' line naming what was detected on screen.
+    Returns (detected question or None, the answer that follows). Works mid-stream too."""
+    if not text.startswith(DETECTED_QUESTION_PREFIX):
+        return None, text
+    first, _, rest = text.partition("\n")
+    question = first[len(DETECTED_QUESTION_PREFIX) :].strip()
+    return question or None, rest.lstrip()
 
 
 class OverlayWindow(QWidget):
@@ -332,7 +342,9 @@ class OverlayWindow(QWidget):
         self._current_question, self._current_source = text, source
         self._history_index = len(self._qa_history)  # a new question always means "live"
         self.answer.clear()
-        self._display_question(text, source)
+        self._display_question(
+            "Reading the screenshot…" if source == "screenshot" else text, source
+        )
         self.chip.setText("classifying…")
         self.chip.setToolTip("")
         self._hide_warning()
@@ -380,7 +392,9 @@ class OverlayWindow(QWidget):
         if gen != self._gen:
             return
         self._render()
-        self._qa_history.append((self._current_question, self._text, self._current_source))
+        detected, answer = split_detected_question(self._text)
+        question = detected or self._current_question
+        self._qa_history.append((question, answer, self._current_source))
         self._history_index = len(self._qa_history)  # still live, now one past the new entry
         self._update_nav()
         cat = self.chip.text().split(" · ")[0]
@@ -464,7 +478,10 @@ class OverlayWindow(QWidget):
             return  # the user is reviewing a past answer (prev_qa) - don't hijack their view
         bar = self.answer.verticalScrollBar()
         at_bottom = bar.value() >= bar.maximum() - 4
-        self.answer.setMarkdown(self._text)
+        detected, answer = split_detected_question(self._text)
+        if detected:
+            self._display_question(detected, self._current_source)
+        self.answer.setMarkdown(answer)
         if at_bottom:
             bar.setValue(bar.maximum())
 

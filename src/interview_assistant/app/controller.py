@@ -18,9 +18,12 @@ from interview_assistant.stt.base import TranscriptEvent
 log = logging.getLogger(__name__)
 
 
+DETECTED_QUESTION_PREFIX = "Question:"
 SCREENSHOT_PROMPT = (
-    "Answer the question or task shown in this screenshot. If it is a coding problem, "
-    "write the solution."
+    "Look at this screenshot. Start with one line beginning '"
+    + DETECTED_QUESTION_PREFIX
+    + "' followed by the question or task shown on screen, cleaned up. Then a blank line, then "
+    "answer it. If it is a coding problem, write the solution."
 )
 
 
