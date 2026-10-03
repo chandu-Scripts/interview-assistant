@@ -41,6 +41,7 @@ EDITABLE = frozenset(
         "hotkey_presentation",
         "hotkey_overlay",
         "hotkey_bubble",
+        "hotkey_answer",
         "relay_url",
         "relay_pending_id",
         "answer_mode",

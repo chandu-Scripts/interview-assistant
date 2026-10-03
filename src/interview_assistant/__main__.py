@@ -93,6 +93,8 @@ def main() -> int:
         hotkeys.register(settings.hotkey_overlay, parts.toggle_overlay)
     if settings.hotkey_bubble:
         hotkeys.register(settings.hotkey_bubble, parts.overlay.toggle_bubble)
+    if settings.hotkey_answer:
+        hotkeys.register(settings.hotkey_answer, parts.controller.trigger_answer)
 
     parts.window.show()
     parts.overlay.show()

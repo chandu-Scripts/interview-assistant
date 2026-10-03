@@ -677,7 +677,7 @@ def test_dialog_load_refreshes_relay_panel_from_saved_settings(qtbot, clean_env)
 
 def test_dialog_validation_blocks_save(qtbot, dialog):
     d, _ = dialog
-    d.hotkey_presentation.setText("ctrl+alt+enter")
+    d.hotkey_presentation.setText("ctrl+alt+tab")
     d.save_btn.click()
     assert "Not saved" in d.message.text() and not settings_path().exists()
     d.hotkey_presentation.setText("ctrl+alt+p")
@@ -698,7 +698,7 @@ def test_dialog_validation_blocks_save(qtbot, dialog):
 def test_dialog_hotkey_bubble_round_trips_and_validates(qtbot, dialog):
     d, _ = dialog
     assert d.hotkey_bubble.text() == "ctrl+h"
-    d.hotkey_bubble.setText("ctrl+alt+enter")  # "enter" isn't a supported key (see parse_hotkey)
+    d.hotkey_bubble.setText("ctrl+alt+tab")  # "tab" isn't a supported key (see parse_hotkey)
     d.save_btn.click()
     assert "Not saved" in d.message.text() and not settings_path().exists()
     d.hotkey_bubble.setText("ctrl+j")

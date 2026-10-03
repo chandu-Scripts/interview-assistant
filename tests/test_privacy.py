@@ -366,7 +366,8 @@ def test_parse_hotkey():
     assert parse_hotkey("ctrl+alt+p") == (0x2 | 0x1, ord("P"))
     assert parse_hotkey("Ctrl + Shift + F12") == (0x2 | 0x4, 0x7B)
     assert parse_hotkey("win+1") == (0x8, ord("1"))
-    for bad in ("p", "ctrl+", "ctrl+alt+enter", "hyper+p", "ctrl+f13", ""):
+    assert parse_hotkey("ctrl+enter") == (0x2, 0x0D) == parse_hotkey("ctrl+return")
+    for bad in ("p", "ctrl+", "ctrl+alt+tab", "hyper+p", "ctrl+f13", ""):
         with pytest.raises(ValueError):
             parse_hotkey(bad)
 

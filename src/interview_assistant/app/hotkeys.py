@@ -24,6 +24,9 @@ _MODS = {
 }
 
 
+_NAMED_KEYS = {"enter": 0x0D, "return": 0x0D}
+
+
 class MSG(ctypes.Structure):
     _fields_ = [
         ("hwnd", wintypes.HWND),
@@ -50,8 +53,12 @@ def parse_hotkey(spec: str) -> tuple[int, int]:
         vk = ord(key.upper())
     elif key.startswith("f") and key[1:].isdigit() and 1 <= int(key[1:]) <= 12:
         vk = 0x70 + int(key[1:]) - 1
+    elif key in _NAMED_KEYS:
+        vk = _NAMED_KEYS[key]
     else:
-        raise ValueError(f"unsupported key {key!r} in {spec!r} (use a letter, digit or F1-F12)")
+        raise ValueError(
+            f"unsupported key {key!r} in {spec!r} (use a letter, digit, F1-F12 or enter)"
+        )
     return modifiers, vk
 
 
