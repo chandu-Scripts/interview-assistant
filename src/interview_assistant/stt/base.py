@@ -37,6 +37,18 @@ class TranscriptEvent:
     source: DeviceKind | None = None
 
 
+def is_mostly_latin_script(text: str, threshold: float = 0.8) -> bool:
+    """True if `text` reads as Latin-script speech (English and friends) rather than a different
+    script (Devanagari, Telugu, Arabic, etc.). Used to drop a transcription that ignored a
+    language locked to "en" - the model occasionally mis-transcribes into another script despite
+    the language hint, especially on short or accented audio."""
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return True
+    latin = sum(1 for c in letters if c.isascii() or 0x00C0 <= ord(c) <= 0x024F)
+    return (latin / len(letters)) >= threshold
+
+
 def pcm_to_wav(pcm: np.ndarray, rate: int = TARGET_RATE) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:

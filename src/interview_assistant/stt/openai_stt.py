@@ -1,7 +1,7 @@
 import httpx
 import numpy as np
 
-from interview_assistant.stt.base import STTError, pcm_to_wav
+from interview_assistant.stt.base import STTError, is_mostly_latin_script, pcm_to_wav
 
 URL = "https://api.openai.com/v1/audio/transcriptions"
 
@@ -17,6 +17,7 @@ class OpenAISTTProvider:
         api_key: str,
         model: str = "gpt-4o-mini-transcribe",
         language: str | None = "en",
+        prompt: str | None = None,
         client: httpx.Client | None = None,
         timeout_s: float = 20.0,
     ) -> None:
@@ -24,6 +25,7 @@ class OpenAISTTProvider:
         self._model = model
         self.model = model
         self._language = language
+        self._prompt = prompt or None  # vocabulary hint (see settings), same as local Whisper
         self._client = client or httpx.Client(timeout=timeout_s)
 
     def warmup(self) -> None:
@@ -35,6 +37,8 @@ class OpenAISTTProvider:
         data = {"model": self._model, "response_format": "json"}
         if self._language:
             data["language"] = self._language
+        if self._prompt:
+            data["prompt"] = self._prompt
         try:
             r = self._client.post(
                 URL,
@@ -43,7 +47,10 @@ class OpenAISTTProvider:
                 files={"file": ("audio.wav", pcm_to_wav(pcm), "audio/wav")},
             )
             r.raise_for_status()
-            return str(r.json().get("text", "")).strip()
+            text = str(r.json().get("text", "")).strip()
+            if self._language == "en" and not is_mostly_latin_script(text):
+                return ""  # the model drifted into another script despite the English lock
+            return text
         except httpx.HTTPStatusError as e:
             raise STTError(f"openai stt HTTP {e.response.status_code}") from e  # no body: no leaks
         except (httpx.HTTPError, ValueError) as e:

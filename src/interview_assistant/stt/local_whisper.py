@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from interview_assistant.stt.base import STTError
+from interview_assistant.stt.base import STTError, is_mostly_latin_script
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +56,9 @@ class FasterWhisperProvider:
                 condition_on_previous_text=False,
                 initial_prompt=self._initial_prompt,  # vocabulary hint (see settings)
             )
-            return " ".join(s.text.strip() for s in segments).strip()
+            text = " ".join(s.text.strip() for s in segments).strip()
+            if self._language == "en" and not is_mostly_latin_script(text):
+                return ""  # the model drifted into another script despite the English lock
+            return text
         except Exception as e:
             raise STTError(f"local whisper failed: {e}") from e

@@ -1,4 +1,5 @@
 import time
+from unittest.mock import MagicMock
 
 import httpx
 import numpy as np
@@ -6,8 +7,14 @@ import pytest
 
 from interview_assistant.audio.capture import AudioCapture
 from interview_assistant.config.settings import Settings
-from interview_assistant.stt.base import STTError, TranscriptEvent, pcm_to_wav
+from interview_assistant.stt.base import (
+    STTError,
+    TranscriptEvent,
+    is_mostly_latin_script,
+    pcm_to_wav,
+)
 from interview_assistant.stt.factory import build_provider
+from interview_assistant.stt.local_whisper import FasterWhisperProvider
 from interview_assistant.stt.openai_stt import OpenAISTTProvider
 from interview_assistant.stt.streaming import StreamingTranscriber
 from interview_assistant.ui.audio_panel import AudioPanel
@@ -141,6 +148,80 @@ def test_openai_provider_errors_do_not_leak_key():
     with pytest.raises(STTError) as ei:
         p.transcribe(tone(1))
     assert "401" in str(ei.value) and "sk-secret" not in str(ei.value)
+
+
+# ---- English-lock: a transcription in another script is dropped, not forwarded ----
+def test_is_mostly_latin_script():
+    assert is_mostly_latin_script("What is a mutex in Python?")
+    assert is_mostly_latin_script("Café résumé naïve")  # accented Latin letters still count
+    assert is_mostly_latin_script("")  # no letters at all: nothing to flag
+    assert not is_mostly_latin_script("ఇది తెలుగు పదబంధం")  # Telugu
+    assert not is_mostly_latin_script("यह एक हिंदी वाक्य है")  # Devanagari
+
+
+def test_openai_provider_drops_text_in_another_script_when_locked_to_english():
+    p = OpenAISTTProvider(
+        "sk-test",
+        language="en",
+        client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda r: httpx.Response(200, json={"text": "ఇది తెలుగు పదబంధం"})
+            )
+        ),
+    )
+    assert p.transcribe(tone(1)) == ""
+
+
+def test_openai_provider_does_not_filter_when_language_is_not_locked():
+    p = OpenAISTTProvider(
+        "sk-test",
+        language=None,
+        client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda r: httpx.Response(200, json={"text": "ఇది తెలుగు పదబంధం"})
+            )
+        ),
+    )
+    assert p.transcribe(tone(1)) == "ఇది తెలుగు పదబంధం"
+
+
+def test_openai_provider_sends_the_vocabulary_hint_as_a_prompt():
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["body"] = req.content
+        return httpx.Response(200, json={"text": "ok"})
+
+    p = OpenAISTTProvider(
+        "sk-test",
+        prompt="Terms: CDC, ADF, RBAC",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    p.transcribe(tone(1))
+    assert b"Terms: CDC, ADF, RBAC" in seen["body"]
+
+
+def test_local_whisper_drops_text_in_another_script_when_locked_to_english():
+    p = FasterWhisperProvider("base.en", language="en")
+    model = MagicMock()
+    model.transcribe.return_value = ([MagicMock(text="ఇది తెలుగు పదబంధం")], None)
+    p._model = model
+    assert p.transcribe(np.zeros(16000, dtype=np.int16)) == ""
+
+
+def test_local_whisper_does_not_filter_when_language_is_not_locked():
+    p = FasterWhisperProvider("base.en", language=None)
+    model = MagicMock()
+    model.transcribe.return_value = ([MagicMock(text="ఇది తెలుగు పదబంధం")], None)
+    p._model = model
+    assert p.transcribe(np.zeros(16000, dtype=np.int16)) == "ఇది తెలుగు పదబంధం"
+
+
+def test_factory_passes_the_vocabulary_hint_to_openai_too():
+    s = Settings(
+        _env_file=None, stt_provider="openai", openai_api_key="sk-x", stt_vocabulary="CDC, ADF"
+    )
+    assert build_provider(s)._prompt == "CDC, ADF"
 
 
 def test_wav_encoding():

@@ -9,7 +9,9 @@ def build_provider(settings: Settings) -> STTProvider:
         from interview_assistant.stt.openai_stt import OpenAISTTProvider
 
         return OpenAISTTProvider(
-            settings.openai_api_key.get_secret_value(), language=settings.stt_language
+            settings.openai_api_key.get_secret_value(),
+            language=settings.stt_language,
+            prompt=settings.stt_vocabulary,
         )
     from interview_assistant.stt.local_whisper import FasterWhisperProvider
 
