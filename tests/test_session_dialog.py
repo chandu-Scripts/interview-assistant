@@ -114,6 +114,20 @@ def test_fixed_fields_cannot_be_typed_into(qtbot):
         assert not combo.isEditable()
 
 
+def test_completed_wizard_starts_a_clean_draft_and_back_preserves_input(qtbot):
+    d = dialog(qtbot)
+    d.ai_instructions.setPlainText("Use examples")
+    d.back_btn.click()
+    assert d.company.text() == "Google"
+    d.next_btn.click()
+    assert d.ai_instructions.toPlainText() == "Use examples"
+    with qtbot.waitSignal(d.created) as signal:
+        d.next_btn.click()
+    assert signal.args[0].company == "Google"
+    assert d.company.text() == "" and d.ai_instructions.toPlainText() == ""
+    assert d.pages.currentIndex() == 0
+
+
 def test_model_choices_are_only_auto_or_the_configured_models(qtbot):
     d = SessionDialog(None, ["openai:gpt-4o-mini", "anthropic:claude-sonnet-5"])
     qtbot.addWidget(d)

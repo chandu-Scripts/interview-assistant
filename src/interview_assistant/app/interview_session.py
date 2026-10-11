@@ -7,10 +7,11 @@ HistoryStore.set_active_interview_session(). The dialog that collects SessionDet
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 from interview_assistant.agents.jev import JevConfig
 from interview_assistant.history.store import HistoryStore, InterviewSession
+from interview_assistant.llm.router_factory import parse_chain
 
 
 @dataclass
@@ -50,6 +51,8 @@ class InterviewSessionManager:
         self.on_change: Callable[[SessionDetails | None], None] | None = None
 
     def activate(self, details: SessionDetails) -> InterviewSession:
+        if details.model_route_override and len(parse_chain(details.model_route_override)) != 1:
+            raise ValueError("Choose one preferred model or Auto.")
         self.end_active()
         session_id = self._history.create_interview_session(
             company=details.company,
@@ -68,16 +71,40 @@ class InterviewSessionManager:
         )
         session = self._history.get_interview_session(session_id)
         assert session is not None  # just inserted, under the same lock
+        return self._apply(session, details)
+
+    def resume(self, session_id: int) -> InterviewSession:
+        """Activate a ready session without creating a duplicate dashboard record."""
+        session = self._history.get_interview_session(session_id)
+        if session is None or session.ended_at is not None:
+            raise ValueError("This session is no longer ready to start.")
+        if self.current is not None and self.current.id == session_id:
+            return self.current
+        details = SessionDetails(
+            **{
+                field.name: getattr(session, field.name)
+                for field in fields(SessionDetails)
+                if hasattr(session, field.name)
+            }
+        )
+        if details.model_route_override and len(parse_chain(details.model_route_override)) != 1:
+            raise ValueError("Choose one preferred model or Auto.")
+        self.end_active()
+        return self._apply(session, details)
+
+    def _apply(self, session: InterviewSession, details: SessionDetails) -> InterviewSession:
         self.current = session
-        self._history.set_active_interview_session(session_id)
+        self._history.set_active_interview_session(session.id)
         self._config.profile = details.resume_override.strip() or self._base_profile
         self._config.company = details.company
+        self._config.role_title = details.role_title
         self._config.job_description = details.job_description
         self._config.instructions = details.ai_instructions
         self._config.answer_format = details.answer_format
         self._config.answer_length = details.answer_length
         self._config.answer_tone = details.answer_tone
         self._config.language = details.language
+        self._config.model_route_override = details.model_route_override
         if self.on_change is not None:
             self.on_change(details)
         return session
@@ -91,11 +118,13 @@ class InterviewSessionManager:
         self._history.set_active_interview_session(None)
         self._config.profile = self._base_profile
         self._config.company = ""
+        self._config.role_title = ""
         self._config.job_description = ""
         self._config.instructions = ""
         self._config.answer_format = ""
         self._config.answer_length = ""
         self._config.answer_tone = ""
         self._config.language = "English"
+        self._config.model_route_override = ""
         if self.on_change is not None:
             self.on_change(None)

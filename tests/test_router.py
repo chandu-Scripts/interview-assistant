@@ -25,6 +25,34 @@ from interview_assistant.llm.types import (
 REQ = LLMRequest([Message("user", "Hi")])
 
 
+async def test_preferred_model_crosses_tiers_and_keeps_fallback_and_accounting():
+    a = Script("a", ["fallback"])
+    b = Script("b", ["partial", err("b")])
+    records = []
+    router = Router(
+        {"a": a, "b": b},
+        RouterConfig(chains={"fast": [Route("a", "fast")], "smart": [Route("b", "smart")]}),
+        records.append,
+    )
+    events = [e async for e in router.stream(REQ, "fast", preferred=Route("b", "smart"))]
+    assert b.calls == ["smart"] and a.calls == ["fast"]
+    assert any(e.reset for e in events)
+    assert [r.ok for r in records] == [False, True]
+    assert events[-1].route == Route("a", "fast")
+
+
+async def test_preferred_model_works_when_default_tier_has_no_available_provider():
+    b = Script("b", ["answer"])
+    router = Router(
+        {"b": b},
+        RouterConfig(chains={"fast": [Route("a", "fast")], "smart": [Route("b", "smart")]}),
+    )
+    events = [e async for e in router.stream(REQ, "fast", preferred=Route("b", "smart"))]
+    assert events[-1].route == Route("b", "smart")
+    with pytest.raises(NoRoutesAvailable, match="no longer configured"):
+        _ = [e async for e in router.stream(REQ, preferred=Route("b", "removed"))]
+
+
 class Script:
     """Scripted provider; steps: str delta, ("sleep", s), or an LLMError to raise."""
 

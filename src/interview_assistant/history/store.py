@@ -11,7 +11,7 @@ from typing import Literal
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 Status = Literal["complete", "interrupted", "stopped", "error"]
 ExportFormat = Literal["md", "json"]
 
@@ -40,6 +40,10 @@ CREATE TABLE sessions (
     ended_at REAL,
     title TEXT NOT NULL DEFAULT '',
     interview_session_id INTEGER REFERENCES interview_sessions(id)
+);
+CREATE TABLE interview_notes (
+    interview_session_id INTEGER PRIMARY KEY REFERENCES interview_sessions(id) ON DELETE CASCADE,
+    text TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE turns (
     id INTEGER PRIMARY KEY,
@@ -290,6 +294,15 @@ class HistoryStore:
                     "save_transcript INTEGER NOT NULL DEFAULT 1",
                 ):
                     self._db.execute(f"ALTER TABLE interview_sessions ADD COLUMN {column}")
+                self._db.execute("PRAGMA user_version = 4")
+                self._db.commit()
+                version = 4
+            if version == 4:
+                self._db.execute(
+                    "CREATE TABLE interview_notes (interview_session_id INTEGER PRIMARY KEY "
+                    "REFERENCES interview_sessions(id) ON DELETE CASCADE, "
+                    "text TEXT NOT NULL DEFAULT '')"
+                )
                 self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
                 self._db.commit()
                 version = SCHEMA_VERSION
@@ -300,6 +313,39 @@ class HistoryStore:
         with self._lock:
             self.end_session()
             self._db.close()
+
+    def get_interview_turns(self, interview_session_id: int) -> list[StoredTurn]:
+        """All saved Q&A groups for this interview, without the dashboard's list limit."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT t.* FROM turns t JOIN sessions s ON s.id = t.session_id "
+                "WHERE s.interview_session_id = ? ORDER BY t.ts, t.id",
+                (interview_session_id,),
+            ).fetchall()
+            return [StoredTurn(**dict(row)) for row in rows]
+
+    def get_interview_notes(self, interview_session_id: int) -> str:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT text FROM interview_notes WHERE interview_session_id = ?",
+                (interview_session_id,),
+            ).fetchone()
+            return str(row[0]) if row else ""
+
+    def save_interview_notes(self, interview_session_id: int, text: str) -> None:
+        with self._lock:
+            if not self.writable:
+                raise ValueError(
+                    "Notes cannot be saved while history saving is off or incognito is on."
+                )
+            if self.get_interview_session(interview_session_id) is None:
+                raise ValueError("This interview session no longer exists.")
+            self._db.execute(
+                "INSERT INTO interview_notes(interview_session_id, text) VALUES (?, ?) "
+                "ON CONFLICT(interview_session_id) DO UPDATE SET text = excluded.text",
+                (interview_session_id, text),
+            )
+            self._db.commit()
 
     # ---- writing ----
     @property
@@ -389,9 +435,10 @@ class HistoryStore:
             self._db.commit()
 
     def set_active_interview_session(self, interview_session_id: int | None) -> None:
-        """Tags any NEW turn-grouping `sessions` row opened by add_turn() from now on with this
-        interview session - does not retroactively tag the one currently open, if any."""
+        """Start a fresh turn group when changing interviews; existing turns keep their link."""
         with self._lock:
+            if interview_session_id != self._active_interview_session_id:
+                self.end_session()
             self._active_interview_session_id = interview_session_id
 
     @staticmethod
@@ -501,6 +548,7 @@ class HistoryStore:
 
     def delete_all(self) -> None:
         with self._lock:
+            self._db.execute("DELETE FROM interview_notes")
             self._db.execute("DELETE FROM turns")
             self._db.execute("DELETE FROM sessions")
             self._db.execute("INSERT INTO turns_fts(turns_fts) VALUES ('rebuild')")
@@ -512,6 +560,11 @@ class HistoryStore:
         """Retention: delete sessions older than `days`. Returns how many were removed."""
         cutoff = self._clock() - days * 86400
         with self._lock:
+            self._db.execute(
+                "DELETE FROM interview_notes WHERE interview_session_id IN "
+                "(SELECT id FROM interview_sessions WHERE created_at < ?)",
+                (cutoff,),
+            )
             ids = [
                 r[0]
                 for r in self._db.execute("SELECT id FROM sessions WHERE started_at < ?", (cutoff,))

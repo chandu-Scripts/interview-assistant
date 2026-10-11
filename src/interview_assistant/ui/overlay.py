@@ -1,8 +1,17 @@
 import time
 from collections.abc import Callable
+from functools import partial
 
-from PySide6.QtCore import QPoint, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QPainter, QShortcut
+from PySide6.QtCore import QPoint, QRectF, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontMetrics,
+    QGuiApplication,
+    QKeySequence,
+    QPainter,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -12,7 +21,10 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QSizeGrip,
+    QSizePolicy,
     QSlider,
+    QStyle,
+    QStyleOptionButton,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -27,21 +39,24 @@ from interview_assistant.ui.screenshot import capture_screen_png
 
 # Dark translucent live bar, matching the Parakeet layout the user asked for: one toolbar with
 # labelled shortcut buttons, a listening line under it, and the answer panel below.
-BG = QColor(22, 24, 32, 235)
-BORDER = QColor(58, 62, 76)
+BG = QColor(30, 28, 27, 238)
+BORDER = QColor(92, 87, 83, 180)
 STYLE = """
-QLabel { color: #e8eaf2; }
-#title { font-weight: 600; }
-#chip { color: #9fb4ff; font-size: 11px; }
-#question { color: #aab0c4; font-size: 12px; }
+QWidget { font-family: 'Segoe UI'; font-size: 12px; }
+QLabel { color: #f0efed; background: transparent; }
+#title { color: #a8a39f; font-size: 10px; }
+#chip { color: #bcb7b2; font-size: 11px; }
+#question { color: #faf9f7; font-size: 14px; font-weight: 600; padding: 8px 0; }
+#transcript { background: rgba(255,255,255,0.08); border-radius: 8px; padding: 6px 10px; }
+#history { color: #bcb7b2; font-size: 11px; }
 #warn { color: #ffb86b; font-size: 11px; }
 #timer { color: #e8eaf2; font-size: 12px; }
 #status { color: #aab0c4; font-size: 12px; }
-QTextBrowser { background: transparent; color: #e8eaf2; border: none; font-size: 14px; }
+QTextBrowser { background: transparent; color: #f0efed; border: none; font-size: 14px; }
 QLineEdit { background: rgba(255,255,255,0.06); color: #e8eaf2; border: 1px solid #3a3e4c;
             border-radius: 6px; padding: 4px 8px; }
 QPushButton { background: rgba(255,255,255,0.08); color: #e8eaf2; border: none;
-              border-radius: 8px; padding: 5px 10px; }
+              border-radius: 8px; padding: 6px 9px; }
 QPushButton:hover { background: rgba(255,255,255,0.16); }
 QPushButton:disabled { color: #5d6276; background: rgba(255,255,255,0.04); }
 #iconbtn { padding: 2px 8px; font-weight: bold; }
@@ -50,6 +65,12 @@ QPushButton:disabled { color: #5d6276; background: rgba(255,255,255,0.04); }
 #audio:checked { background: #d6363f; color: #ffffff; }
 #end { background: #d6363f; color: #ffffff; font-weight: 600; }
 #end:hover { background: #e5484f; }
+QMenu { background: #292725; color: #f0efed; border: 1px solid #5c5753; padding: 5px; }
+QMenu::item { padding: 6px 18px; }
+QMenu::item:selected { background: #48433f; border-radius: 4px; }
+QScrollBar:vertical { background: transparent; width: 7px; }
+QScrollBar::handle:vertical { background: #68605a; border-radius: 3px; min-height: 24px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 """
 COST_COLOR = {
     BudgetLevel.OK: "#1f9d55",
@@ -64,7 +85,64 @@ STATUS_TEXT = {
     "answering": "Answering…",
 }
 BUBBLE_SIZE = 48
-SCREENSHOT_TIP = "Attach a screenshot of your screen to your next question (Ctrl+Shift+Enter)"
+SCREENSHOT_TIP = "Capture your screen and answer it now (Ctrl+Shift+Enter)"
+
+
+class TranscriptLabel(QLabel):
+    """Keep the latest speech bounded without making the overlay wider as it arrives."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._transcript = ""
+        self.setObjectName("transcript")
+        self.setTextFormat(Qt.TextFormat.PlainText)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setMinimumWidth(80)
+        self.set_transcript("")
+
+    def set_transcript(self, text: str) -> None:
+        self._transcript = text[-2000:]
+        self.setToolTip(self._transcript)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        text = self._transcript or "Your live transcript will appear here"
+        self.setText(
+            self.fontMetrics().elidedText(
+                text, Qt.TextElideMode.ElideLeft, max(0, self.width() - 24)
+            )
+        )
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._refresh()
+
+
+class ShortcutButton(QPushButton):
+    """Paint a separate key badge while retaining the button's accessible text and behavior."""
+
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        label, _, keys = self.text().partition("   ")
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        option.text = ""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.style().drawControl(QStyle.ControlElement.CE_PushButton, option, painter, self)
+        font = QFont(self.font())
+        font.setPixelSize(10)
+        font.setBold(False)
+        badge_width = QFontMetrics(font).horizontalAdvance(keys) + 12
+        badge = QRectF(self.width() - badge_width - 6, 5, badge_width, self.height() - 10)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 22 if self.isEnabled() else 8))
+        painter.drawRoundedRect(badge, 4, 4)
+        painter.setPen(QColor("#f0efed" if self.isEnabled() else "#77716b"))
+        painter.drawText(
+            QRectF(9, 0, badge.left() - 12, self.height()), Qt.AlignmentFlag.AlignVCenter, label
+        )
+        painter.setFont(font)
+        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, keys)
 
 
 def split_detected_question(text: str) -> tuple[str | None, str]:
@@ -101,9 +179,10 @@ class OverlayWindow(QWidget):
         self._press_global: QPoint | None = None
         self._collapsed = False
         self._bubble = False
-        self._expanded_height = 340
-        self._restore_width = 680
+        self._expanded_height = 420
+        self._restore_width = 800
         self._listening = False
+        self._mic_bound = False
         self._busy = False
         self._answer_cost: float | None = None
         self._last_decision: Decision | None = None
@@ -145,6 +224,11 @@ class OverlayWindow(QWidget):
         self.close_btn.setToolTip("End the session and close the app")
         self.clear_btn = QPushButton("Clear")
         self.clear_btn.setToolTip("Clear the answers on screen (history is kept)")
+        self.transcript = TranscriptLabel()
+        self.transcript_clear_btn = QPushButton("Clear")
+        self.transcript_clear_btn.setToolTip(
+            "Clear the visible transcript; the waiting question is kept"
+        )
         # Widgets hidden in bubble mode (everything except the status dot, which IS the bubble).
         self._header_extras = (
             self.system_toggle,
@@ -164,7 +248,9 @@ class OverlayWindow(QWidget):
             self.clear_btn,
         )
         top_row = QHBoxLayout()
-        top_row.setContentsMargins(0, 0, 0, 0)
+        self._toolbar_layout = top_row
+        top_row.setContentsMargins(10, 8, 10, 8)
+        top_row.setSpacing(5)
         w: QWidget
         for w in (
             self.system_toggle,
@@ -177,19 +263,17 @@ class OverlayWindow(QWidget):
         top_row.addStretch(1)
         for w in (self.fix_btn, self.collapse_btn, self.timer_label, self.more_btn, self.close_btn):
             top_row.addWidget(w)
-        status_row = QHBoxLayout()
-        status_row.setContentsMargins(0, 0, 0, 0)
-        for w in (self.dot, self.status_label, self.title):
-            status_row.addWidget(w)
-        status_row.addWidget(self.chip, 1)
-        status_row.addWidget(self.cost_label)
-        status_row.addWidget(self.clear_btn)
-        header = QVBoxLayout()
-        header.setContentsMargins(0, 0, 0, 0)
-        header.addLayout(top_row)
-        header.addLayout(status_row)
         self.header = QWidget()
-        self.header.setLayout(header)
+        self.header.setLayout(top_row)
+        self.transcript_panel = QWidget()
+        transcript_row = QHBoxLayout(self.transcript_panel)
+        self._transcript_layout = transcript_row
+        transcript_row.setContentsMargins(10, 6, 10, 6)
+        transcript_row.setSpacing(8)
+        for w in (self.dot, self.status_label):
+            transcript_row.addWidget(w)
+        transcript_row.addWidget(self.transcript, 1)
+        transcript_row.addWidget(self.transcript_clear_btn)
 
         self.question = QLabel("Waiting for a question…")
         self.question.setObjectName("question")
@@ -197,11 +281,11 @@ class OverlayWindow(QWidget):
         self.prev_btn = self._icon_button("◀", "Previous answer (Ctrl+Left)")
         self.next_btn = self._icon_button("▶", "Next answer (Ctrl+Right)")
         self.history_label = QLabel("")
-        self.history_label.setObjectName("question")
+        self.history_label.setObjectName("history")
         nav_row = QHBoxLayout()
         nav_row.setContentsMargins(0, 0, 0, 0)
         nav_row.addWidget(self.prev_btn)
-        nav_row.addWidget(self.history_label, 1)
+        nav_row.addWidget(self.history_label)
         nav_row.addWidget(self.next_btn)
         self.nav_row = QWidget()
         self.nav_row.setLayout(nav_row)
@@ -245,31 +329,36 @@ class OverlayWindow(QWidget):
         self.opacity.setToolTip("Opacity")
         footer = QHBoxLayout()
         footer.setContentsMargins(0, 0, 0, 0)
-        footer.addStretch(1)
-        for extra in (self.stop_btn, self.copy_btn, self.opacity):
+        footer.addWidget(self.title)
+        footer.addWidget(self.chip, 1)
+        for extra in (self.cost_label, self.stop_btn, self.opacity):
             footer.addWidget(extra)
         self.footer = QWidget()
         self.footer.setLayout(footer)
 
         self.body = QWidget()
         body = QVBoxLayout(self.body)
-        body.setContentsMargins(0, 0, 0, 0)
+        body.setContentsMargins(12, 8, 12, 8)
+        answer_toolbar = QHBoxLayout()
+        answer_toolbar.addWidget(self.nav_row)
+        answer_toolbar.addStretch(1)
+        answer_toolbar.addWidget(self.clear_btn)
+        answer_toolbar.addWidget(self.copy_btn)
+        body.addLayout(answer_toolbar)
         body.addWidget(self.question)
-        body.addWidget(self.nav_row)
         body.addWidget(self.warn_label)
         body.addWidget(self.fix_row)
         body.addWidget(self.chat_row)
         body.addWidget(self.answer, 1)
         body.addWidget(self.footer)
-        grip_row = QHBoxLayout()
-        grip_row.addStretch(1)
-        grip_row.addWidget(QSizeGrip(self))
+        self.grip = QSizeGrip(self)
+        footer.addWidget(self.grip)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 8, 4)
+        layout.setContentsMargins(1, 1, 1, 1)
         layout.setSpacing(6)
         layout.addWidget(self.header)
+        layout.addWidget(self.transcript_panel)
         layout.addWidget(self.body, 1)
-        layout.addLayout(grip_row)
 
         self._render_timer = QTimer(self)
         self._render_timer.setSingleShot(True)
@@ -291,6 +380,7 @@ class OverlayWindow(QWidget):
         QShortcut(QKeySequence("Ctrl+Shift+Return"), self, self.take_screenshot)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, self.take_screenshot)
         self.clear_btn.clicked.connect(self._clear_view)
+        self.transcript_clear_btn.clicked.connect(lambda: self.transcript.set_transcript(""))
         self._clock = QTimer(self)
         self._clock.setInterval(1000)
         self._started = time.monotonic()
@@ -334,13 +424,14 @@ class OverlayWindow(QWidget):
         self.system_toggle.setChecked(system.recording)
         self.system_toggle.clicked.connect(system.toggle)
         if mic is not None:
+            self._mic_bound = True
             self.mic_toggle.setVisible(True)
             mic.recording_changed.connect(self.mic_toggle.setChecked)
             self.mic_toggle.setChecked(mic.recording)
             self.mic_toggle.clicked.connect(mic.toggle)
 
     def _shortcut_button(self, label: str, keys: str, tip: str) -> QPushButton:
-        b = QPushButton(f"{label}   {keys}")
+        b = ShortcutButton(f"{label}   {keys}")
         b.setObjectName("pill")
         b.setToolTip(tip)
         return b
@@ -396,7 +487,9 @@ class OverlayWindow(QWidget):
 
     def on_question_pending(self, text: str, lag: object) -> None:
         """Manual mode: a voice question was heard and is waiting for Answer/Ctrl+Enter."""
-        self._display_question(text, "voice")
+        self.transcript.set_transcript(text)
+        if not self._text and self._history_index >= len(self._qa_history):
+            self._display_question(text, "voice")
         self.chip.setText("ready - press Answer")
         self.chip.setToolTip("")
         self.answer_btn.setEnabled(True)
@@ -505,7 +598,7 @@ class OverlayWindow(QWidget):
 
     def on_live_text(self, text: str) -> None:
         if text:
-            self.question.setText(f"🎤 {text} …")
+            self.transcript.set_transcript(text)
 
     def set_listening(self, listening: bool) -> None:
         self._listening = listening
@@ -549,7 +642,7 @@ class OverlayWindow(QWidget):
             sub = menu.addMenu(f"{label} device")
             combo = panel.device_combo
             for i in range(combo.count()):
-                sub.addAction(combo.itemText(i), lambda i=i, c=combo: c.setCurrentIndex(i))
+                sub.addAction(combo.itemText(i), partial(combo.setCurrentIndex, i))
         if self._menu_devices:
             menu.addSeparator()
         for label, action in self._menu_actions:
@@ -651,6 +744,7 @@ class OverlayWindow(QWidget):
         if self._collapsed:
             self._expanded_height = self.height()
         self.body.setVisible(not self._collapsed)
+        self.transcript_panel.setVisible(not self._collapsed)
         self.collapse_btn.setText("+" if self._collapsed else "–")
         self.setMinimumHeight(48 if self._collapsed else 90)
         self.resize(self.width(), 48 if self._collapsed else self._expanded_height)
@@ -666,12 +760,20 @@ class OverlayWindow(QWidget):
             self._restore_width = self.width()
         for w in self._header_extras:
             w.setVisible(not self._bubble)
+        # Move the status dot into the toolbar so the bubble retains a visible indicator.
+        if self._bubble:
+            self._toolbar_layout.addWidget(self.dot)
+        else:
+            self._transcript_layout.insertWidget(0, self.dot)
+            self.mic_toggle.setVisible(self._mic_bound)
+        self.dot.show()
+        self.transcript_panel.setVisible(not self._bubble and not self._collapsed)
         self.body.setVisible(not self._bubble and not self._collapsed)
         if self._bubble:
             self.setMinimumSize(BUBBLE_SIZE, BUBBLE_SIZE)
             self.resize(BUBBLE_SIZE, BUBBLE_SIZE)
         else:
-            self.setMinimumSize(640, 90)
+            self.setMinimumSize(640, 48 if self._collapsed else 90)
             self.resize(self._restore_width, 48 if self._collapsed else self._expanded_height)
         self.update()  # repaint with the bubble's round-vs-rounded-rect shape
 
@@ -729,8 +831,12 @@ class OverlayWindow(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setBrush(BG)
         p.setPen(BORDER)
-        radius = min(self.width(), self.height()) // 2 if self._bubble else 12
-        p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), radius, radius)
+        if self._bubble:
+            p.drawEllipse(self.rect().adjusted(0, 0, -1, -1))
+        else:
+            for panel in (self.header, self.transcript_panel, self.body):
+                if panel.isVisibleTo(self):
+                    p.drawRoundedRect(QRectF(panel.geometry()).adjusted(0, 0, -1, -1), 12, 12)
 
     def mousePressEvent(self, e) -> None:  # noqa: N802
         if e.button() == Qt.MouseButton.LeftButton and (self._bubble or e.position().y() < 44):
@@ -760,7 +866,7 @@ class OverlayWindow(QWidget):
         geo = s.value("geometry")
         if geo is not None and self.restoreGeometry(geo):
             return
-        self.resize(680, 340)
+        self.resize(800, 420)
         screen = QGuiApplication.primaryScreen()
         if screen is not None:
             area = screen.availableGeometry()

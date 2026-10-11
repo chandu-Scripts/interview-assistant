@@ -671,11 +671,42 @@ def test_overlay_answer_button_calls_trigger_answer(qtbot, overlay):
 
 def test_overlay_live_text_and_listening_dot(overlay):
     overlay.on_live_text("tell me about")
-    assert "tell me about" in overlay.question.text()
+    assert "tell me about" in overlay.transcript.toolTip()
     overlay.set_listening(True)
     assert overlay.dot.toolTip() == "listening"
     overlay.set_listening(False)
     assert overlay.dot.toolTip() == "idle"
+
+
+def test_live_transcript_does_not_replace_answer_under_review(overlay):
+    overlay.on_question(1, "Original question", "typed")
+    overlay.on_delta(1, "Original answer")
+    overlay.on_finished(1, "fake", 0.1, 0.2)
+    overlay.prev_qa()
+    overlay.on_live_text("New speech")
+    overlay.on_question_pending("Next question", None)
+    assert "Original question" in overlay.question.text()
+    assert overlay.answer.toPlainText() == "Original answer"
+    assert overlay.transcript.toolTip() == "Next question"
+    overlay.transcript_clear_btn.click()
+    assert overlay.transcript.toolTip() == ""
+    assert overlay.answer_btn.isEnabled()
+    assert overlay.answer.toPlainText() == "Original answer"
+
+
+def test_transcript_is_bounded_and_restores_after_bubble(overlay):
+    overlay.show()
+    overlay.on_live_text("word " * 10000)
+    assert len(overlay.transcript.toolTip()) == 2000
+    overlay.toggle_bubble()
+    assert not overlay.transcript_panel.isVisibleTo(overlay)
+    overlay.toggle_bubble()
+    assert overlay.transcript_panel.isVisibleTo(overlay)
+    assert not overlay.mic_toggle.isVisibleTo(overlay)
+    overlay.toggle_collapsed()
+    assert not overlay.transcript_panel.isVisibleTo(overlay)
+    overlay.toggle_collapsed()
+    assert overlay.transcript_panel.isVisibleTo(overlay)
 
 
 def test_overlay_collapse_and_opacity_persist(qtbot, tmp_path):

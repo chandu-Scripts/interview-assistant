@@ -6,6 +6,7 @@ from interview_assistant.agents.classifier import Classifier
 from interview_assistant.agents.specialists import SPECIALISTS, system_prompt
 from interview_assistant.agents.types import Category, Decision, Turn
 from interview_assistant.llm.router import RoutedResult, RouteEvent, Router, collect_routed
+from interview_assistant.llm.router_factory import parse_chain
 from interview_assistant.llm.types import LLMRequest, Message
 from interview_assistant.privacy.redact import redact_text
 
@@ -25,12 +26,14 @@ class JevConfig:
     # when a session is activated/ended - the same pattern already used above for `redact`
     # (see privacy/state.py's PrivacyState, and app/interview_session.py's InterviewSessionManager).
     company: str = ""
+    role_title: str = ""
     job_description: str = ""
     instructions: str = ""
     answer_format: str = ""
     answer_length: str = ""
     answer_tone: str = ""
     language: str = "English"
+    model_route_override: str = ""
 
 
 class Jev:
@@ -79,6 +82,8 @@ class Jev:
     ) -> AsyncGenerator[JevEvent, None]:
         """Pass a pre-computed `decision` (from decide()) to avoid classifying twice. `image` is
         PNG bytes sent with this question's answer request only (never with classification)."""
+        # Snapshot the session's preference before classification can yield to another task.
+        preferred = parse_chain(self.config.model_route_override)
         decision = decision or await self.decide(question)
         yield decision
         if not decision.should_answer:
@@ -90,7 +95,15 @@ class Jev:
                 spec,
                 self.config.profile,
                 company=self.config.company,
-                job_description=self.config.job_description,
+                job_description="\n".join(
+                    filter(
+                        None,
+                        (
+                            f"Role: {self.config.role_title}" if self.config.role_title else "",
+                            self.config.job_description,
+                        ),
+                    )
+                ),
                 instructions=self.config.instructions,
                 answer_format=self.config.answer_format,
                 answer_length=self.config.answer_length,
@@ -102,7 +115,10 @@ class Jev:
         )
         parts: list[str] = []
         async for ev in self._router.stream(
-            self._outbound(request), decision.tier, tag=decision.category.value
+            self._outbound(request),
+            decision.tier,
+            tag=decision.category.value,
+            preferred=preferred[0] if preferred else None,
         ):
             if ev.reset:
                 parts.clear()

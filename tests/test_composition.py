@@ -40,6 +40,41 @@ class StubApp:
         self.quit_calls += 1
 
 
+def test_dashboard_opens_post_call_review_and_presentation_pauses_it(parts_factory):
+    parts = parts_factory()
+    sid = parts.history.create_interview_session(company="Review company")
+    parts.history.end_interview_session(sid)
+    parts.start_screen._view_session(sid)
+    page = parts.start_screen.review_page
+    assert parts.start_screen.pages.currentWidget() is page
+    assert page.title.text() == "Review company"
+    parts.presentation.activate()
+    assert page._controller._paused
+
+
+@pytest.mark.parametrize(
+    "options, expected",
+    [
+        (
+            {"relay_url": "https://relay.example", "relay_token": "test-token"},
+            ["", "relay:fast", "relay:smart"],
+        ),
+        (
+            {
+                "openai_api_key": "test-key",
+                "router_fast": "openai:custom",
+                "router_smart": "openai:custom",
+            },
+            ["", "openai:custom"],
+        ),
+    ],
+)
+def test_wizard_models_follow_configured_routes(parts_factory, options, expected):
+    parts = parts_factory(**options)
+    combo = parts.start_screen.create_page.model_override
+    assert [combo.itemData(i) for i in range(combo.count())] == expected
+
+
 @pytest.fixture
 def parts_factory(qtbot, tmp_path, monkeypatch):
     built: list[AppParts] = []

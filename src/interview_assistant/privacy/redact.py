@@ -2,7 +2,8 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+# Only try at a token's start: retrying every suffix of a long non-email is quadratic.
+_EMAIL = re.compile(r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
 _SSN = re.compile(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
 _DIGIT_RUN = re.compile(r"(?<![\w])\+?\d[\d ().-]{7,}\d(?![\w])")
 _SECRETS = [

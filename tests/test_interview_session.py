@@ -78,6 +78,29 @@ def test_end_active_with_nothing_active_is_a_noop(history, config):
     assert mgr.current is None and config.profile == "Global resume summary"
 
 
+def test_model_preference_is_applied_reset_and_validated_before_ending(history, config):
+    mgr = InterviewSessionManager(config, history, base_profile=None)
+    session = mgr.activate(details(model_route_override="openai:chosen"))
+    assert config.model_route_override == "openai:chosen"
+    with pytest.raises(ValueError):
+        mgr.activate(details(model_route_override="invalid"))
+    assert mgr.current is session
+    mgr.end_active()
+    assert config.model_route_override == ""
+
+
+def test_resume_ready_session_reuses_record_and_rejects_ended(history, config):
+    mgr = InterviewSessionManager(config, history, base_profile=None)
+    ready = history.create_interview_session(company="Northwind", model_route_override="openai:m")
+    session = mgr.resume(ready)
+    assert mgr.resume(ready) is session
+    assert len(history.list_interview_sessions()) == 1
+    assert config.model_route_override == "openai:m"
+    mgr.end_active()
+    with pytest.raises(ValueError, match="no longer ready"):
+        mgr.resume(ready)
+
+
 def test_new_turns_are_tagged_with_the_active_interview_session(history, config):
     from interview_assistant.history.store import TurnRecord
 

@@ -174,6 +174,23 @@ class HistoryWindow(QWidget):
         item = self.sessions.currentItem()
         return item.data(Qt.ItemDataRole.UserRole).id if item else None
 
+    def select_interview_session(self, interview_session_id: int) -> None:
+        """Open the newest saved transcript linked to a dashboard interview session."""
+        self.search.clear()
+        self._debounce.stop()
+        for row in range(self.sessions.count()):
+            item = self.sessions.item(row)
+            if item.data(Qt.ItemDataRole.UserRole).interview_session_id == interview_session_id:
+                self.sessions.setCurrentRow(row)
+                self._load_turns()
+                self.view_transcript()
+                self.status.clear()
+                return
+        self.sessions.setCurrentRow(-1)
+        self._load_turns()
+        self.detail.setPlainText("No transcript was saved for this session.")
+        self.status.setText("No saved transcript")
+
     def _load_turns(self) -> None:
         if self.search.text().strip():
             return  # search results own the turn list while a query is active

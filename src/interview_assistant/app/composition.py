@@ -11,8 +11,10 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QWidget
 
 from interview_assistant.agents.jev import Jev, JevConfig
+from interview_assistant.app.async_runner import AsyncRunner
 from interview_assistant.app.controller import AssistantController
 from interview_assistant.app.interview_session import InterviewSessionManager, SessionDetails
+from interview_assistant.app.post_call import PostCallController
 from interview_assistant.app.presentation import PresentationMode
 from interview_assistant.app.restart import request_restart
 from interview_assistant.app.resume_library import ResumeLibrary
@@ -25,7 +27,7 @@ from interview_assistant.cost.tracker import CostTracker
 from interview_assistant.history.store import HistoryStore
 from interview_assistant.llm.base import LLMProvider
 from interview_assistant.llm.factory import build_providers
-from interview_assistant.llm.router_factory import build_router
+from interview_assistant.llm.router_factory import build_router, default_chains
 from interview_assistant.privacy.consent import SCREENSHOT_KEY, ConsentGate
 from interview_assistant.privacy.disclosure import (
     SCREENSHOT_CONSENT_TEXT,
@@ -95,9 +97,11 @@ def build_app(
         removed = history.purge_older_than(settings.history_retention_days)
         log.info("Retention purge removed %d old session(s)", removed)
     interview_sessions = InterviewSessionManager(jev.config, history, settings.candidate_profile)
+    runner = AsyncRunner()
     controller = AssistantController(
-        jev, tracker=tracker, history=history, answer_mode=settings.answer_mode
+        jev, tracker=tracker, history=history, answer_mode=settings.answer_mode, runner=runner
     )
+    review_controller = PostCallController(router, runner, tracker)
     tracker.on_change = controller.notify_cost_changed
     overlay = OverlayWindow(controller)
 
@@ -165,18 +169,18 @@ def build_app(
         qapp.quit()
 
     overlay.end_requested.connect(end_session_and_close)
-    model_choices = [
-        f"{provider}:{model}"
-        for provider, model in (
-            ("openai", settings.openai_model),
-            ("openai", settings.openai_smart_model),
-            ("anthropic", settings.anthropic_model),
-            ("anthropic", settings.anthropic_fast_model),
-            ("gemini", settings.gemini_model),
-            ("gemini", settings.gemini_fast_model),
+    model_choices = list(
+        dict.fromkeys(
+            str(route)
+            for chain in default_chains(settings).values()
+            for route in chain
+            if route.provider in providers
         )
-        if provider in providers
-    ]
+    )
+
+    def view_interview_session(session_id: int) -> None:
+        start_screen.show_review(session_id)
+
     start_screen = StartScreen(
         history,
         ResumeLibrary(data_dir(settings) / "resumes.json"),
@@ -184,12 +188,18 @@ def build_app(
         connect_session,
         window.show_history,
         model_choices=model_choices,
+        on_settings=window.show_settings,
+        on_privacy=window.show_privacy,
+        on_view_session=view_interview_session,
+        on_resume=interview_sessions.resume,
+        review_controller=review_controller,
     )
     hidden: list[QWidget] = [
         w for w in (overlay, window.history_window, start_screen) if w is not None
     ]
     audio_stoppables = [window.audio_panel] + ([window.mic_panel] if window.mic_panel else [])
     presentation = PresentationMode(hidden, window, audio_stoppables, controller)
+    presentation.changed.connect(review_controller.set_paused)
 
     def flows() -> list[DataFlow]:
         return describe_data_flow(

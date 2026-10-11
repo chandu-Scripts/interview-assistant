@@ -254,6 +254,68 @@ def test_filler_is_ignored_and_never_saved(make_stack):
     assert s.overlay.answer_text == ""
 
 
+def test_wizard_connect_selected_model_end_and_view_transcript(make_stack, qtbot):
+    from interview_assistant.ui.history_window import HistoryWindow
+    from interview_assistant.ui.start_screen import StartScreen
+
+    default = hash_provider("openai", "default")
+    selected = hash_provider("anthropic", "selected")
+    s = make_stack({"openai": default, "anthropic": selected}, [TWO_SUM], answer_mode="manual")
+    s.panel.stop()
+    manager = InterviewSessionManager(s.jev.config, s.history, base_profile="Backend engineer")
+    screen = StartScreen(
+        s.history,
+        None,
+        manager.activate,
+        s.start_capture,
+        lambda: None,
+        model_choices=["openai:default", "anthropic:selected"],
+        on_resume=manager.resume,
+    )
+    qtbot.addWidget(screen)
+    screen.create_btn.click()
+    wizard = screen.create_page
+    wizard.company.setText("Northwind")
+    wizard.role_title.setText("Platform Architect")
+    wizard.next_btn.click()
+    wizard.model_override.setCurrentIndex(wizard.model_override.findData("anthropic:selected"))
+    wizard.next_btn.click()
+    session = manager.current
+    assert session is not None and not s.panel.recording
+    assert len(s.history.list_interview_sessions()) == 1
+    screen.back_btn.click()
+    screen.start_btn.click()
+    assert manager.current.id == session.id
+    assert len(s.history.list_interview_sessions()) == 1
+    screen.connect_btn.click()
+    assert s.panel.recording
+    s.speak()
+    qtbot.waitUntil(s.overlay.answer_btn.isEnabled, timeout=8000)
+    s.overlay.answer_btn.click()
+    s.answered("hash map.")
+    s.wait_turns(1)
+    assert selected.calls == ["selected"] and default.calls == []
+    assert "Role: Platform Architect" in selected.requests[0].system
+
+    def end():
+        s.panel.stop()
+        manager.end_active()
+
+    s.overlay.end_requested.connect(end)
+    s.overlay.close_btn.click()
+    assert not s.panel.recording
+    assert s.history.get_interview_session(session.id).ended_at is not None
+    assert s.jev.config.model_route_override == ""
+    history = HistoryWindow(s.history)
+    qtbot.addWidget(history)
+    history.select_interview_session(session.id)
+    assert TWO_SUM in history.detail.toPlainText()
+    assert "hash map." in history.detail.toPlainText()
+    s.controller.ask(TWO_SUM, "typed")
+    s.wait_turns(2)
+    assert default.calls == ["default"] and selected.calls == ["selected"]
+
+
 def test_consecutive_questions_keep_context(make_stack):
     prov = hash_provider(steps=("ok",))
     s = make_stack({"openai": prov}, [CONFLICT, "What was the outcome of that?"])

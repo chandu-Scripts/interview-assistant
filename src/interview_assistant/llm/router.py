@@ -180,8 +180,24 @@ class Router:
         tier: str = "fast",
         provider: str | None = None,
         tag: str | None = None,
+        preferred: Route | None = None,
     ) -> AsyncIterator[RouteEvent]:
-        chain = self.chain_for(tier, provider)
+        if preferred is not None:
+            if preferred.provider not in self._providers or not any(
+                preferred in routes for routes in self._cfg.chains.values()
+            ):
+                raise NoRoutesAvailable(f"selected model is no longer configured: {preferred}")
+            if provider is not None and preferred.provider != provider:
+                raise NoRoutesAvailable("selected model does not match the requested provider")
+        try:
+            chain = self.chain_for(tier, provider)
+        except NoRoutesAvailable:
+            if preferred is None or tier not in self._cfg.chains:
+                raise
+            chain = []
+        if preferred is not None:
+            chain = [preferred] + [route for route in chain if route != preferred]
+            chain.sort(key=lambda route: self._health.is_open(route.provider))
         in_chars = len(request.system or "") + sum(len(m.content) for m in request.messages)
         errors: list[LLMError] = []
         showed_text = False

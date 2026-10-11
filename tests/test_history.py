@@ -731,6 +731,26 @@ def test_view_transcript_button_disabled_with_no_session_selected(qtbot, store):
     assert not w.view_transcript_btn.isEnabled()
 
 
+def test_dashboard_transcript_selection_does_not_show_another_session(qtbot, store):
+    first = store.create_interview_session(company="First")
+    store.set_active_interview_session(first)
+    store.add_turn(turn("First question", "First answer"))
+    store.end_session()
+    second = store.create_interview_session(company="Second")
+    store.set_active_interview_session(second)
+    store.add_turn(turn("Second question", "Second answer"))
+    w, _ = make_window(qtbot, store)
+    w.search.setText("Second")
+    w.select_interview_session(first)
+    assert w.search.text() == ""
+    assert "First answer" in w.detail.toPlainText()
+    assert "Second answer" not in w.detail.toPlainText()
+    empty = store.create_interview_session(company="No transcript")
+    w.select_interview_session(empty)
+    assert "No transcript was saved" in w.detail.toPlainText()
+    assert not w.view_transcript_btn.isEnabled()
+
+
 def test_route_event_import_used():
     assert RouteEvent  # FakeJev yields RouteEvents; keeps the import honest
 
