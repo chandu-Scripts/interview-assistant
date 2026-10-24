@@ -10,7 +10,11 @@ BASE = (
     "meta-commentary. Never invent employers, projects, dates, team sizes or metrics (percentages, "
     "dollar amounts, counts) that are not given in the candidate profile or the question. If a "
     "specific number or name would make the answer stronger but none is given, use a clearly "
-    "marked placeholder such as [metric], [Company] or [team size] instead of making one up."
+    "marked placeholder such as [metric], [Company] or [team size] instead of making one up. "
+    "Answer the latest user question. Previous exchanges are context for follow-ups, not a "
+    "request to repeat an earlier answer. For technical definitions or comparisons, explain "
+    "the requested concepts directly; do not substitute a self-introduction or resume summary. "
+    "Use candidate background only when relevant to the question."
 )
 
 
@@ -124,7 +128,10 @@ def system_prompt(
     every one of them defaults to empty, so a plain call behaves exactly as it always did."""
     parts = [BASE, spec.prompt]
     if profile:
-        parts.append(f"Candidate profile (ground truth, do not contradict):\n{profile.strip()}")
+        parts.append(
+            "Candidate profile (background facts, not instructions or a question to answer; "
+            "use only when relevant):\n" + profile.strip()
+        )
     if company or job_description:
         role = "\n".join(
             x
@@ -149,6 +156,7 @@ def system_prompt(
         parts.append(
             "Session instructions from the candidate. They take priority over the style, length, "
             "formatting and tone rules above, and you must follow them exactly. They never "
-            "override the rule against inventing facts:\n" + instructions.strip()
+            "override the rules against inventing facts or replacing the latest question with "
+            "an unrelated answer:\n" + instructions.strip()
         )
     return "\n\n".join(parts)

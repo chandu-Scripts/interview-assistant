@@ -28,6 +28,56 @@ def turn(q="What is a mutex?", a="A lock.", **kw):
     return TurnRecord(question=q, answer=a, **kw)
 
 
+@pytest.mark.parametrize("mode", ["disabled", "incognito", "no_transcript"])
+def test_private_interview_metadata_stays_in_memory(tmp_path, mode):
+    path = tmp_path / "private.db"
+    history = HistoryStore(path, enabled=mode != "disabled")
+    history.suspended = mode == "incognito"
+    sid = history.create_interview_session(
+        company="Private employer",
+        resume_override="Private resume",
+        save_transcript=mode != "no_transcript",
+    )
+    assert sid < 0
+    assert history.get_interview_session(sid).company == "Private employer"
+    assert history.list_interview_sessions()[0].id == sid
+    history.set_active_interview_session(sid)
+    history.enabled, history.suspended = True, False
+    assert history.add_turn(turn()) is None  # A private session never starts saving mid-call.
+    history.close()
+    reopened = HistoryStore(path)
+    assert reopened.list_interview_sessions() == []
+    assert reopened.counts() == (0, 0)
+    reopened.close()
+
+
+def test_wipe_removes_metadata_and_rejects_inflight_answer(store):
+    sid = store.create_interview_session(company="Private employer", resume_override="Resume")
+    store.set_active_interview_session(sid)
+    store.save_interview_notes(sid, "Private notes")
+    generation = store.generation
+    store.add_turn(turn())
+    store.delete_all()
+    assert store.list_interview_sessions() == []
+    assert store.get_interview_notes(sid) == ""
+    assert store.add_turn(turn(), expected_generation=generation) is None
+    assert store.counts() == (0, 0)
+    assert store.add_turn(turn("New question?")) is not None
+
+
+def test_retention_removes_unused_interview_metadata_but_keeps_active(store):
+    old = store.create_interview_session(company="Expired")
+    active = store.create_interview_session(company="Active")
+    store.set_active_interview_session(active)
+    store.save_interview_notes(old, "Expired notes")
+    store.save_interview_notes(active, "Current notes")
+    store.purge_older_than(-1)
+    assert store.get_interview_session(old) is None
+    assert store.get_interview_notes(old) == ""
+    assert store.get_interview_session(active) is not None
+    assert store.get_interview_notes(active) == "Current notes"
+
+
 @pytest.fixture
 def store():
     s = HistoryStore(":memory:")

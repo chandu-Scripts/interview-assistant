@@ -141,6 +141,7 @@ def build_app(
     session_incognito_before: dict[str, bool] = {}
 
     def apply_session_options(details: SessionDetails | None) -> None:
+        controller.new_interview()
         if details is None:
             controller.set_answer_mode(settings.answer_mode)
             if "incognito" in session_incognito_before:
@@ -183,7 +184,7 @@ def build_app(
 
     start_screen = StartScreen(
         history,
-        ResumeLibrary(data_dir(settings) / "resumes.json"),
+        ResumeLibrary(data_dir(settings) / "resumes.json", can_write=lambda: not privacy.incognito),
         interview_sessions.activate,
         connect_session,
         window.show_history,

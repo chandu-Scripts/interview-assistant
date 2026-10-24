@@ -10,6 +10,7 @@ class _SourceState:
     parts: list[str] = field(default_factory=list)
     first: float = 0.0
     last: float = 0.0
+    ended: deque[float] = field(default_factory=lambda: deque(maxlen=64))
 
 
 class UtteranceAggregator:
@@ -57,10 +58,16 @@ class UtteranceAggregator:
     def speech_started(self, source: str = "") -> None:
         self._state(source).starts.append(self._clock())
 
+    def speech_ended(self, source: str = "") -> None:
+        st = self._state(source)
+        if len(st.ended) < len(st.starts):
+            st.ended.append(self._clock())
+
     def final(self, text: str, source: str = "") -> None:
         st = self._state(source)
         if st.starts:
             st.starts.popleft()
+        ended_at = st.ended.popleft() if st.ended else None
         text = text.strip()
         if not text:
             return
@@ -68,7 +75,8 @@ class UtteranceAggregator:
         if not st.parts:
             st.first = now
         st.parts.append(text)
-        st.last = now
+        # Count transcription time toward the merge window instead of waiting again afterwards.
+        st.last = ended_at if ended_at is not None else now
 
     def poll(self) -> tuple[str, str] | None:
         """(text, source) for the first source whose merge window has closed, or None. Sources

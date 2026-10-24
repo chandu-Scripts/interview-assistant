@@ -2,6 +2,7 @@ import asyncio
 import itertools
 import logging
 import time
+from contextvars import ContextVar
 from typing import Literal, Protocol
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -93,7 +94,7 @@ class AssistantController(QObject):
         self._pending_source: str = ""
         self._stopped_gen = 0
         self._paused = False
-        self._last_speech_end: float | None = None
+        self._last_speech_end: dict[str, float] = {}
         # Set just before each answer starts (loop thread only); lets correct_category() redo
         # the most recent question with a different specialist.
         self._last_question: str | None = None
@@ -112,6 +113,11 @@ class AssistantController(QObject):
         # across all sources, for the single "stop" button/UI pane.
         self._committed_gen: dict[str, int] = {}
         self._tasks: dict[str, asyncio.Task] = {}
+        self._runs: dict[int, asyncio.Task] = {}
+        self._invalid_before = 0
+        self._write_generation: ContextVar[int | None] = ContextVar(
+            "history_generation", default=None
+        )
         self._active_gen = 0
         self._active_source = ""
         self._timer = QTimer(self)
@@ -124,9 +130,12 @@ class AssistantController(QObject):
         """`source`: "" for the app's single (today's default) audio source, or a DeviceKind's
         value ("mic"/"loopback") when Step 19's simultaneous dual-source capture is active -
         must match what on_transcript_event()'s events report, so they merge independently."""
-        self._agg.speech_started(source)
+        if not self._paused:
+            self._agg.speech_started(source)
 
     def on_transcript_event(self, ev: TranscriptEvent) -> None:
+        if self._paused:
+            return
         source = ev.source.value if ev.source is not None else ""
         if ev.is_final:
             self._agg.final(ev.text, source)
@@ -138,6 +147,7 @@ class AssistantController(QObject):
         """While paused (presentation mode) no new question is accepted, voice or typed."""
         self._paused = paused
         if paused:
+            self._invalidate_answers()
             self._agg.reset()
             self._pending_question = None
             self._pending_lag = None
@@ -148,8 +158,9 @@ class AssistantController(QObject):
     def paused(self) -> bool:
         return self._paused
 
-    def on_speech_ended(self) -> None:
-        self._last_speech_end = time.monotonic()
+    def on_speech_ended(self, source: str = "") -> None:
+        self._last_speech_end[source] = time.monotonic()
+        self._agg.speech_ended(source)
 
     def attach_screenshot(self, image: bytes) -> None:
         """Answer the NEXT question (typed or voice, in either mode) with this screenshot, once."""
@@ -184,7 +195,17 @@ class AssistantController(QObject):
             image, self._pending_image = self._pending_image, None
             if image is not None:
                 self.screenshot_pending.emit(False)
-            self._runner.submit(self._run(gen, text, source, speech_lag, image, explicit))
+            self._runner.submit(
+                self._execute(
+                    gen,
+                    text,
+                    source,
+                    speech_lag,
+                    image,
+                    explicit,
+                    history_generation=self._history_generation(),
+                )
+            )
 
     def set_answer_mode(self, mode: Literal["manual", "auto"]) -> None:
         self._answer_mode = mode
@@ -208,14 +229,25 @@ class AssistantController(QObject):
 
         Picking the SAME category again is a plain "regenerate" and is not logged as a correction.
         """
+        if self._paused:
+            return
         gen = next(self._gen)
-        self._runner.submit(self._run_corrected(gen, category))
+        self._runner.submit(
+            self._execute(
+                gen,
+                category=category,
+                history_generation=self._history_generation(),
+            )
+        )
 
     def clear_history(self) -> None:
         self._jev.clear_history()
 
     def new_interview(self) -> None:
         """Forget the conversation and start a fresh cost session."""
+        self._invalidate_answers()
+        self._last_question = None
+        self._last_image = None
         self._jev.clear_history()
         self._agg.reset()
         self._pending_question = None
@@ -245,8 +277,9 @@ class AssistantController(QObject):
         if (result := self._agg.poll()) is not None:
             question, source = result
             lag = None
-            if self._last_speech_end is not None:
-                lag = max(0.0, time.monotonic() - self._last_speech_end)
+            ended_at = self._last_speech_end.get(source)
+            if ended_at is not None:
+                lag = max(0.0, time.monotonic() - ended_at)
             if self._answer_mode == "manual":
                 # Waits for trigger_answer() instead of answering immediately. A later poll()
                 # before that happens simply replaces the pending question (latest wins).
@@ -260,6 +293,51 @@ class AssistantController(QObject):
                 self.ask(question, "voice" if not source else f"voice:{source}", lag)
 
     # ---- runs on the asyncio thread ----
+    def _history_generation(self) -> int | None:
+        if self._history is None:
+            return None
+        return self._history.generation if self._history.writable else -1
+
+    def _invalidate_answers(self) -> None:
+        self._invalid_before = next(self._gen)
+        cutoff = self._invalid_before
+        self._runner.call_soon(lambda: self._cancel_before(cutoff))
+
+    def _cancel_before(self, cutoff: int) -> None:
+        for gen, task in tuple(self._runs.items()):
+            if gen < cutoff and not task.done():
+                task.cancel()
+                self.answer_stopped.emit(gen)
+
+    async def _execute(
+        self,
+        gen: int,
+        text: str = "",
+        source: str = "typed",
+        speech_lag: float | None = None,
+        image: bytes | None = None,
+        explicit: bool = False,
+        category: Category | None = None,
+        history_generation: int | None = None,
+    ) -> None:
+        if self._paused or gen < self._invalid_before:
+            return
+        current = asyncio.current_task()
+        assert current is not None
+        self._runs[gen] = current
+        token = self._write_generation.set(history_generation)
+        cost_token = self._tracker.begin_request() if self._tracker else None
+        try:
+            if category is not None:
+                await self._run_corrected(gen, category)
+            else:
+                await self._run(gen, text, source, speech_lag, image, explicit)
+        finally:
+            self._runs.pop(gen, None)
+            self._write_generation.reset(token)
+            if self._tracker is not None and cost_token is not None:
+                self._tracker.end_request(cost_token)
+
     def _stop_active(self) -> None:
         task = self._tasks.get(self._active_source)
         if task is not None and not task.done():
@@ -278,15 +356,24 @@ class AssistantController(QObject):
         explicit: bool = False,
     ) -> None:
         asked_at = time.time()  # history order follows when the question was asked
+        if self._tracker is not None and self._tracker.budget_state().blocked:
+            await self._answer(
+                gen, text, source, self._jev.manual_decision(Category.GENERAL), asked_at
+            )
+            return
         try:
             decision = await self._jev.decide(text)
         except Exception as e:
+            if self._paused or gen < self._invalid_before:
+                return
             log.exception("Classification failed")
             self._commit(gen, text, source)
             self.answer_failed.emit(gen, friendly_error(e))
             self._save(text, source, None, asked_at, status="error", error=friendly_error(e))
             return
-        if not decision.should_answer and source == "voice" and not explicit:
+        if self._paused or gen < self._invalid_before:
+            return
+        if not decision.should_answer and source.startswith("voice") and not explicit:
             self.question_ignored.emit(text)
             return
         if not decision.should_answer and (source == "typed" or explicit):
@@ -344,7 +431,6 @@ class AssistantController(QObject):
                 corrected_from=corrected_from,
             )
             return
-        spent_before = self._tracker.total_usd() if self._tracker else 0.0
         prev_task = self._tasks.get(source)
         if prev_task is not None and not prev_task.done():
             prev_task.cancel()
@@ -377,7 +463,7 @@ class AssistantController(QObject):
                     self.answer_delta.emit(gen, ev.event.delta)
                 route = str(ev.route)
             if self._tracker is not None:
-                self.answer_cost.emit(gen, self._spent_since(spent_before))
+                self.answer_cost.emit(gen, self._request_cost())
             answer_text = "".join(parts)
             self.answer_flags.emit(gen, self._unverified_claims(decision, text, answer_text))
             total = time.monotonic() - start
@@ -408,14 +494,21 @@ class AssistantController(QObject):
                 route=route,
                 first_token_s=first,
                 total_s=time.monotonic() - start,
-                cost=self._spent_since(spent_before),
+                cost=self._request_cost(),
                 error=error,
                 corrected_from=corrected_from,
             )
+            if self._tasks.get(source) is current:
+                self._tasks.pop(source, None)
             if self._active_gen == gen:
-                self._active_gen = 0
-                self._active_source = ""
-                self.busy_changed.emit(False)
+                remaining = [
+                    (self._committed_gen[key], key)
+                    for key, task in self._tasks.items()
+                    if not task.done()
+                ]
+                self._active_gen, self._active_source = max(remaining, default=(0, ""))
+                if not remaining:
+                    self.busy_changed.emit(False)
 
     def _unverified_claims(self, decision: Decision, question: str, answer: str) -> list[str]:
         if decision.category.value not in CLAIM_PRONE:
@@ -424,8 +517,8 @@ class AssistantController(QObject):
         profile = getattr(config, "profile", None) or ""
         return find_unverified_claims(answer, f"{profile}\n{question}")
 
-    def _spent_since(self, before: float) -> float | None:
-        return None if self._tracker is None else max(0.0, self._tracker.total_usd() - before)
+    def _request_cost(self) -> float | None:
+        return None if self._tracker is None else self._tracker.request_cost()
 
     def _save(
         self,
@@ -463,7 +556,8 @@ class AssistantController(QObject):
                     error=error,
                     asked_at=asked_at,
                     corrected_from=corrected_from,
-                )
+                ),
+                expected_generation=self._write_generation.get(),
             )
         except Exception:
             log.exception("Could not save history")  # never break answering over storage

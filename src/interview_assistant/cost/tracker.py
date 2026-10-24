@@ -5,7 +5,8 @@ import time
 import uuid
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from contextvars import ContextVar, Token
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -126,6 +127,15 @@ def _start_of(scope: str, now: float) -> float:
     return 0.0
 
 
+@dataclass
+class RequestCost:
+    session: str
+    persist: bool
+    persistence_generation: int
+    total: float = 0.0
+    unpriced: bool = False
+
+
 class CostTracker:
     """Thread-safe usage accounting for LLM calls and cloud speech-to-text."""
 
@@ -141,20 +151,46 @@ class CostTracker:
         self.budget = budget
         self._store = store
         self.on_change = on_change  # settable: the UI hooks in after construction
-        self.persist = True  # False (incognito): keep in memory only, write nothing to disk
+        self._persist = True  # False (incognito): keep in memory only, write nothing to disk
+        self._persistence_generation = 0
         self._clock = clock
         self._lock = threading.Lock()
         self._session = uuid.uuid4().hex[:8]
         self._records: list[UsageRecord] = []  # everything this run + persisted history
+        self._request: ContextVar[RequestCost | None] = ContextVar("request_cost", default=None)
         if store is not None:
             month_start = _start_of("month", clock())
             self._records = store.load_since(month_start)
 
     # ---- recording ----
+    @property
+    def persist(self) -> bool:
+        return self._persist
+
+    @persist.setter
+    def persist(self, value: bool) -> None:
+        with self._lock:
+            if self._persist != value:
+                self._persistence_generation += 1
+            self._persist = value
+
+    def begin_request(self) -> Token[RequestCost | None]:
+        with self._lock:
+            request = RequestCost(self._session, self.persist, self._persistence_generation)
+        return self._request.set(request)
+
+    def end_request(self, token: Token[RequestCost | None]) -> None:
+        self._request.reset(token)
+
+    def request_cost(self) -> float | None:
+        request = self._request.get()
+        return request.total if request is not None and not request.unpriced else None
+
     def wipe(self) -> None:
         """Forget all recorded usage, in memory and on disk."""
         with self._lock:
             self._records.clear()
+            self._persistence_generation += 1
         if self._store is not None:
             self._store.clear()
         self._changed()
@@ -206,10 +242,18 @@ class CostTracker:
         )
 
     def _add(self, rec: UsageRecord) -> None:
+        request = self._request.get() if rec.kind == "llm" else None
+        if request is not None:
+            rec = replace(rec, session=request.session)
+            request.total += rec.cost_usd or 0.0
+            request.unpriced |= rec.cost_usd is None
         with self._lock:
             self._records.append(rec)
-        if self._store is not None and self.persist:
-            self._store.append(rec)
+            may_persist = request is None or (
+                request.persist and request.persistence_generation == self._persistence_generation
+            )
+            if self._store is not None and self.persist and may_persist:
+                self._store.append(rec)
         self._changed()
 
     def _changed(self) -> None:

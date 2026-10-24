@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     router_first_token_timeout_s: float = 10.0
     # Candidate background injected into every answer prompt (resume summary, target role).
     candidate_profile: str | None = None
-    jev_classify_timeout_s: float = 2.5
+    jev_classify_timeout_s: float = 1.0
     # "manual": a detected voice question waits for the user to click Answer/Ctrl+Enter before
     # it's sent to the AI. "auto": answered immediately, the old always-on behavior. Typed
     # questions and Chat always answer immediately regardless of this setting.

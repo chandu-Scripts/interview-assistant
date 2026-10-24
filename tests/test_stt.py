@@ -109,6 +109,7 @@ def test_error_reported_and_worker_survives():
     wait_idle(t)
     t.stop()
     assert len(errs) == 1 and isinstance(errs[0], STTError)
+    assert events[0].is_final and events[0].text == "" and events[0].utterance_id == 1
     assert events[-1].text == "text2s"
 
 

@@ -82,7 +82,7 @@ class Classifier:
             if parsed is not None:
                 cat, conf = parsed
                 return _decision(cat, conf, "llm", text)
-            log.warning("Unparseable classifier output: %r", res.text[:80])
+            log.warning("Unparseable classifier output; using rules")
         except Exception as e:  # timeout/provider failure: never block answering
             log.warning("LLM classification failed (%s); using rules", type(e).__name__)
         return _decision(rule.category, rule.confidence, "fallback", text)

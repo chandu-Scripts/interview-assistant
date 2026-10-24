@@ -1,4 +1,22 @@
+import pytest
+
 from interview_assistant.app.resume_library import ResumeLibrary
+
+
+def test_incognito_preserves_library_and_does_not_touch_usage_time(tmp_path):
+    path = tmp_path / "resumes.json"
+    allowed = True
+    library = ResumeLibrary(path, can_write=lambda: allowed)
+    library.add("existing.txt", "Resume")
+    before = path.read_bytes()
+    allowed = False
+    library.touch("existing.txt")
+    assert library.list()[0].text == "Resume"
+    with pytest.raises(ValueError, match="incognito"):
+        library.add("new.txt", "Private resume")
+    with pytest.raises(ValueError, match="incognito"):
+        library.rename("existing.txt", "renamed.txt")
+    assert path.read_bytes() == before
 
 
 def test_attached_resumes_are_remembered_most_recent_first(tmp_path, monkeypatch):

@@ -69,7 +69,7 @@ _PATTERNS: dict[Category, list[tuple[str, int]]] = {
     ],
     Category.CONCEPT: [
         (r"\b(what is|what are|what's|whats)\b", 1),
-        (r"\b(difference between|compare|pros and cons|advantages of)\b", 2),
+        (r"\b(differences? (between|btw|b/w)|compare|pros and cons|advantages of)\b", 2),
         (r"\b(explain|how does|how do|why does)\b.*\b(work|works)\b", 2),
         (r"\b(explain|define|what do you mean by)\b", 1),
     ],

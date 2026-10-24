@@ -46,6 +46,7 @@ class PostCallController(QObject):
         return gen
 
     async def _run(self, gen: int, question: str, transcript: str, preferred: str) -> None:
+        token = self._tracker.begin_request()
         try:
             if self._paused:
                 raise ValueError("Answering is paused during presentation mode.")
@@ -89,3 +90,5 @@ class PostCallController(QObject):
         except Exception as e:
             if gen == self._generation:
                 self.finished.emit(gen, str(e) if isinstance(e, ValueError) else friendly_error(e))
+        finally:
+            self._tracker.end_request(token)

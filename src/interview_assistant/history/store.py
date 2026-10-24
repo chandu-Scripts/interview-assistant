@@ -215,6 +215,9 @@ class HistoryStore:
             log.warning("FTS5 secure-delete unavailable; deletions rely on compaction")
         self._session_id: int | None = None
         self._active_interview_session_id: int | None = None
+        self._transient_interviews: dict[int, InterviewSession] = {}
+        self._next_transient_id = -1
+        self.generation = 0
 
     def _open(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, check_same_thread=False)
@@ -334,7 +337,7 @@ class HistoryStore:
 
     def save_interview_notes(self, interview_session_id: int, text: str) -> None:
         with self._lock:
-            if not self.writable:
+            if not self.writable or interview_session_id < 0:
                 raise ValueError(
                     "Notes cannot be saved while history saving is off or incognito is on."
                 )
@@ -359,7 +362,8 @@ class HistoryStore:
     def end_session(self) -> None:
         """Close the current session; the next turn opens a new one."""
         with self._lock:
-            if self._session_id is not None:
+            self.generation += 1
+            if self._session_id is not None and self.writable:
                 self._db.execute(
                     "UPDATE sessions SET ended_at = ? WHERE id = ?",
                     (self._clock(), self._session_id),
@@ -385,6 +389,28 @@ class HistoryStore:
         save_transcript: bool = True,
     ) -> int:
         with self._lock:
+            if not self.writable or not save_transcript:
+                session_id = self._next_transient_id
+                self._next_transient_id -= 1
+                self._transient_interviews[session_id] = InterviewSession(
+                    id=session_id,
+                    created_at=self._clock(),
+                    ended_at=None,
+                    company=company,
+                    role_title=role_title,
+                    job_description=job_description,
+                    resume_override=resume_override,
+                    ai_instructions=ai_instructions,
+                    answer_format=answer_format,
+                    answer_length=answer_length,
+                    answer_tone=answer_tone,
+                    model_route_override=model_route_override,
+                    session_type=session_type,
+                    language=language,
+                    auto_generate=auto_generate,
+                    save_transcript=save_transcript,
+                )
+                return session_id
             cur = self._db.execute(
                 """INSERT INTO interview_sessions(
                        created_at, company, role_title, job_description, resume_override,
@@ -414,6 +440,8 @@ class HistoryStore:
 
     def get_interview_session(self, session_id: int) -> InterviewSession | None:
         with self._lock:
+            if session_id < 0:
+                return self._transient_interviews.get(session_id)
             row = self._db.execute(
                 "SELECT * FROM interview_sessions WHERE id = ?", (session_id,)
             ).fetchone()
@@ -424,10 +452,17 @@ class HistoryStore:
             rows = self._db.execute(
                 "SELECT * FROM interview_sessions ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
-        return [self._interview_session(r) for r in rows]
+            sessions = [self._interview_session(r) for r in rows]
+            sessions.extend(self._transient_interviews.values())
+            return sorted(sessions, key=lambda session: session.created_at, reverse=True)[:limit]
 
     def end_interview_session(self, session_id: int) -> None:
         with self._lock:
+            if session_id < 0:
+                self._transient_interviews.pop(session_id, None)
+                return
+            if not self.writable:
+                return
             self._db.execute(
                 "UPDATE interview_sessions SET ended_at = ? WHERE id = ?",
                 (self._clock(), session_id),
@@ -448,11 +483,20 @@ class HistoryStore:
         fields["save_transcript"] = bool(fields["save_transcript"])
         return InterviewSession(**fields)
 
-    def add_turn(self, turn: TurnRecord) -> int | None:
+    def add_turn(self, turn: TurnRecord, expected_generation: int | None = None) -> int | None:
         """Store a turn (opening a session lazily). Returns its id, or None when disabled."""
         if not self.writable or not turn.question.strip():
             return None
         with self._lock:
+            if (
+                not self.writable
+                or (expected_generation is not None and expected_generation != self.generation)
+                or (
+                    self._active_interview_session_id is not None
+                    and self._active_interview_session_id < 0
+                )
+            ):
+                return None
             now = self._clock()
             if self._session_id is None:
                 cur = self._db.execute(
@@ -548,9 +592,13 @@ class HistoryStore:
 
     def delete_all(self) -> None:
         with self._lock:
+            self.generation += 1
             self._db.execute("DELETE FROM interview_notes")
             self._db.execute("DELETE FROM turns")
             self._db.execute("DELETE FROM sessions")
+            self._db.execute("DELETE FROM interview_sessions")
+            self._transient_interviews.clear()
+            self._active_interview_session_id = None
             self._db.execute("INSERT INTO turns_fts(turns_fts) VALUES ('rebuild')")
             self._session_id = None
             self._db.commit()
@@ -560,11 +608,6 @@ class HistoryStore:
         """Retention: delete sessions older than `days`. Returns how many were removed."""
         cutoff = self._clock() - days * 86400
         with self._lock:
-            self._db.execute(
-                "DELETE FROM interview_notes WHERE interview_session_id IN "
-                "(SELECT id FROM interview_sessions WHERE created_at < ?)",
-                (cutoff,),
-            )
             ids = [
                 r[0]
                 for r in self._db.execute("SELECT id FROM sessions WHERE started_at < ?", (cutoff,))
@@ -573,8 +616,14 @@ class HistoryStore:
             for sid in ids:
                 self._db.execute("DELETE FROM turns WHERE session_id = ?", (sid,))
                 self._db.execute("DELETE FROM sessions WHERE id = ?", (sid,))
+            removed = self._db.execute(
+                "DELETE FROM interview_sessions WHERE created_at < ? AND id IS NOT ? "
+                "AND NOT EXISTS (SELECT 1 FROM sessions WHERE "
+                "sessions.interview_session_id = interview_sessions.id)",
+                (cutoff, self._active_interview_session_id),
+            ).rowcount
             self._db.commit()
-            if ids:
+            if ids or removed:
                 self._compact()
         return len(ids)
 

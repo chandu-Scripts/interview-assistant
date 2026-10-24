@@ -20,7 +20,7 @@ class JevConfig:
     profile: str | None = None  # candidate background (resume summary, target role)
     history_turns: int = 3  # previous Q/A pairs sent as context
     history_chars: int = 3000  # hard cap on context size
-    classify_timeout_s: float = 2.5
+    classify_timeout_s: float = 1.0
     redact: bool = False  # mask PII/secrets in everything sent to AI providers (togglable live)
     # Per-session context (Step 17's "Create Interview Session"); empty by default, mutated live
     # when a session is activated/ended - the same pattern already used above for `redact`

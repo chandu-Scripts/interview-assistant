@@ -133,6 +133,12 @@ class StreamingTranscriber:
                     )
             except Exception as e:
                 log.exception("Transcription failed")
+                if is_final:
+                    # Retire failed speech as well: otherwise the question merger waits for a
+                    # final that will never arrive and can hold the next good question for seconds.
+                    self._on_event(
+                        TranscriptEvent(utt, "", True, len(audio) / TARGET_RATE, self._source)
+                    )
                 if self._on_error:
                     self._on_error(e)
             finally:

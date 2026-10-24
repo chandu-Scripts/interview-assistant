@@ -143,4 +143,4 @@ def test_session_instructions_outrank_the_default_style_rules():
     )
     assert "Speak in short spoken sentences." in prompt
     assert "take priority over the style" in prompt
-    assert "never override the rule against inventing facts" in prompt
+    assert "never override the rules against inventing facts" in prompt

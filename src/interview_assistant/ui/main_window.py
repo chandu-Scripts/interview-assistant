@@ -120,7 +120,7 @@ class MainWindow(QMainWindow):
                 lambda on: (
                     controller.on_speech_started(audio_source)
                     if on
-                    else controller.on_speech_ended()
+                    else controller.on_speech_ended(audio_source)
                 )
             )
             self.transcript_panel.event_received.connect(controller.on_transcript_event)
@@ -130,7 +130,7 @@ class MainWindow(QMainWindow):
                     lambda on: (
                         controller.on_speech_started(DeviceKind.MIC.value)
                         if on
-                        else controller.on_speech_ended()
+                        else controller.on_speech_ended(DeviceKind.MIC.value)
                     )
                 )
         if overlay is not None:

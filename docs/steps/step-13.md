@@ -22,3 +22,76 @@ Known gaps: no code signing (Smart App Control blocks unsigned builds on other P
 small.en/medium.en are too slow for live use on this PC; real-world accuracy with noisy/accented audio is unmeasured (benchmark uses
 clean TTS); Anthropic path still untested live (no key); no crash-report upload by design (logs stay local); no CI pipeline file
 (nothing to run it on here); interactive uninstall/purge still not exercised end to end; DB unencrypted at rest (BitLocker/incognito).
+
+## Speech latency follow-up — October 11, 2026
+
+- The current development configuration uses cloud STT, manual answering and dual audio.
+  No provider/key, recording preference or user settings file was changed.
+- The utterance merger now measures its 500 ms quiet window from the audio segment end,
+  overlapping it with transcription. Previously it always waited another 500 ms after
+  transcription returned. Endpoint timestamps and latency bookkeeping are per source;
+  resumed speech still holds the question while its transcription is in flight.
+- Failed final transcription jobs now emit an empty final event, retiring the utterance
+  so it cannot leave later questions waiting for a result that will never arrive.
+- Default Jev classification timeout is now 1.0 s instead of 2.5 s. Difficult classifications
+  fall back to rules sooner; explicit configured overrides remain honored. This changes
+  specialist-selection latency, not the answer model's first-token latency.
+- Focused pipeline suite: 212 passed. Deterministic clock tests verify overlap and continued
+  same-source merging/source isolation; STT failure coverage verifies the empty final event.
+  Full suite: 633 passed, 2 skipped. Ruff, mypy and diff checks pass.
+- Recognition substitutions are not diagnosed: no failing audio or spoken/recognized phrase
+  pair was provided. English-only recognition remains configured. No microphone capture,
+  real-provider calls or end-to-end hardware speed claims were made for this follow-up.
+- Source changes require restarting the source app; an installed executable needs rebuilding.
+  These changes are uncommitted on main, after the earlier UI feature merge.
+
+## Question relevance follow-up - October 11, 2026
+
+- Report: a list-versus-tuple question received a candidate introduction. The actual
+  recognized question and live provider request are unavailable, so the incident's cause
+  remains unconfirmed.
+- Comparison rules now recognize "difference btw", "differences between" and "b/w".
+  The reported wording goes directly to Concept without a classifier network request,
+  including after an HR introduction. Existing SQL/coding routing tests remain green.
+- Answer prompts prioritize the latest question, treat resume text as background facts,
+  and prevent session style instructions from replacing the question with an unrelated
+  introduction. Conversation context remains available for follow-ups.
+- Validation: 200 tests passed across Jev, controller and end-to-end suites with fake
+  providers. Request inspection covers a technical question after an introduction with
+  resume and first-person session instructions. Ruff and diff checks passed. Mypy was
+  blocked by Windows Application Control on its DLL, including an escalated retry.
+- No paid model calls or audio capture were performed; mock tests do not prove live answer
+  relevance. Source restart or executable rebuild is needed to use these uncommitted changes.
+
+## Pre-launch desktop hardening - October 24, 2026
+
+- Presentation pause now invalidates queued classifications and cancels all concurrent answer
+  tasks. Rapid unpause cannot revive old work, corrections are blocked while paused, and
+  microphone/loopback filler is consistently ignored. The stop target falls back to another
+  running answer when the most recent one finishes.
+- Changing interview sessions cancels prior work and clears conversational context. History
+  writes carry the generation captured when the question was submitted; late answers cannot
+  populate a new session or recreate history after Delete all.
+- Interview metadata is memory-only when history is disabled, incognito is active, or the
+  session has transcript saving disabled. Private sessions never start saving mid-call.
+  Resume-library mutations are blocked in incognito; selecting an existing resume does not
+  update its saved last-used timestamp.
+- Delete all now removes interview metadata and notes as well as turns. Retention removes
+  expired, unreferenced interview metadata and preserves active-session notes. No actual user
+  history or resume data was deleted during this work.
+- Per-answer cost accounting uses task-local request context, including classification and
+  fallback attempts. Concurrent answers and STT no longer inflate each other's displayed
+  costs; unknown prices remain unknown. In-flight LLM usage retains its original cost session
+  and cannot persist after an intervening privacy change or usage-log wipe. Post-call review
+  also participates in request context. Hard budgets are checked before classification.
+- Added the missing keyring runtime dependency (already pinned in requirements.lock), and
+  stopped logging raw unparseable classifier responses.
+- Startup self-test passed, including Qt, SQLite FTS5, credential backend, Whisper imports and
+  audio-device enumeration. Dashboard and overlay previews were regenerated and visually
+  inspected offscreen. No microphone capture or paid AI calls were made.
+- Scope: desktop correctness fixes. Live speech accuracy, provider latency, signed installer
+  rebuild/release and previously deferred dashboard/product additions remain separate
+  validation or feature work. Hosted relay spend reservations were not changed or deployed.
+  The desktop shortcut launches the updated source; changes remain uncommitted.
+- Final validation: 655 passed, 2 skipped in the full offscreen desktop suite; Ruff lint,
+  formatting checks, mypy (86 source files), pip dependency check and git diff checks passed.

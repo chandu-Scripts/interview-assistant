@@ -50,6 +50,36 @@ def test_aggregator_single_utterance_released_after_quiet():
     assert a.poll() is None
 
 
+def test_transcription_time_overlaps_quiet_window_without_extra_wait():
+    a, c = agg(quiet_s=0.5)
+    a.speech_started("mic")
+    c.t += 2
+    a.speech_ended("mic")
+    c.t += 0.8  # cloud transcription took longer than the merge window
+    a.final("What is a mutex?", "mic")
+    assert a.poll() == ("What is a mutex?", "mic")
+
+
+def test_fast_transcription_still_merges_resumed_speech_per_source():
+    a, c = agg(quiet_s=0.5)
+    a.speech_started("mic")
+    a.speech_ended("mic")
+    c.t += 0.1
+    a.final("Part one", "mic")
+    assert a.poll() is None
+    a.speech_started("mic")
+    a.speech_started("loopback")
+    a.speech_ended("loopback")
+    c.t += 0.6
+    a.final("Other question", "loopback")
+    assert a.poll() == ("Other question", "loopback")
+    assert a.poll() is None  # mic still speaking
+    a.speech_ended("mic")
+    c.t += 0.6
+    a.final("and part two", "mic")
+    assert a.poll() == ("Part one and part two", "mic")
+
+
 def test_aggregator_merges_split_question():
     a, c = agg(quiet_s=1.0)
     a.speech_started()
@@ -274,6 +304,48 @@ def test_stop_cancels_answer(qtbot, make_controller):
     qtbot.waitUntil(lambda: rec.has("stopped", 1), timeout=3000)
     qtbot.waitUntil(lambda: rec.log[-1] == ("busy", False), timeout=3000)
     assert "done" not in rec.kinds()
+
+
+def test_pause_cancels_both_audio_answers_and_pending_classification(qtbot, make_controller):
+    jev = FakeJev(delays={"slow question?": 0.2}, chunks=("a", "b"), hold=0.4)
+    c, rec = make_controller(jev)
+    c.ask("Mic question?", "voice:mic")
+    c.ask("System question?", "voice:loopback")
+    c.ask("slow question?", "typed")
+    qtbot.waitUntil(lambda: rec.has("delta", 1, "a") and rec.has("delta", 2, "a"))
+    c.set_paused(True)
+    c.correct_category(Category.HR)
+    c.set_paused(False)  # Rapid resume must not revive a pending old question.
+    qtbot.waitUntil(lambda: rec.has("stopped", 1) and rec.has("stopped", 2))
+    qtbot.wait(500)
+    assert "slow question?" not in jev.asked
+    assert not any(event[0] == "done" for event in rec.log)
+    assert not any(
+        event[:2] in (("delta", 1), ("delta", 2)) and event[2] == "b" for event in rec.log
+    )
+
+
+@pytest.mark.parametrize("source", ["voice:mic", "voice:loopback"])
+def test_dual_audio_filler_is_ignored(qtbot, make_controller, source):
+    jev = FakeJev()
+    c, rec = make_controller(jev)
+    c.ask("Okay, great.", source)
+    qtbot.waitUntil(lambda: rec.has("ignored", "Okay, great."))
+    assert jev.asked == []
+
+
+def test_new_interview_drops_old_answer_and_correction(qtbot, make_controller):
+    history = HistoryStore(":memory:")
+    jev = FakeJev(chunks=("a", "b"), hold=0.3)
+    c, rec = make_controller(jev, history=history)
+    c.ask("Old question?")
+    qtbot.waitUntil(lambda: rec.has("delta", 1, "a"))
+    c.new_interview()
+    c.correct_category(Category.HR)
+    qtbot.waitUntil(lambda: rec.has("stopped", 1))
+    qtbot.wait(400)
+    assert history.counts() == (0, 0)
+    assert jev.asked == ["Old question?"]
 
 
 def test_error_is_reported_friendly(qtbot, make_controller):

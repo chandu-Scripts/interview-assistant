@@ -38,6 +38,62 @@ def attempt(provider="openai", model="gpt-4o", usage=DEFAULT_USAGE, **kw):
     return AttemptRecord(Route(provider, model), usage=usage, **defaults)
 
 
+async def test_concurrent_request_costs_exclude_other_answers_and_stt():
+    tracker = CostTracker()
+    ready = asyncio.Event()
+
+    async def answer(count):
+        token = tracker.begin_request()
+        try:
+            tracker.record_attempt(attempt(usage=Usage(count * 1000, 0)))
+            ready.set()
+            await asyncio.sleep(0)
+            tracker.record_stt("openai", "gpt-4o-mini-transcribe", 10)
+            return tracker.request_cost()
+        finally:
+            tracker.end_request(token)
+
+    first = asyncio.create_task(answer(1))
+    await ready.wait()
+    second = asyncio.create_task(answer(2))
+    assert await first == pytest.approx(0.0025)
+    assert await second == pytest.approx(0.005)
+    assert tracker.request_cost() is None
+
+
+def test_request_keeps_original_cost_session_and_incognito_policy(tmp_path):
+    path = tmp_path / "usage.jsonl"
+    tracker = CostTracker(store=UsageStore(path))
+    tracker.persist = False
+    token = tracker.begin_request()
+    try:
+        tracker.new_session()
+        tracker.persist = True
+        tracker.record_attempt(attempt())
+        assert tracker.summary("session").calls == 0
+        assert tracker.summary("all").calls == 1
+        assert not path.exists()
+    finally:
+        tracker.end_request(token)
+
+
+@pytest.mark.parametrize("action", ["incognito", "wipe"])
+def test_old_request_does_not_recreate_usage_log_after_privacy_change(tmp_path, action):
+    path = tmp_path / "usage.jsonl"
+    tracker = CostTracker(store=UsageStore(path))
+    token = tracker.begin_request()
+    try:
+        if action == "incognito":
+            tracker.persist = False
+            tracker.persist = True
+        else:
+            tracker.wipe()
+        tracker.record_attempt(attempt())
+        assert not path.exists()
+    finally:
+        tracker.end_request(token)
+
+
 class Clock:
     def __init__(self, dt=datetime(2026, 9, 27, 12, 0)):
         self.t = dt.timestamp()
@@ -324,13 +380,20 @@ def test_overlay_shows_answer_cost_and_session_total(qtbot, tmp_path):
     c.shutdown()
 
 
-def test_hard_budget_blocks_new_answers(qtbot, tmp_path):
+@pytest.mark.parametrize(
+    "next_question",
+    [
+        "Explain how garbage collection works?",
+        "How would you handle a million writes per second?",
+    ],
+)
+def test_hard_budget_blocks_new_answers(qtbot, tmp_path, next_question):
     tracker, c, o = make_stack(qtbot, tmp_path, budget=Budget(0.0000001, hard_stop=True))
     c.ask("Write a function to solve the two sum problem.")
     qtbot.waitUntil(lambda: tracker.summary().calls == 1, timeout=5000)
     qtbot.waitUntil(lambda: "$" in o.cost_label.text(), timeout=2000)
     assert tracker.budget_state().blocked
-    c.ask("Explain how garbage collection works?")
+    c.ask(next_question)
     qtbot.waitUntil(lambda: "Budget reached" in o.answer.toPlainText(), timeout=5000)
     assert tracker.summary().calls == 1  # no second LLM call was made
     assert COST_COLOR[BudgetLevel.EXCEEDED] in o.cost_label.styleSheet()

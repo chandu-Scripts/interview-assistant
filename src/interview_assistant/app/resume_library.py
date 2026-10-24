@@ -4,7 +4,7 @@ import math
 import os
 import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,8 +20,9 @@ class ResumeLibrary:
     """Resumes attached before, kept in a small JSON file so the session dialog can offer them
     again. Attaching a file with the same name replaces the earlier copy."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, can_write: Callable[[], bool] | None = None) -> None:
         self._path = path
+        self._can_write = can_write or (lambda: True)
         self.error: str | None = None
 
     def list(self) -> list[Resume]:
@@ -66,6 +67,8 @@ class ResumeLibrary:
         return resume
 
     def touch(self, name: str) -> None:
+        if not self._can_write():
+            return
         self._save(
             [Resume(r.name, r.text, time.time()) if r.name == name else r for r in self._read()]
         )
@@ -87,6 +90,8 @@ class ResumeLibrary:
         self._save([r for r in self._read() if r.name != name])
 
     def _save(self, resumes: Sequence[Resume]) -> None:
+        if not self._can_write():
+            raise ValueError("Turn off incognito before changing the saved resume library.")
         self._path.parent.mkdir(parents=True, exist_ok=True)
         data = [{"name": r.name, "text": r.text, "last_used": r.last_used} for r in resumes]
         temporary: Path | None = None

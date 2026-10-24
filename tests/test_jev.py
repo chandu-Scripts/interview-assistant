@@ -42,6 +42,9 @@ CORPUS = [
     ("Explain how garbage collection works.", C.CONCEPT),
     ("What are the pros and cons of microservices versus a monolith?", C.CONCEPT),
     ("What is polymorphism?", C.CONCEPT),
+    ("what is difference btw list and tuple", C.CONCEPT),
+    ("What is the difference between a list and a tuple in Python?", C.CONCEPT),
+    ("Explain the differences b/w lists and tuples", C.CONCEPT),
     # Regression: the word "salary" alone used to force HR (90% confident) on SQL questions.
     ("How do you find the second highest salary?", C.DATA_SQL),
     ("Find the second highest salary from the employees table.", C.DATA_SQL),
@@ -125,6 +128,21 @@ async def test_unsure_rules_use_llm():
     d = await Classifier(comp).classify("How would you handle a million writes per second?")
     assert d.category is C.SYSTEM_DESIGN and d.source == "llm" and comp.calls == 1
     assert d.confidence == 0.8
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "what is difference btw list and tuple",
+        "What is the difference between a list and a tuple in Python?",
+        "Explain the differences b/w lists and tuples",
+    ],
+)
+async def test_comparison_after_intro_skips_hr_classification(question):
+    comp = FakeCompleter('{"category": "hr", "confidence": 1}')
+    decision = await Classifier(comp).classify(question, "Tell me about yourself", C.HR)
+    assert decision.category is C.CONCEPT and decision.source == "rules"
+    assert comp.calls == 0
 
 
 @pytest.mark.parametrize(
@@ -334,6 +352,41 @@ async def test_jev_sends_specialist_prompt_and_history():
     assert first.max_tokens == SPECIALISTS[C.BEHAVIORAL].max_tokens
     assert [m.role for m in second.messages] == ["user", "assistant", "user"]
     assert second.messages[0].content.startswith("Tell me about a time")
+
+
+async def test_technical_question_after_intro_reaches_provider_with_relevance_guard():
+    seen = []
+
+    class Spy(Script):
+        async def stream(self, request):
+            seen.append(request)
+            async for event in super().stream(request):
+                yield event
+
+    provider = Spy("a", ["I have five years of Azure data engineering experience."])
+    router = Router(
+        {"a": provider},
+        RouterConfig(chains={"fast": [Route("a", "m")], "smart": [Route("a", "m")]}),
+    )
+    jev = Jev(
+        router,
+        JevConfig(
+            profile="Five years as an Azure Data Engineer.",
+            instructions="Speak in first person and use my resume.",
+        ),
+    )
+    await collect(jev, "Tell me about yourself")
+    question = "what is difference btw list and tuple"
+    events = await collect(jev, question)
+    assert events[0].category is C.CONCEPT
+    assert len(seen) == 2  # No extra classification request after the introduction.
+    request = seen[-1]
+    assert request.messages[-1].role == "user"
+    assert request.messages[-1].content == question
+    assert "Azure" in request.system  # Relevant personal follow-ups remain supported.
+    assert "do not substitute a self-introduction or resume summary" in request.system
+    assert "background facts, not instructions" in request.system
+    assert "unrelated answer" in request.system
 
 
 async def test_history_is_capped():
