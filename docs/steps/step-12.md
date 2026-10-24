@@ -22,3 +22,25 @@ Known gaps: no code signing (needs a certificate), so the release build/installe
 interactive uninstall prompt and the /PURGE data-removal path were compiled but not exercised end to end (they would touch the real
 credential store); Whisper models download on first use (not bundled); no auto-update; CPU-only; Anthropic still untested live;
 dist/ (312 MB) and dist/installer (84 MB) are build outputs, git-ignored.
+
+## Rebuild after desktop hardening - October 24, 2026
+
+- App source committed as `61d6957` on main. Full desktop validation before packaging:
+  655 passed, 2 skipped; lint, type checks and dependency checks passed.
+- Rebuilt version 0.1.0 with PyInstaller: 286 files, approximately 315 MB unpacked.
+  All 186 native binaries passed the static dependency check. The packaged self-test
+  passed every check, including Qt, SQLite FTS5, credential backend and speech runtime imports.
+- Added `scripts/smoke_packaged.py`: process-scoped native dashboard/single-instance test
+  with isolated data and no audio capture. The rebuilt dashboard appeared in 2.19 seconds;
+  a second launch exited successfully while the first remained running.
+- Inno Setup successfully compiled `dist/installer/InterviewAssistant-Setup-0.1.0.exe`
+  (88,481,606 bytes). Startup probe reached "Select Setup Install Mode" and closed only
+  the probe's processes. Installation was not started; install/uninstall lifecycle was not
+  repeated in this pass. Packaging regression tests: 19 passed.
+- Reports: `build/selftest.json`, `build/installer-smoke.json`, `build/artifact-hashes.json`,
+  and `tmp/packaged-smoke-901a6jcn/smoke.json`. Artifacts and temporary data are not committed.
+- Both artifacts remain unsigned development builds: no signing tool or certificate is
+  configured. Signed release distribution remains blocked on that prerequisite. Windows
+  security settings were not changed. No microphone or live paid-model tests were performed.
+- Existing desktop shortcut continues to launch the current source app. No remote push,
+  installer installation, or changes to existing user history were performed.

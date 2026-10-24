@@ -9,6 +9,10 @@ python scripts/build_installer.py    # Inno Setup installer   -> dist/installer/
 (`scripts/check_dist_deps.py`, fails the build if any hard-linked DLL is missing) -> **packaged
 self-test** (`InterviewAssistant.exe --self-test`).
 
+After a successful build, run `python scripts/smoke_packaged.py` to check the native dashboard
+and second-launch handling with a temporary data directory under `tmp/`. It never starts audio
+capture and terminates only the processes it launches. The JSON report stays in that directory.
+
 Why PyInstaller onedir: no C compiler needed on Python 3.14, reliable with PySide6/ctranslate2/onnxruntime,
 fast start (windows appear in ~2-3 s), and easy to inspect. Nuitka was not needed.
 
