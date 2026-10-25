@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from interview_assistant.agents.jev import Jev, JevConfig
@@ -12,6 +14,7 @@ from interview_assistant.agents.types import Category
 from interview_assistant.app.answer_format import format_answer_blocks
 from interview_assistant.config.settings import Settings
 from interview_assistant.llm.router_factory import build_router
+from interview_assistant.llm.types import StreamEvent
 from interview_assistant.ui.answer_view import split_blocks
 from tests.test_router import Script
 
@@ -135,8 +138,49 @@ def test_one_style_policy_with_extra_guidance_after_defaults(spec):
     assert prompt.index(SPOKEN_STYLE) < prompt.index(extra) < prompt.index(FORMAT_REMINDER)
     assert "em dashes (U+2014)" in prompt and "en dashes (U+2013)" in prompt
     assert "1 or 2" not in prompt and "one sentence may be enough" not in prompt
+    assert "three useful sentences, each with one marker" not in prompt
+    assert "that is the confirmed size" not in prompt
+    assert "There is no minimum sentence count" in prompt
+    assert "Short factual answers have no minimum filler count" in prompt
+    assert "Longer explanations use 3 to 4" in prompt
+    assert "Rewrite any paragraph outside 3 to 4" not in prompt
+    assert "These are not the candidate's facts" in prompt
     if spec.category in (Category.CODING, Category.DATA_SQL):
         assert "Group 2 to 3 consecutive line explanations" in prompt
         assert "General optimisation questions do not require sample code" in prompt
     disabled = system_prompt(spec, None, instructions=extra, use_builtin_prompt=False)
     assert extra in disabled and "FILLER RULE" not in disabled
+
+
+@pytest.mark.parametrize("builtin", [True, False])
+async def test_short_answer_streams_before_provider_finishes_without_rewrite(builtin):
+    release = asyncio.Event()
+    requests = []
+
+    class Provider:
+        name = "openai"
+
+        async def stream(self, request):
+            requests.append(request)
+            yield StreamEvent(delta="```text\nNo, a tuple is immutable.")
+            await release.wait()
+            yield StreamEvent(delta=" Create a new tuple.\n```", finish_reason="stop")
+
+    jev = Jev(
+        build_router(Settings(_env_file=None), {"openai": Provider()}),
+        JevConfig(classify_with_llm=False, use_builtin_prompt=builtin),
+    )
+    stream = jev.ask("Can we add elements to a tuple?")
+    try:
+        await anext(stream)  # Local classification, no provider round trip.
+        first = await asyncio.wait_for(anext(stream), timeout=1)
+        assert first.event.delta == "```text\nNo, a tuple is immutable."
+        assert not release.is_set()
+        release.set()
+        remaining = [event async for event in stream]
+        assert remaining[0].event.delta == " Create a new tuple.\n```"
+        assert len(requests) == 1
+        assert ("STYLE EXAMPLES:" in requests[0].system) is builtin
+    finally:
+        release.set()
+        await stream.aclose()

@@ -312,7 +312,8 @@ def test_provider_failover_resets_only_continuation(app, qtbot):
     jev._router._providers["backup"] = backup
     for chain in jev._router._cfg.chains.values():
         chain.append(Route("backup", "model"))
-    ui.continue_btn.click()
+    with qtbot.waitSignal(c.answer_finished):
+        ui.continue_btn.click()
     qtbot.waitUntil(lambda: len(jev.history) == 1 and not ui._busy)
     assert ui.answer_text == prefix + "The remaining answer."
     assert "incorrect" not in ui.answer_text

@@ -345,7 +345,9 @@ def test_correcting_the_specialist_redoes_and_records_the_correction(make_stack)
     s.answered("hash map.")
     (first,) = s.wait_turns(1)
     assert first.category == "coding" and first.corrected_from == ""
-    s.controller.correct_category(Category.HR)
+    # The worker may persist both turns before Qt delivers the correction signal.
+    with s.qtbot.waitSignal(s.controller.category_corrected):
+        s.controller.correct_category(Category.HR)
     s.qtbot.waitUntil(lambda: len(prov.requests) == 2, timeout=8000)
     s.wait_turns(2)
     first, second = s.turns()

@@ -49,3 +49,36 @@ def test_coding_check_rejects_missing_structural_comments_and_explanations():
     missing_explanation = answer.replace("Line 2 ends the query.", "The query ends.")
     assert not check_coding(missing_explanation, "sql")["all_lines_explained"]
     assert not check_coding(answer.replace("Output", "Notes"), "sql")["four_parts"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Also, that is the confirmed project team size.",
+        "Mainly, that is the total from the project facts.",
+        "That breakdown shows the types of work.",
+        "If you want, I can help draft it.",
+    ],
+)
+def test_live_diagnostic_flags_observed_assistant_commentary(text):
+    assert check_style(f"```text\n{text}\n```")["commentary_flags"]
+
+
+def test_commentary_diagnostic_preserves_normal_answer_and_code_literals():
+    answer = (
+        "```text\nSix members, including me.\n```\n"
+        "```python\nmessage = 'If you want, I can help'\n```"
+    )
+    result = check_style(answer)
+    assert result["commentary_flags"] == []
+    assert result["paragraphs"][0]["text"] == "Six members, including me."
+
+
+def test_short_answer_exemption_requires_explicit_case_annotation_and_one_paragraph():
+    answer = "```text\nSix people, including me.\n```"
+    assert check_style(answer, short_answer=True)["filler_counts_pass"]
+    assert not check_style(answer)["filler_counts_pass"]
+    assert not check_style(answer + answer, short_answer=True)["filler_counts_pass"]
+    assert not check_style("```text\nYeah, so, mainly, basically, also.\n```", short_answer=True)[
+        "filler_counts_pass"
+    ]

@@ -218,7 +218,9 @@ and `server/DEPLOY.md`.
   `agents/specialists.py`. Keep one authoritative filler/style rule, preserve custom session
   guidance, and omit this policy when the built-in toggle is Off. No em/en dashes in spoken
   prose; coding requests use approach, annotated code, output and complete line explanations.
-  Exact filler counts remain model-dependent; see `docs/spoken-answer-style.md`. Do not add
+  Short factual answers have no minimum filler count; natural wording takes priority. Longer
+  explanations request 3 to 4 relevant markers per paragraph. Exact counts remain
+  model-dependent; see `docs/spoken-answer-style.md`. Do not add
   a silent paid rewrite call or mutate saved Q&A to enforce style.
 - Output-limit finishes are saved/displayed as incomplete, never complete. The live overlay's
   explicit Continue answer action preserves raw text/code and original context, uses normal
