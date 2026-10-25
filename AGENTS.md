@@ -214,6 +214,12 @@ and `server/DEPLOY.md`.
 - Desktop classification is local by default (`JEV_CLASSIFY_WITH_LLM=false`) to avoid a
   pre-answer API round trip. Mock-interview answer style, block formatting, and latency
   decisions are documented in `docs/answer-style-latency.md`.
+- Built-in answer policy is defined in `agents/answer_style.py` and composed by
+  `agents/specialists.py`. Keep one authoritative filler/style rule, preserve custom session
+  guidance, and omit this policy when the built-in toggle is Off. No em/en dashes in spoken
+  prose; coding requests use approach, annotated code, output and complete line explanations.
+  Exact filler counts remain model-dependent; see `docs/spoken-answer-style.md`. Do not add
+  a silent paid rewrite call or mutate saved Q&A to enforce style.
 - Output-limit finishes are saved/displayed as incomplete, never complete. The live overlay's
   explicit Continue answer action preserves raw text/code and original context, uses normal
   redaction/budget checks, and bills each request separately. Partial answers do not enter Jev

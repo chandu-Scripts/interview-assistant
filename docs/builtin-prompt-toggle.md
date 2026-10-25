@@ -35,7 +35,9 @@ It shows short titles for the current built-in rules, not the full prompt. The s
 is available in both modes, automatically scrolls into view and has a Close button. Cancel or
 creating a session collapses it. The titles live alongside the built-in prompt in
 `agents/specialists.py`; they describe requested behavior, not guaranteed model compliance.
-Copy buttons are a UI feature and the custom no-em/en-dash rule is not advertised as built-in.
+Copy buttons are a UI feature. The no-em/en-dash rule is now built in and listed in Features.
+Shared policy lives in `agents/answer_style.py`, composed by `agents/specialists.py`.
+See `spoken-answer-style.md` for live model checks and remaining compliance limits.
 
 Validation for this change: 183 focused automated tests passed, with the pre-existing unrelated
 session-instruction-priority assertion excluded. The 24 built-in prompt tests also passed on

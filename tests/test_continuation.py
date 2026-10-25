@@ -223,7 +223,8 @@ def test_failed_continuation_preserves_text_and_can_retry(app, qtbot):
     assert len(provider.requests) == 2
     assert ui.continue_btn.isVisible()
     assert ui.answer_text == "Original partial answer. "
-    ui.continue_btn.click()
+    with qtbot.waitSignal(c.answer_finished):
+        ui.continue_btn.click()
     qtbot.waitUntil(lambda: len(jev.history) == 1 and not ui._busy)
     assert ui.answer_text == "Original partial answer. The rest."
 

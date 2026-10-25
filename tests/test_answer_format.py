@@ -3,8 +3,9 @@ import pytest
 from interview_assistant.agents.jev import Jev, JevConfig
 from interview_assistant.agents.specialists import (
     CODING_DELIVERY,
+    FORMAT_REMINDER,
     SPECIALISTS,
-    SPOKEN_STYLE_EXAMPLE,
+    SPOKEN_STYLE,
     system_prompt,
 )
 from interview_assistant.agents.types import Category
@@ -56,8 +57,9 @@ def test_prompt_style_for_all_specialists():
 def test_coding_delivery_wins_over_general_brevity_and_preserves_toggle(category):
     kwargs = {"answer_length": "Short", "instructions": "Use readable names."}
     prompt = system_prompt(SPECIALISTS[category], None, **kwargs)
-    assert prompt.endswith(CODING_DELIVERY)
-    assert SPOKEN_STYLE_EXAMPLE not in prompt
+    assert prompt.endswith(FORMAT_REMINDER)
+    assert prompt.count(CODING_DELIVERY) == 1
+    assert prompt.count(SPOKEN_STYLE) == 1
     assert "Line N: explanation" in prompt
     assert "cover EVERY" in prompt
     assert "time and space complexity" in prompt
@@ -94,7 +96,8 @@ async def test_four_part_prompt_reaches_provider_without_extra_round_trip(questi
     events = [event async for event in jev.ask(question)]
     assert events[0].category is category
     assert len(requests) == 1
-    assert requests[0].system.endswith(CODING_DELIVERY)
+    assert CODING_DELIVERY in requests[0].system
+    assert requests[0].system.endswith(FORMAT_REMINDER)
     assert requests[0].max_tokens == 4000
 
 
@@ -122,3 +125,18 @@ def test_four_parts_and_inline_comments_survive_answer_rendering(qapp):
     assert blocks[3].text.startswith("Line-by-line explanation")
     for number in range(1, 4):
         assert f"Line {number}:" in blocks[3].text
+
+
+@pytest.mark.parametrize("spec", SPECIALISTS.values())
+def test_one_style_policy_with_extra_guidance_after_defaults(spec):
+    extra = "Use a shopping list analogy."
+    prompt = system_prompt(spec, None, instructions=extra)
+    assert prompt.count("FILLER RULE:") == 1
+    assert prompt.index(SPOKEN_STYLE) < prompt.index(extra) < prompt.index(FORMAT_REMINDER)
+    assert "em dashes (U+2014)" in prompt and "en dashes (U+2013)" in prompt
+    assert "1 or 2" not in prompt and "one sentence may be enough" not in prompt
+    if spec.category in (Category.CODING, Category.DATA_SQL):
+        assert "Group 2 to 3 consecutive line explanations" in prompt
+        assert "General optimisation questions do not require sample code" in prompt
+    disabled = system_prompt(spec, None, instructions=extra, use_builtin_prompt=False)
+    assert extra in disabled and "FILLER RULE" not in disabled
