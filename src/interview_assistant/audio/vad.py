@@ -15,10 +15,10 @@ FRAME_SAMPLES = TARGET_RATE * FRAME_MS // 1000
 class VadConfig:
     threshold: float = 0.01  # RMS (0..1) above which a frame counts as speech
     start_frames: int = 3  # consecutive speech frames to open a segment
-    end_silence_ms: int = 600  # trailing silence that closes a segment
+    end_silence_ms: int = 420  # trailing silence that closes a segment (14 audio frames)
     pre_roll_ms: int = 300  # audio kept from before the segment opened
     max_segment_s: float = 30.0  # force-close very long segments
-    partial_interval_ms: int = 1500  # how often on_partial fires while speech is ongoing
+    partial_interval_ms: int = 750  # preview updates while speech is ongoing
 
 
 class SpeechSegmenter:

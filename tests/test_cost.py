@@ -32,6 +32,12 @@ REQ = LLMRequest([Message("user", "Hi")], system="sys")
 DEFAULT_USAGE = Usage(1000, 500)
 
 
+def test_gpt54_mini_standard_and_snapshot_cost():
+    prices = PriceBook()
+    for model in ("gpt-5.4-mini", "gpt-5.4-mini-2026-03-17"):
+        assert prices.llm_cost("openai", model, 1000, 500) == pytest.approx(0.003)
+
+
 def attempt(provider="openai", model="gpt-4o", usage=DEFAULT_USAGE, **kw):
     defaults = dict(attempt=0, ok=True, latency_s=1.0)
     defaults.update(kw)

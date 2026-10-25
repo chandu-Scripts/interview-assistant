@@ -55,6 +55,19 @@ def test_vad_detects_one_segment_with_preroll():
     assert states == [True, False]
 
 
+def test_fast_vad_keeps_short_pause_and_closes_after_420ms():
+    segments = []
+    vad = SpeechSegmenter(segments.append)
+    vad.feed(tone(0.3))
+    vad.feed(silence(0.3))
+    assert not segments and vad.active
+    vad.feed(tone(0.3))
+    vad.feed(silence(0.39))
+    assert not segments and vad.active
+    vad.feed(silence(0.03))
+    assert len(segments) == 1 and not vad.active
+
+
 def test_vad_ignores_silence_and_short_blips():
     _, segs, _ = run_vad(np.concatenate([silence(1), tone(0.03), silence(2)]))
     assert segs == []

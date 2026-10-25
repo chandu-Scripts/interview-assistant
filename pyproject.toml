@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "interview-assistant"
-version = "0.1.0"
+version = "0.1.1"
 description = "Windows desktop AI interview assistant"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,7 +12,10 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "numpy>=1.26",
+    "onnxruntime>=1.20",
+    "tokenizers>=0.21",
     "httpx>=0.27",
+    "websockets>=15,<16",
     "faster-whisper>=1.0",
     "PyAudioWPatch>=0.2.12.8; sys_platform == 'win32'",
     "pypdf>=4.0",
@@ -28,6 +31,9 @@ interview-assistant = "interview_assistant.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+interview_assistant = ["assets/semantic/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

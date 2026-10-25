@@ -3,6 +3,7 @@
 Kept separate from __main__ so the wiring can be built and tested in-process, without owning the
 event loop, the single-instance lock, global hotkeys or the OS tray."""
 
+import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -15,11 +16,13 @@ from interview_assistant.app.async_runner import AsyncRunner
 from interview_assistant.app.controller import AssistantController
 from interview_assistant.app.interview_session import InterviewSessionManager, SessionDetails
 from interview_assistant.app.post_call import PostCallController
+from interview_assistant.app.practice_library import PracticeLibrary
+from interview_assistant.app.practice_matcher import PracticeMatcher
 from interview_assistant.app.presentation import PresentationMode
 from interview_assistant.app.restart import request_restart
 from interview_assistant.app.resume_library import ResumeLibrary
 from interview_assistant.audio.types import DeviceKind
-from interview_assistant.config.keys import KeyStore
+from interview_assistant.config.keys import PROVIDERS, KeyStore, effective_key
 from interview_assistant.config.settings import Settings
 from interview_assistant.config.user_settings import UserSettingsStore
 from interview_assistant.cost.factory import build_tracker, data_dir
@@ -35,12 +38,14 @@ from interview_assistant.privacy.disclosure import (
     describe_data_flow,
 )
 from interview_assistant.privacy.state import PrivacyState
-from interview_assistant.stt.factory import build_provider
+from interview_assistant.stt.factory import build_preview_provider, build_provider
 from interview_assistant.stt.metered import MeteredSTT
 from interview_assistant.ui.audio_panel import AudioPanel
 from interview_assistant.ui.main_window import MainWindow
 from interview_assistant.ui.overlay import OverlayWindow
+from interview_assistant.ui.practice_page import PracticePage
 from interview_assistant.ui.privacy_dialog import PrivacyDialog
+from interview_assistant.ui.provider_catalog import ProviderCatalog, fingerprint
 from interview_assistant.ui.settings_dialog import SettingsDialog
 from interview_assistant.ui.start_screen import StartScreen
 from interview_assistant.ui.tray import TrayController
@@ -89,6 +94,8 @@ def build_app(
         JevConfig(
             profile=settings.candidate_profile,
             classify_timeout_s=settings.jev_classify_timeout_s,
+            classify_with_llm=settings.jev_classify_with_llm,
+            format_answer_blocks=True,
         ),
     )
     db_path = data_dir(settings) / "history.db"
@@ -106,7 +113,7 @@ def build_app(
     overlay = OverlayWindow(controller)
 
     stt = build_provider(settings)
-    billed = getattr(stt, "metered", False)
+    billed = getattr(stt, "metered", False) and not getattr(stt, "realtime", False)
     # Step 19: simultaneous mic + system audio capture is opt-in (2x local-Whisper memory if
     # stt_provider="local") - when on, the primary panel is always loopback (default_audio_kind
     # is moot: there's no longer a single "the" source to pre-select) and a second, mic-only
@@ -126,7 +133,11 @@ def build_app(
         MeteredSTT(stt, tracker.record_stt),
         controller,
         overlay,
-        partials=not billed,  # partials re-send the whole utterance: only free for local STT
+        partials=True,
+        preview_provider=build_preview_provider(settings) if billed else None,
+        mic_preview_provider=(
+            build_preview_provider(settings) if billed and mic_provider is not None else None
+        ),
         history=history,
         interview_sessions=interview_sessions,
         audio_source=audio_source,
@@ -194,17 +205,22 @@ def build_app(
         on_view_session=view_interview_session,
         on_resume=interview_sessions.resume,
         review_controller=review_controller,
+        on_audio=window.show_controls,
     )
-    hidden: list[QWidget] = [
-        w for w in (overlay, window.history_window, start_screen) if w is not None
-    ]
+    hidden: list[QWidget] = [overlay, window]
     audio_stoppables = [window.audio_panel] + ([window.mic_panel] if window.mic_panel else [])
-    presentation = PresentationMode(hidden, window, audio_stoppables, controller)
+    presentation = PresentationMode(hidden, start_screen, audio_stoppables, controller)
     presentation.changed.connect(review_controller.set_paused)
 
     def flows() -> list[DataFlow]:
         return describe_data_flow(
-            stt.name,
+            (
+                "Speechmatics (OpenAI fallback)"
+                if settings.openai_api_key
+                else "Speechmatics (local Whisper fallback)"
+            )
+            if settings.stt_provider == "speechmatics"
+            else stt.name,
             providers.keys(),
             bool(settings.candidate_profile),
             privacy.redact,
@@ -223,7 +239,6 @@ def build_app(
     )
     hint = ", ".join(f"{key} = {what}" for key, what in hotkey_pairs if key)
     privacy_dialog = PrivacyDialog(privacy, presentation, flows, hint)
-    hidden.append(privacy_dialog)
     consent = ConsentGate(app_settings, consent_prompt, settings.require_consent)
     screenshot_consent = ConsentGate(
         app_settings,
@@ -235,12 +250,82 @@ def build_app(
     window.attach_privacy(privacy, presentation, privacy_dialog, consent, screenshot_consent)
 
     # ---- settings dialog: most changes need a restart, which the app offers to do ----
-    settings_dialog = SettingsDialog(user_settings or UserSettingsStore(), keys)
+    catalog = ProviderCatalog(
+        Settings,
+        keys,
+        data_dir(settings) / "provider_models.json",
+        can_write=lambda: not privacy.incognito,
+    )
+    settings_dialog = SettingsDialog(user_settings or UserSettingsStore(), keys, catalog=catalog)
+    selectors = start_screen.create_page.model_selectors
+    for selector in selectors:
+        selector.bind(
+            catalog,
+            runtime_keys={
+                provider: fingerprint(effective_key(provider, settings, keys))
+                for provider in PROVIDERS
+            },
+        )
+
+    def close_model_popups(active: bool) -> None:
+        if active:
+            settings_dialog.close_provider_popups()
+            for selector in selectors:
+                if selector.picker is not None:
+                    selector.picker.reject()
+
+    presentation.changed.connect(close_model_popups)
     window.attach_settings(settings_dialog)
-    hidden.append(settings_dialog)
+    start_screen.add_workspace_page("settings", "Settings", settings_dialog)
+    start_screen.add_workspace_page("privacy", "Privacy", privacy_dialog)
+    if window.history_window is not None:
+        start_screen.add_workspace_page("history", "History & transcripts", window.history_window)
+        window.history_window.on_create_session = start_screen._open_create
+    controls = window.takeCentralWidget()
+    if controls is not None:
+        start_screen.add_workspace_page("controls", "Audio & live transcript", controls)
+
+    def navigate(key: str) -> None:
+        if not presentation.active:
+            start_screen.open_workspace_page(key)
+
+    window.navigate = navigate
+    practice_page = PracticePage(
+        PracticeLibrary(
+            data_dir(settings) / "practice_qa.json", can_write=lambda: not privacy.incognito
+        )
+    )
+    start_screen.add_workspace_page("practice", "Fictional / Realistic Q&A", practice_page)
+    controller.practice_matcher = PracticeMatcher(practice_page.library)
+    runner.submit(asyncio.to_thread(controller.practice_matcher.prepare))
+    start_screen.extra_nav["practice"].setEnabled(True)
+    start_screen.extra_nav["practice"].clicked.connect(lambda: navigate("practice"))
+    practice_page.privacy_requested.connect(window.show_privacy)
+    privacy.changed.connect(practice_page.update_privacy)
+    if start_screen.resume_page is not None:
+        start_screen.resume_page.privacy_requested.connect(window.show_privacy)
+        privacy.changed.connect(start_screen.resume_page.refresh)
+
+    def update_workspace_notice(*_args: object) -> None:
+        notices = []
+        if presentation.active:
+            notices.append("PRESENTATION MODE — capture and answering paused")
+        elif window.audio_panel.recording or (window.mic_panel and window.mic_panel.recording):
+            notices.append("RECORDING — audio capture is active")
+        if privacy.incognito:
+            notices.append("INCOGNITO — nothing is being saved")
+        start_screen.notice.setText("  ·  ".join(notices))
+        start_screen.notice.setVisible(bool(notices))
+
+    privacy.changed.connect(update_workspace_notice)
+    presentation.changed.connect(update_workspace_notice)
+    window.audio_panel.recording_changed.connect(update_workspace_notice)
+    if window.mic_panel is not None:
+        window.mic_panel.recording_changed.connect(update_workspace_notice)
+    update_workspace_notice()
 
     def on_saved(needs_restart: bool) -> None:
-        if needs_restart and confirm_restart(window):
+        if needs_restart and confirm_restart(start_screen):
             request_restart()
             qapp.quit()
 
@@ -253,15 +338,19 @@ def build_app(
         overlay.setVisible(not overlay.isVisible())
 
     def open_main() -> None:
-        window.showNormal()
-        window.raise_()
-        window.activateWindow()
+        if presentation.active:
+            return
+        if start_screen.isMinimized():
+            start_screen.showNormal()
+        else:
+            start_screen.show()
+        start_screen.raise_()
+        start_screen.activateWindow()
 
     def on_second_launch() -> None:
         if presentation.active:
             return  # never pop the assistant up while the user is presenting
         open_main()
-        overlay.show()
 
     tray = TrayController(
         toggle_overlay,

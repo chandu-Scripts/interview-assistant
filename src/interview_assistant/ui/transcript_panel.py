@@ -17,8 +17,8 @@ class TranscriptPanel(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
-        self._finals: dict[int, str] = {}
-        self._partials: dict[int, str] = {}
+        self._finals: dict[tuple[str, int], str] = {}
+        self._partials: dict[tuple[str, int], str] = {}
         self.view = QTextEdit()
         self.view.setReadOnly(True)
         self.view.setPlaceholderText("Transcript will appear here…")
@@ -31,20 +31,25 @@ class TranscriptPanel(QWidget):
 
     @property
     def final_texts(self) -> list[str]:
-        return [t for _, t in sorted(self._finals.items()) if t]
+        return [t for t in self._finals.values() if t]
 
     def apply(self, ev: TranscriptEvent) -> None:
+        key = (ev.source.value if ev.source is not None else "", ev.utterance_id)
         if ev.is_final:
-            self._finals[ev.utterance_id] = ev.text
-            self._partials.pop(ev.utterance_id, None)
+            self._finals[key] = ev.text
+            self._partials.pop(key, None)
             # Hours-long interviews: keep the view (and memory) bounded to the recent past.
             while len(self._finals) > MAX_UTTERANCES:
                 del self._finals[next(iter(self._finals))]
-        elif ev.utterance_id not in self._finals:
-            self._partials[ev.utterance_id] = ev.text
+        elif key not in self._finals:
+            self._partials[key] = ev.text
             while len(self._partials) > MAX_UTTERANCES:
                 del self._partials[next(iter(self._partials))]
         self.status_label.setText("")
+        if ev.is_final and not ev.text.strip():
+            self.status_label.setText(
+                "Speech was detected, but no words were recognized. Try again."
+            )
         self._render()
 
     def show_error(self, message: str) -> None:

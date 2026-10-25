@@ -212,3 +212,50 @@ def test_refresh_preserves_selected_session(qtbot):
     screen.sessions.selectRow(1)
     screen.refresh()
     assert screen._selected().id == old
+
+
+def test_compact_dashboard_keeps_session_actions_visible(qtbot):
+    store = HistoryStore(":memory:")
+    store.create_interview_session(company="Northwind", role_title="Data Engineer")
+    screen = make(qtbot, store)
+    screen.resize(800, 560)
+    screen.show()
+    qtbot.waitUntil(lambda: screen.isVisible())
+    assert not screen.isMaximized()
+    assert screen.sessions.horizontalScrollBar().maximum() == 0
+    button = screen.sessions.cellWidget(0, 6).findChild(QPushButton)
+    assert button.isVisible() and button.isEnabled()
+    button.click()
+    assert screen.pages.currentIndex() == 1
+
+
+def test_window_controls_restore_medium_size(qtbot):
+    screen = make(qtbot, HistoryStore(":memory:"))
+    screen.resize(960, 680)
+    screen.show()
+    before = screen.size()
+    screen.window_bar.toggle_maximized()
+    assert screen.isMaximized()
+    screen.window_bar.toggle_maximized()
+    assert not screen.isMaximized()
+    assert screen.size() == before
+
+
+def test_initial_window_fits_laptop_work_area(qtbot, monkeypatch):
+    from types import SimpleNamespace
+
+    from PySide6.QtCore import QRect
+    from PySide6.QtWidgets import QWidget
+
+    from interview_assistant.ui.theme import QApplication, center_window
+
+    area = QRect(0, 0, 1366, 728)
+    monkeypatch.setattr(
+        QApplication, "primaryScreen", lambda: SimpleNamespace(availableGeometry=lambda: area)
+    )
+    window = QWidget()
+    qtbot.addWidget(window)
+    center_window(window)
+    assert window.width() == 960
+    assert window.height() < area.height()
+    assert area.contains(window.geometry())

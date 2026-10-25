@@ -4,7 +4,6 @@ from typing import Any
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDoubleSpinBox,
     QLabel,
     QPlainTextEdit,
@@ -15,12 +14,20 @@ from PySide6.QtWidgets import (
     QWizardPage,
 )
 
-from interview_assistant.config.keys import PROVIDERS, KeyStatus, KeyStore, key_status
+from interview_assistant.config.keys import (
+    PROVIDERS,
+    KeyStatus,
+    KeyStore,
+    effective_key,
+    key_status,
+)
 from interview_assistant.config.provider_check import check_key
 from interview_assistant.config.settings import Settings
+from interview_assistant.config.user_settings import UserSettingsStore
 from interview_assistant.privacy.consent import KEY as CONSENT_KEY
 from interview_assistant.privacy.disclosure import CONSENT_TEXT
 from interview_assistant.ui.bg import Runner, run_in_thread
+from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.key_row import Checker, KeyRow
 from interview_assistant.ui.settings_dialog import WHISPER_CHOICES
 
@@ -73,7 +80,15 @@ class ProvidersPage(QWizardPage):
         self.rows: dict[str, KeyRow] = {}
         self._store, self._raw = store, raw_settings
         for p in PROVIDERS:
-            row = KeyRow(p, store, self._status_fn(p), checker, runner)
+            row = KeyRow(
+                p,
+                store,
+                self._status_fn(p),
+                checker,
+                runner,
+                key_getter=self._key_fn(p),
+                preferences=UserSettingsStore(),
+            )
             row.changed.connect(lambda: self.completeChanged.emit())
             self.rows[p] = row
             lay.addWidget(row)
@@ -83,6 +98,9 @@ class ProvidersPage(QWizardPage):
 
     def _status_fn(self, provider: str) -> Callable[[], KeyStatus]:
         return lambda: key_status(provider, self._raw(), self._store)
+
+    def _key_fn(self, provider: str) -> Callable[[], str]:
+        return lambda: effective_key(provider, self._raw(), self._store)
 
     def has_openai_key(self) -> bool:
         return key_status("openai", self._raw(), self._store).present
@@ -107,14 +125,14 @@ class SpeechPage(QWizardPage):
         self.local = QRadioButton("On this PC (Whisper) - free, private, works offline")
         self.cloud = QRadioButton("OpenAI cloud - audio is sent to OpenAI and billed per minute")
         self.local.setChecked(True)
-        self.model = QComboBox()
+        self.model = ChoiceComboBox()
         for label, value in WHISPER_CHOICES:
             self.model.addItem(label, value)
         self.model.setCurrentIndex(self.model.findData("base.en"))
         self.download = QPushButton("Download / check the model now")
         self.status = QLabel("The model downloads once (about 150 MB for base.en).")
         self.status.setWordWrap(True)
-        self.source = QComboBox()
+        self.source = ChoiceComboBox()
         self.source.addItem("System audio (the interviewer's voice)", "loopback")
         self.source.addItem("Microphone", "mic")
         lay = QVBoxLayout(self)
@@ -166,7 +184,7 @@ class ProfilePage(QWizardPage):
         self.budget.setRange(0.01, 10000)
         self.budget.setPrefix("$")
         self.budget.setValue(5.0)
-        self.budget_scope = QComboBox()
+        self.budget_scope = ChoiceComboBox()
         for label, value in (
             ("per session", "session"),
             ("per day", "day"),

@@ -363,7 +363,8 @@ def test_stt_backlog_warns_once_and_is_capped(monkeypatch):
         time.sleep(0.05)
     tr.stop()
     finals = [e for e in events if e.is_final]
-    assert len(finals) < 12 and stt.n == len(finals)  # the oldest were dropped, not the newest
+    assert len(finals) == 12  # dropped speech must retire its pending aggregation slot
+    assert stt.n == sum(bool(event.text) for event in finals) < 12
     assert finals[-1].utterance_id == 12
     assert len(errors) == 1 and "falling behind" in str(errors[0])
 

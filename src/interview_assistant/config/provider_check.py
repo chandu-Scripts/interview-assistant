@@ -6,7 +6,20 @@ from typing import Any
 import httpx
 
 TIMEOUT = 15.0
-_OPENAI_SKIP = ("audio", "realtime", "transcribe", "tts", "image", "search", "instruct", "embed")
+_OPENAI_SKIP = (
+    "audio",
+    "realtime",
+    "transcribe",
+    "tts",
+    "image",
+    "search",
+    "instruct",
+    "embed",
+    "codex",
+    "deep-research",
+    "computer-use",
+    "-pro",
+)
 _GEMINI_SKIP = (
     "tts",
     "image",
@@ -27,6 +40,8 @@ class CheckResult:
     ok: bool
     message: str
     models: list[str] = field(default_factory=list)
+    # Only an explicit authentication rejection is red; transport/quota/permission are amber.
+    kind: str = "unknown"
 
 
 def _openai_models(data: dict[str, Any]) -> list[str]:
@@ -68,6 +83,44 @@ def _request(provider: str, key: str) -> tuple[str, dict[str, str], dict[str, An
     raise ValueError(f"unknown provider {provider!r}")
 
 
+def _failure(provider: str, response: httpx.Response) -> CheckResult:
+    """Never echo a remote error message: it may contain credentials or user input."""
+    code = ""
+    try:
+        body = response.json()
+        err = body.get("error", {}) if isinstance(body, dict) else {}
+        if isinstance(err, dict):
+            code = str(err.get("code", "")) + " " + str(err.get("type", ""))
+            for detail in (
+                err.get("details", []) if isinstance(err.get("details", []), list) else []
+            ):
+                if isinstance(detail, dict):
+                    code += " " + str(detail.get("reason", ""))
+    except ValueError:
+        pass
+    if response.status_code == 401 or "API_KEY_INVALID" in code:
+        return CheckResult(
+            False, f"{provider}: key rejected. Check or replace the key.", kind="invalid"
+        )
+    if any(term in code.lower() for term in ("quota", "credit", "spend_limit", "usage_limit")):
+        return CheckResult(
+            False, f"{provider}: credits or usage limit reached. Check billing.", kind="quota"
+        )
+    if response.status_code == 429:
+        return CheckResult(
+            False, f"{provider}: rate limited. Wait and test again.", kind="rate_limit"
+        )
+    if response.status_code == 403:
+        return CheckResult(
+            False,
+            f"{provider}: permission or region restriction. Check account access.",
+            kind="permission",
+        )
+    return CheckResult(
+        False, f"{provider}: the service returned HTTP {response.status_code}.", kind="service"
+    )
+
+
 def check_key(provider: str, key: str, client: httpx.Client | None = None) -> CheckResult:
     """Ask the provider for its model list. Costs nothing; messages never contain the key."""
     key = key.strip()
@@ -76,26 +129,63 @@ def check_key(provider: str, key: str, client: httpx.Client | None = None) -> Ch
     url, headers, params = _request(provider, key)
     owns = client is None
     client = client or httpx.Client(timeout=TIMEOUT)
+    models: set[str] = set()
+    cursors: set[str] = set()
     try:
-        r = client.get(url, headers=headers, params=params)
+        for _ in range(10):
+            r = client.get(url, headers=headers, params=params)
+            if not r.is_success:
+                return _failure(provider, r)
+            try:
+                data = r.json()
+                field_name = "models" if provider == "gemini" else "data"
+                if not isinstance(data, dict) or not isinstance(data.get(field_name), list):
+                    raise ValueError("not a model list")
+                if any(not isinstance(m, dict) for m in data[field_name]):
+                    raise ValueError("not a model record")
+                models.update(
+                    {
+                        "openai": _openai_models,
+                        "anthropic": _anthropic_models,
+                        "gemini": _gemini_models,
+                    }[provider](data)
+                )
+            except (ValueError, TypeError, KeyError):
+                return CheckResult(False, f"{provider}: unexpected response.", kind="service")
+            cursor = (
+                data.get("nextPageToken")
+                if provider == "gemini"
+                else (
+                    data.get("last_id")
+                    if provider == "anthropic" and data.get("has_more")
+                    else None
+                )
+            )
+            if not cursor:
+                if provider == "anthropic" and data.get("has_more"):
+                    break
+                return CheckResult(
+                    True,
+                    f"Key verified ({len(models)} models listed). Credits and generation access "
+                    "are not checked by this free test.",
+                    sorted(models),
+                    "verified",
+                )
+            if not isinstance(cursor, str) or cursor in cursors:
+                break
+            cursors.add(cursor)
+            params["pageToken" if provider == "gemini" else "after_id"] = cursor
+        return CheckResult(
+            False, f"{provider}: incomplete model list. Please retry.", kind="service"
+        )
     except httpx.TimeoutException:
-        return CheckResult(False, f"{provider}: timed out - check your internet connection.")
+        return CheckResult(
+            False, f"{provider}: timed out - check your internet connection.", kind="network"
+        )
     except httpx.HTTPError as e:
-        return CheckResult(False, f"{provider}: could not connect ({type(e).__name__}).")
+        return CheckResult(
+            False, f"{provider}: could not connect ({type(e).__name__}).", kind="network"
+        )
     finally:
         if owns:
             client.close()
-    if r.status_code in (401, 403) or (r.status_code == 400 and provider == "gemini"):
-        return CheckResult(False, f"{provider}: the key was rejected. Check that it is correct.")
-    if r.status_code == 429:
-        return CheckResult(True, f"{provider}: key accepted (currently rate limited).")
-    if r.status_code >= 400:
-        return CheckResult(False, f"{provider}: the service returned HTTP {r.status_code}.")
-    try:
-        data = r.json()
-    except ValueError:
-        return CheckResult(False, f"{provider}: unexpected response.")
-    models = {"openai": _openai_models, "anthropic": _anthropic_models, "gemini": _gemini_models}[
-        provider
-    ](data)
-    return CheckResult(True, f"{provider}: key works ({len(models)} models available).", models)

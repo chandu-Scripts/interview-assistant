@@ -213,7 +213,8 @@ def test_manual_mode_waits_for_answer_button_then_streams(make_stack, qtbot):
     assert (turn.question, turn.source) == (TWO_SUM, "voice")
 
 
-def test_creating_and_activating_an_interview_session_flows_into_the_prompt(make_stack):
+@pytest.mark.parametrize("builtin", [False, True])
+def test_creating_and_activating_an_interview_session_flows_into_the_prompt(make_stack, builtin):
     """End-to-end through the real pipeline: activating a session (Step 17) mutates the live
     Jev config, and the very next real request carries its job description/instructions/answer
     preferences - and tags the saved turn's history with the session via the DB link."""
@@ -227,6 +228,7 @@ def test_creating_and_activating_an_interview_session_flows_into_the_prompt(make
             job_description="Build search infrastructure.",
             ai_instructions="Always mention time complexity.",
             answer_format="Bullet points",
+            use_builtin_prompt=builtin,
         )
     )
 
@@ -234,7 +236,9 @@ def test_creating_and_activating_an_interview_session_flows_into_the_prompt(make
     s.answered("hash map.")
     sent = prov.requests[-1].system
     assert "Google" in sent and "Build search infrastructure." in sent
-    assert "Always mention time complexity." in sent and "Bullet points" in sent
+    assert "Always mention time complexity." in sent
+    assert ("format: Bullet points" in sent) is not builtin
+    assert ("FORMAT LOCK:" in sent) is builtin
 
     (turn,) = s.wait_turns(1)
     row = s.history._db.execute(
@@ -278,7 +282,9 @@ def test_wizard_connect_selected_model_end_and_view_transcript(make_stack, qtbot
     wizard.company.setText("Northwind")
     wizard.role_title.setText("Platform Architect")
     wizard.next_btn.click()
-    wizard.model_override.setCurrentIndex(wizard.model_override.findData("anthropic:selected"))
+    wizard.coding_model_override.setCurrentIndex(
+        wizard.coding_model_override.findData("anthropic:selected")
+    )
     wizard.next_btn.click()
     session = manager.current
     assert session is not None and not s.panel.recording

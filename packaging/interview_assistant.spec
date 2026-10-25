@@ -13,6 +13,10 @@ VERSION_FILE = ROOT / "packaging" / "version_info.txt"
 ICON = ROOT / "packaging" / "app.ico"
 
 datas = collect_data_files("faster_whisper") + collect_data_files("certifi")
+semantic_dir = ROOT / "src" / "interview_assistant" / "assets" / "semantic"
+if not (semantic_dir / "model.onnx").is_file():
+    raise SystemExit("Run python scripts/download_semantic_model.py before packaging")
+datas += [(str(semantic_dir), "interview_assistant/assets/semantic")]
 binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime")
 hiddenimports = (
     collect_submodules("keyring.backends")

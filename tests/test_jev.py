@@ -247,13 +247,14 @@ def test_system_prompt_includes_answer_preferences():
         answer_format="Bullet points",
         answer_length="Short",
         answer_tone="Formal",
+        use_builtin_prompt=False,
     )
     assert "Answer preferences for this session" in p
     assert "format: Bullet points" in p and "length: Short" in p and "tone: Formal" in p
 
 
 def test_system_prompt_partial_answer_preferences_omit_the_others():
-    p = system_prompt(SPECIALISTS[C.CODING], None, answer_tone="Casual")
+    p = system_prompt(SPECIALISTS[C.CODING], None, answer_tone="Casual", use_builtin_prompt=False)
     assert "tone: Casual" in p and "format:" not in p and "length:" not in p
 
 
@@ -277,6 +278,29 @@ async def test_manual_decision_can_be_used_to_ask_directly():
     assert isinstance(events[0], Decision) and events[0] is d
     assert "".join(e.event.delta for e in events[1:]) == "fixed answer"
     assert jev.history[-1].category is C.DATA_SQL
+
+
+async def test_local_classification_never_calls_provider_and_keeps_followups():
+    calls = []
+
+    async def forbidden(*args):
+        calls.append(args)
+        raise AssertionError("No classification network request expected")
+
+    jev = Jev(None, JevConfig(classify_with_llm=False))
+    jev._complete = forbidden
+    decision = await jev.decide("How did you manage that release?")
+    assert decision.source == "rules" and not calls
+    decision = await Classifier(None).classify("Can you expand on that?", "SQL joins?", C.DATA_SQL)
+    assert decision.category is C.DATA_SQL and decision.source == "rules"
+
+
+@pytest.mark.parametrize(
+    "question", ["What is CDC", "Explain ADF", "Define RAG", "How many catalogs"]
+)
+async def test_short_unpunctuated_voice_questions_are_not_ignored(question):
+    decision = await Classifier(None).classify(question)
+    assert decision.should_answer
 
 
 async def test_screenshot_is_attached_to_that_answer_request_only():

@@ -5,9 +5,10 @@ from dataclasses import dataclass, replace
 from interview_assistant.agents.classifier import Classifier
 from interview_assistant.agents.specialists import SPECIALISTS, system_prompt
 from interview_assistant.agents.types import Category, Decision, Turn
+from interview_assistant.llm.continuation import ContinuationText
 from interview_assistant.llm.router import RoutedResult, RouteEvent, Router, collect_routed
 from interview_assistant.llm.router_factory import parse_chain
-from interview_assistant.llm.types import LLMRequest, Message
+from interview_assistant.llm.types import LLMRequest, Message, StreamEvent, completion_is_normal
 from interview_assistant.privacy.redact import redact_text
 
 log = logging.getLogger(__name__)
@@ -21,6 +22,8 @@ class JevConfig:
     history_turns: int = 3  # previous Q/A pairs sent as context
     history_chars: int = 3000  # hard cap on context size
     classify_timeout_s: float = 1.0
+    classify_with_llm: bool = True
+    format_answer_blocks: bool = False
     redact: bool = False  # mask PII/secrets in everything sent to AI providers (togglable live)
     # Per-session context (Step 17's "Create Interview Session"); empty by default, mutated live
     # when a session is activated/ended - the same pattern already used above for `redact`
@@ -29,11 +32,15 @@ class JevConfig:
     role_title: str = ""
     job_description: str = ""
     instructions: str = ""
+    use_builtin_prompt: bool = True
     answer_format: str = ""
     answer_length: str = ""
     answer_tone: str = ""
     language: str = "English"
     model_route_override: str = ""
+    # None preserves legacy single-model routing; empty string is Auto for this role.
+    coding_model_route: str | None = None
+    fast_model_route: str | None = None
 
 
 class Jev:
@@ -48,7 +55,10 @@ class Jev:
         self._router = router
         self.config = config or JevConfig()
         self.history: list[Turn] = []
-        self._classifier = Classifier(self._complete, self.config.classify_timeout_s)
+        self._classifier = Classifier(
+            self._complete if self.config.classify_with_llm else None,
+            self.config.classify_timeout_s,
+        )
 
     def _outbound(self, request: LLMRequest) -> LLMRequest:
         """The request as it leaves this PC: optionally with PII and secrets masked."""
@@ -78,13 +88,22 @@ class Jev:
         return Decision(category, spec.tier, 1.0, "user", spec.name)
 
     async def ask(
-        self, question: str, decision: Decision | None = None, image: bytes | None = None
+        self,
+        question: str,
+        decision: Decision | None = None,
+        image: bytes | None = None,
+        continuation: str = "",
     ) -> AsyncGenerator[JevEvent, None]:
         """Pass a pre-computed `decision` (from decide()) to avoid classifying twice. `image` is
         PNG bytes sent with this question's answer request only (never with classification)."""
         # Snapshot the session's preference before classification can yield to another task.
-        preferred = parse_chain(self.config.model_route_override)
+        legacy_route = self.config.model_route_override
+        coding_route = self.config.coding_model_route
+        fast_route = self.config.fast_model_route
+        split_models = coding_route is not None or fast_route is not None
         decision = decision or await self.decide(question)
+        coding = decision.category in (Category.CODING, Category.DATA_SQL)
+        preferred = parse_chain((coding_route if coding else fast_route) or legacy_route)
         yield decision
         if not decision.should_answer:
             return
@@ -105,6 +124,7 @@ class Jev:
                     )
                 ),
                 instructions=self.config.instructions,
+                use_builtin_prompt=self.config.use_builtin_prompt,
                 answer_format=self.config.answer_format,
                 answer_length=self.config.answer_length,
                 answer_tone=self.config.answer_tone,
@@ -113,18 +133,53 @@ class Jev:
             max_tokens=spec.max_tokens,
             image=image,
         )
+        if continuation:
+            request.messages += [
+                Message("assistant", continuation),
+                Message(
+                    "user",
+                    (
+                        "Continue the interrupted answer from its exact stopping point. "
+                        "Return only the missing continuation, with no repeated question, "
+                        "introduction, summary, or already written text. Preserve the existing "
+                        "facts and code. Complete the unfinished sentence or code block first; "
+                        "do not reopen an already open code fence. Close all blocks by the end."
+                    ),
+                ),
+            ]
         parts: list[str] = []
+        joiner = ContinuationText(continuation)
+        finish_reason = None
+        last_event: RouteEvent | None = None
         async for ev in self._router.stream(
             self._outbound(request),
-            decision.tier,
+            # Split session preferences use Fast for all other categories, including design.
+            ("smart" if coding else "fast") if split_models else decision.tier,
             tag=decision.category.value,
             preferred=preferred[0] if preferred else None,
         ):
             if ev.reset:
                 parts.clear()
+                finish_reason = None
+                joiner = ContinuationText(continuation)
+            last_event = ev
+            if ev.event.finish_reason:
+                finish_reason = ev.event.finish_reason
+            if continuation and ev.event.delta:
+                ev = replace(ev, event=replace(ev.event, delta=joiner.feed(ev.event.delta)))
             parts.append(ev.event.delta)
             yield ev
-        self._remember(Turn(question, "".join(parts).strip(), decision.category))
+        if continuation and last_event is not None:
+            tail = joiner.feed("", final=True)
+            if tail:
+                parts.append(tail)
+                yield replace(last_event, event=StreamEvent(delta=tail), reset=False)
+        if continuation and not "".join(parts).strip():
+            raise RuntimeError("The continuation returned no new text. Please try again.")
+        if completion_is_normal(finish_reason):
+            self._remember(
+                Turn(question, (continuation + "".join(parts)).strip(), decision.category)
+            )
 
     def _messages(self, question: str) -> list[Message]:
         turns: list[Turn] = []

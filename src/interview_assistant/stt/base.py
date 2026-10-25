@@ -1,11 +1,16 @@
 import io
+import re
 import wave
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Protocol
 
 import numpy as np
 
 from interview_assistant.audio.types import TARGET_RATE, DeviceKind
+
+NO_WORDS_MESSAGE = "No words recognized. Speak again; check the audio input if this repeats."
 
 
 class STTProvider(Protocol):
@@ -22,6 +27,44 @@ class STTProvider(Protocol):
 
 class STTError(RuntimeError):
     pass
+
+
+class StreamingSTTProvider(STTProvider, Protocol):
+    def stream(self, chunks: Iterator[np.ndarray], on_partial: Callable[[str], None]) -> str: ...
+
+
+def is_prompt_echo(text: str, prompt: str | None) -> bool:
+    """Reject long vocabulary-hint copies, not ordinary speech containing technical terms."""
+    if not prompt:
+        return False
+    words = re.findall(r"\w+", text.casefold())
+    hint = re.findall(r"\w+", prompt.casefold())
+    if len(words) < 8 or len(hint) < 8:
+        return False
+    # Real questions can quote a vocabulary list. Preserve their question/instruction wording.
+    cues = {
+        "what",
+        "why",
+        "how",
+        "when",
+        "where",
+        "which",
+        "who",
+        "explain",
+        "describe",
+        "compare",
+        "define",
+        "implement",
+        "write",
+        "can",
+        "could",
+    }
+    if (set(words) - set(hint)) & cues:
+        return False
+    blocks = SequenceMatcher(None, words, hint, autojunk=False).get_matching_blocks()
+    return max(block.size for block in blocks) >= 8 and (
+        sum(block.size for block in blocks) / len(words) >= 0.9
+    )
 
 
 @dataclass(frozen=True)

@@ -17,6 +17,7 @@ from interview_assistant.config.user_settings import UserSettingsStore
 from interview_assistant.cost.factory import data_dir
 from interview_assistant.logging_setup import install_crash_handlers, setup_logging
 from interview_assistant.ui.onboarding import OnboardingWizard, needs_onboarding
+from interview_assistant.ui.theme import apply_theme
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ def main() -> int:
     boot = Settings()
     log_path = setup_logging(boot.log_level, data_dir(boot))
     app = QApplication(sys.argv)
+    apply_theme(app)
 
     def tell_user(summary: str) -> None:
         # Once per distinct error; the details (with secrets masked) are in the log file.

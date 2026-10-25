@@ -25,6 +25,8 @@ class TokenPrice:
 # (provider, model-name prefix) -> price. The longest matching prefix wins, so "gpt-4o-mini"
 # beats "gpt-4o" and dated model ids (claude-haiku-4-5-20251001) match their family.
 DEFAULT_TOKEN_PRICES: dict[tuple[str, str], TokenPrice] = {
+    # Verified 2026-10-25; standard uncached rates (cached input is conservatively overestimated).
+    ("openai", "gpt-5.4-mini"): TokenPrice(0.75, 4.50),
     ("openai", "gpt-4o-mini"): TokenPrice(0.15, 0.60),
     ("openai", "gpt-4o"): TokenPrice(2.50, 10.00),
     ("anthropic", "claude-sonnet-5"): TokenPrice(2.00, 10.00),

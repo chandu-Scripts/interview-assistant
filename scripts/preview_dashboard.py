@@ -12,10 +12,12 @@ from interview_assistant.agents.jev import JevConfig  # noqa: E402
 from interview_assistant.app.interview_session import InterviewSessionManager  # noqa: E402
 from interview_assistant.history.store import HistoryStore  # noqa: E402
 from interview_assistant.ui.start_screen import StartScreen  # noqa: E402
+from interview_assistant.ui.theme import apply_theme  # noqa: E402
 
 
 def main() -> None:
     app = QApplication([])
+    apply_theme(app)
     # The offscreen Qt backend has no system font database on some Windows installations.
     for font in ("segoeui.ttf", "segoeuib.ttf"):
         path = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / font
@@ -46,6 +48,7 @@ def main() -> None:
         on_privacy=lambda: None,
     )
     screen.show()
+    screen.resize(960, 680)
     app.processEvents()
     out = Path("tmp/dashboard-preview")
     out.mkdir(parents=True, exist_ok=True)
@@ -60,6 +63,8 @@ def main() -> None:
     screen.grab().save(str(out / "session-preferences.png"))
     screen.resize(900, 560)
     app.processEvents()
+    print(f"Compact preferences: {screen.width()}x{screen.height()}")
+    assert screen.width() == 900 and screen.height() == 560
     screen.grab().save(str(out / "session-preferences-small.png"))
     screen.close()
     store.close()

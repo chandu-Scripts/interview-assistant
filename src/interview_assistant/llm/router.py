@@ -3,6 +3,7 @@ import logging
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field, replace
+from typing import Literal
 
 from interview_assistant.llm.base import LLMProvider
 from interview_assistant.llm.types import (
@@ -64,7 +65,16 @@ class AllRoutesFailed(RuntimeError):
 
 
 class NoRoutesAvailable(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason: Literal[
+            "configuration", "selected_provider", "provider_mismatch"
+        ] = "configuration",
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 @dataclass
@@ -183,12 +193,17 @@ class Router:
         preferred: Route | None = None,
     ) -> AsyncIterator[RouteEvent]:
         if preferred is not None:
-            if preferred.provider not in self._providers or not any(
-                preferred in routes for routes in self._cfg.chains.values()
-            ):
-                raise NoRoutesAvailable(f"selected model is no longer configured: {preferred}")
+            # A session may select any account model, independently of Auto's preset chains.
+            # The UI validates the catalog/credential; the provider checks generation access.
+            if preferred.provider not in self._providers:
+                raise NoRoutesAvailable(
+                    "selected provider is not loaded", reason="selected_provider"
+                )
             if provider is not None and preferred.provider != provider:
-                raise NoRoutesAvailable("selected model does not match the requested provider")
+                raise NoRoutesAvailable(
+                    "selected model does not match the requested provider",
+                    reason="provider_mismatch",
+                )
         try:
             chain = self.chain_for(tier, provider)
         except NoRoutesAvailable:

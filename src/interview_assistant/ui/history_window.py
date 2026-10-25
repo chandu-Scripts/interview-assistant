@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -76,6 +77,7 @@ class HistoryWindow(QWidget):
         self._session_manager = session_manager
         self._session_dialog_factory = session_dialog_factory
         self._session_dialog: SessionDialog | None = None  # kept alive while open (non-modal)
+        self.on_create_session: Callable[[], None] | None = None
         self.setWindowTitle("Interview history")
         self.resize(900, 560)
 
@@ -113,18 +115,19 @@ class HistoryWindow(QWidget):
         main.addWidget(left)
         main.addWidget(right)
         main.setSizes([280, 620])
-        buttons = QHBoxLayout()
-        for b in (
-            self.view_transcript_btn,
-            self.export_btn,
-            self.export_all_btn,
-            self.del_turn_btn,
-            self.del_session_btn,
-            self.del_all_btn,
+        buttons = QGridLayout()
+        for index, b in enumerate(
+            (
+                self.view_transcript_btn,
+                self.export_btn,
+                self.export_all_btn,
+                self.del_turn_btn,
+                self.del_session_btn,
+                self.del_all_btn,
+            )
         ):
-            buttons.addWidget(b)
-        buttons.addStretch(1)
-        buttons.addWidget(self.status)
+            buttons.addWidget(b, index // 3, index % 3)
+        buttons.addWidget(self.status, 2, 0, 1, 3)
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(main, 1)
@@ -210,6 +213,8 @@ class HistoryWindow(QWidget):
         flag = {"complete": "", "interrupted": " ⏹", "stopped": " ⏹", "error": " ⚠"}.get(
             t.status, ""
         )
+        if t.status == "incomplete":
+            flag = " [incomplete]"
         label = f"{time.strftime('%H:%M', time.localtime(t.ts))}  {t.question}{flag}"
         if snippet:
             label += f"\n   …{snippet}"
@@ -277,6 +282,9 @@ class HistoryWindow(QWidget):
         self.status.setText("History is being saved" if on else "History saving is OFF")
 
     def open_create_session(self) -> None:
+        if self.on_create_session is not None:
+            self.on_create_session()
+            return
         if self._session_manager is None:
             return
         dialog = self._session_dialog_factory()

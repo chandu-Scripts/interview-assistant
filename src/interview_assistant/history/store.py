@@ -11,8 +11,8 @@ from typing import Literal
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 5
-Status = Literal["complete", "interrupted", "stopped", "error"]
+SCHEMA_VERSION = 7
+Status = Literal["complete", "incomplete", "interrupted", "stopped", "error"]
 ExportFormat = Literal["md", "json"]
 
 _SCHEMA = """
@@ -25,10 +25,13 @@ CREATE TABLE interview_sessions (
     job_description TEXT NOT NULL DEFAULT '',
     resume_override TEXT NOT NULL DEFAULT '',
     ai_instructions TEXT NOT NULL DEFAULT '',
+    use_builtin_prompt INTEGER NOT NULL DEFAULT 1,
     answer_format TEXT NOT NULL DEFAULT '',
     answer_length TEXT NOT NULL DEFAULT '',
     answer_tone TEXT NOT NULL DEFAULT '',
     model_route_override TEXT NOT NULL DEFAULT '',
+    coding_model_route TEXT,
+    fast_model_route TEXT,
     session_type TEXT NOT NULL DEFAULT 'Interview',
     language TEXT NOT NULL DEFAULT 'English',
     auto_generate INTEGER NOT NULL DEFAULT 0,
@@ -150,10 +153,13 @@ class InterviewSession:
     job_description: str = ""
     resume_override: str = ""
     ai_instructions: str = ""
+    use_builtin_prompt: bool = True
     answer_format: str = ""
     answer_length: str = ""
     answer_tone: str = ""
     model_route_override: str = ""
+    coding_model_route: str | None = None
+    fast_model_route: str | None = None
     session_type: str = "Interview"
     language: str = "English"
     auto_generate: bool = False
@@ -306,8 +312,24 @@ class HistoryStore:
                     "REFERENCES interview_sessions(id) ON DELETE CASCADE, "
                     "text TEXT NOT NULL DEFAULT '')"
                 )
-                self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                self._db.execute("PRAGMA user_version = 5")
                 self._db.commit()
+                version = 5
+            if version == 5:
+                with self._db:
+                    self._db.execute("BEGIN")
+                    for name in ("coding_model_route", "fast_model_route"):
+                        self._db.execute(f"ALTER TABLE interview_sessions ADD COLUMN {name} TEXT")
+                    self._db.execute("PRAGMA user_version = 6")
+                version = 6
+            if version == 6:
+                with self._db:
+                    self._db.execute("BEGIN")
+                    self._db.execute(
+                        "ALTER TABLE interview_sessions ADD COLUMN "
+                        "use_builtin_prompt INTEGER NOT NULL DEFAULT 1"
+                    )
+                    self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
                 version = SCHEMA_VERSION
             if version > SCHEMA_VERSION:
                 raise RuntimeError(f"history database is from a newer app (schema {version})")
@@ -387,6 +409,9 @@ class HistoryStore:
         language: str = "English",
         auto_generate: bool = False,
         save_transcript: bool = True,
+        coding_model_route: str | None = None,
+        fast_model_route: str | None = None,
+        use_builtin_prompt: bool = True,
     ) -> int:
         with self._lock:
             if not self.writable or not save_transcript:
@@ -401,10 +426,13 @@ class HistoryStore:
                     job_description=job_description,
                     resume_override=resume_override,
                     ai_instructions=ai_instructions,
+                    use_builtin_prompt=use_builtin_prompt,
                     answer_format=answer_format,
                     answer_length=answer_length,
                     answer_tone=answer_tone,
                     model_route_override=model_route_override,
+                    coding_model_route=coding_model_route,
+                    fast_model_route=fast_model_route,
                     session_type=session_type,
                     language=language,
                     auto_generate=auto_generate,
@@ -416,8 +444,8 @@ class HistoryStore:
                        created_at, company, role_title, job_description, resume_override,
                        ai_instructions, answer_format, answer_length, answer_tone,
                        model_route_override, session_type, language, auto_generate,
-                       save_transcript
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       save_transcript, coding_model_route, fast_model_route, use_builtin_prompt
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     self._clock(),
                     company,
@@ -433,6 +461,9 @@ class HistoryStore:
                     language,
                     int(auto_generate),
                     int(save_transcript),
+                    coding_model_route,
+                    fast_model_route,
+                    int(use_builtin_prompt),
                 ),
             )
             self._db.commit()
@@ -481,6 +512,7 @@ class HistoryStore:
         fields = {k: r[k] for k in r.keys()}
         fields["auto_generate"] = bool(fields["auto_generate"])
         fields["save_transcript"] = bool(fields["save_transcript"])
+        fields["use_builtin_prompt"] = bool(fields["use_builtin_prompt"])
         return InterviewSession(**fields)
 
     def add_turn(self, turn: TurnRecord, expected_generation: int | None = None) -> int | None:

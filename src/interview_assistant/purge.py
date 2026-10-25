@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings
 
-from interview_assistant.config.keys import PROVIDERS, KeyStore
+from interview_assistant.config.keys import KEY_PROVIDERS, KeyStore
 from interview_assistant.config.user_settings import default_data_dir
 
 log = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ def purge(
         from interview_assistant.config.keys import KeyringStore
 
         keys = KeyringStore()
-    for provider in PROVIDERS:
+    for provider in KEY_PROVIDERS:
         if keys.get(provider):
             try:
                 keys.delete(provider)

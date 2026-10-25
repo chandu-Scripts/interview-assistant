@@ -1,8 +1,18 @@
 import threading
+from collections.abc import Callable
+from typing import cast
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from interview_assistant import __version__
 from interview_assistant.app.controller import AssistantController
@@ -13,7 +23,8 @@ from interview_assistant.cost.tracker import format_usd
 from interview_assistant.history.store import HistoryStore
 from interview_assistant.privacy.consent import ConsentGate
 from interview_assistant.privacy.state import PrivacyState
-from interview_assistant.stt.base import STTProvider
+from interview_assistant.stt.base import StreamingSTTProvider, STTProvider
+from interview_assistant.stt.realtime import RealtimeTranscriber
 from interview_assistant.stt.streaming import StreamingTranscriber
 from interview_assistant.ui.audio_panel import AudioPanel
 from interview_assistant.ui.history_window import HistoryWindow
@@ -29,9 +40,8 @@ class MainWindow(QMainWindow):
     # Step 19: a second, simultaneous audio source's transcript events, relayed via a queued
     # signal exactly like TranscriptPanel.event_received does for the primary source - emitted
     # from the mic's STT worker thread, so it must be a signal (not a direct call) to reach the
-    # controller safely on the UI thread. NOT routed through TranscriptPanel itself: that widget
-    # keys its state by utterance_id, and the mic transcriber has its own id sequence starting at
-    # 1 - sharing the panel would silently collide two unrelated utterances onto one id.
+    # controller safely on the UI thread. TranscriptPanel keys by source and utterance ID,
+    # so independent mic/system sequences can also share the transcript view safely.
     mic_transcript_received = Signal(object)
 
     def __init__(
@@ -46,9 +56,12 @@ class MainWindow(QMainWindow):
         audio_source: str = "",
         mic_panel: AudioPanel | None = None,
         mic_provider: STTProvider | None = None,
+        preview_provider: STTProvider | None = None,
+        mic_preview_provider: STTProvider | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Interview Assistant")
+        self.navigate: Callable[[str], None] | None = None
         self.resize(640, 480)
         self.label = QLabel(f"Interview Assistant v{__version__} — ready")
         self.label.setObjectName("status_label")
@@ -60,11 +73,13 @@ class MainWindow(QMainWindow):
         self.mic_panel = mic_panel
         self._audio_source = audio_source
         self.transcript_panel = TranscriptPanel()
-        self.transcriber: StreamingTranscriber | None = None
-        self.mic_transcriber: StreamingTranscriber | None = None
+        self.mic_transcript_received.connect(self.transcript_panel.apply)
+        self.transcriber: StreamingTranscriber | RealtimeTranscriber | None = None
+        self.mic_transcriber: StreamingTranscriber | RealtimeTranscriber | None = None
         self.controller = controller
         self.overlay = overlay
         if overlay is not None:
+            self.transcript_panel.error_received.connect(overlay.on_transcription_status)
             overlay.bind_audio(self.audio_panel, self.mic_panel)
         self.overlay_button = QPushButton("Show overlay")
         self.clear_button = QPushButton("New interview")
@@ -87,14 +102,23 @@ class MainWindow(QMainWindow):
         self.privacy_dialog: PrivacyDialog | None = None
         self._privacy: PrivacyState | None = None
         self._presentation: PresentationMode | None = None
-        top = QHBoxLayout()
-        top.addWidget(self.label, 1)
-        top.addWidget(self.cost_label)
-        top.addWidget(self.settings_button)
-        top.addWidget(self.privacy_button)
-        top.addWidget(self.history_button)
-        top.addWidget(self.clear_button)
-        top.addWidget(self.overlay_button)
+        top = QVBoxLayout()
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.label, 1)
+        status_row.addWidget(self.cost_label)
+        top.addLayout(status_row)
+        actions = QGridLayout()
+        for index, button in enumerate(
+            (
+                self.settings_button,
+                self.privacy_button,
+                self.history_button,
+                self.clear_button,
+                self.overlay_button,
+            )
+        ):
+            actions.addWidget(button, index // 3, index % 3)
+        top.addLayout(actions)
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.addWidget(self.banner)
@@ -152,6 +176,8 @@ class MainWindow(QMainWindow):
             else:
                 self.audio_panel.recording_changed.connect(overlay.set_listening)
         self._partials = partials
+        self._preview_provider = preview_provider
+        self._mic_preview_provider = mic_preview_provider
         if provider is not None:
             self._attach(provider)
         if mic_provider is not None and self.mic_panel is not None:
@@ -166,7 +192,7 @@ class MainWindow(QMainWindow):
                     ("Settings", self.settings_button.click),
                     ("Privacy", self.privacy_button.click),
                     ("New interview", self.clear_button.click),
-                    ("Show transcript window", self.show),
+                    ("Audio and transcript", self.show_controls),
                 ],
                 devices,
             )
@@ -200,12 +226,18 @@ class MainWindow(QMainWindow):
     def show_settings(self) -> None:
         if self.settings_dialog is not None:
             self.settings_dialog.load()
+            if self.navigate is not None:
+                self.navigate("settings")
+                return
             self.settings_dialog.show()
             self.settings_dialog.raise_()
 
     def show_privacy(self) -> None:
         if self.privacy_dialog is not None:
             self.privacy_dialog.refresh()
+            if self.navigate is not None:
+                self.navigate("privacy")
+                return
             self.privacy_dialog.show()
             self.privacy_dialog.raise_()
 
@@ -234,8 +266,17 @@ class MainWindow(QMainWindow):
     def show_history(self) -> None:
         if self.history_window is not None:
             self.history_window.refresh()
+            if self.navigate is not None:
+                self.navigate("history")
+                return
             self.history_window.show()
             self.history_window.raise_()
+
+    def show_controls(self) -> None:
+        if self.navigate is not None:
+            self.navigate("controls")
+        else:
+            self.show()
 
     def _refresh_history(self, *_args: object) -> None:
         if self.history_window is not None and self.history_window.isVisible():
@@ -248,11 +289,20 @@ class MainWindow(QMainWindow):
 
     def _attach(self, provider: STTProvider) -> None:
         panel = self.transcript_panel
+        if getattr(provider, "realtime", False):
+            self.transcriber = self._attach_realtime(
+                self.audio_panel,
+                provider,
+                panel.event_received.emit,
+                DeviceKind(self._audio_source) if self._audio_source else None,
+            )
+            return
         transcriber = StreamingTranscriber(
             provider,
             on_event=panel.event_received.emit,  # worker thread -> queued to UI thread
             on_error=lambda e: panel.error_received.emit(str(e)),
             partials=self._partials,
+            preview_provider=self._preview_provider,
             # None (the default, when audio_source == "") keeps a single-source install's
             # questions tagged plain "voice", exactly as before Step 19.
             source=DeviceKind(self._audio_source) if self._audio_source else None,
@@ -267,14 +317,22 @@ class MainWindow(QMainWindow):
         threading.Thread(target=provider.warmup, name="stt-warmup", daemon=True).start()
 
     def _attach_mic(self, provider: STTProvider) -> None:
-        """The second, simultaneous source (Step 19). Deliberately NOT wired through
-        TranscriptPanel - see mic_transcript_received's docstring for why."""
+        """The second source has independent capture but shares the source-aware transcript view."""
         assert self.mic_panel is not None
+        if getattr(provider, "realtime", False):
+            self.mic_transcriber = self._attach_realtime(
+                self.mic_panel,
+                provider,
+                self.mic_transcript_received.emit,
+                DeviceKind.MIC,
+            )
+            return
         transcriber = StreamingTranscriber(
             provider,
             on_event=self.mic_transcript_received.emit,  # worker thread -> queued to UI thread
             on_error=lambda e: self.transcript_panel.error_received.emit(str(e)),
             partials=self._partials,
+            preview_provider=self._mic_preview_provider,
             source=DeviceKind.MIC,
         )
         ap = self.mic_panel
@@ -284,6 +342,36 @@ class MainWindow(QMainWindow):
         transcriber.start()
         self.mic_transcriber = transcriber
         threading.Thread(target=provider.warmup, name="stt-warmup-mic", daemon=True).start()
+
+    def _attach_realtime(
+        self,
+        panel: AudioPanel,
+        provider: STTProvider,
+        emit: Callable,
+        source: DeviceKind | None,
+    ) -> RealtimeTranscriber:
+        transcriber = RealtimeTranscriber(
+            cast(StreamingSTTProvider, provider),
+            emit,
+            lambda e: self.transcript_panel.error_received.emit(str(e)),
+            source,
+        )
+        panel.realtime = True
+        panel.speech_changed.connect(
+            lambda on: transcriber.speech_started() if on and panel.recording else None
+        )
+        panel.partial_ready.connect(transcriber.submit_partial)
+        panel.segment_ready.connect(transcriber.submit_final)
+
+        def recording_changed(on: bool) -> None:
+            if not on:
+                transcriber.cancel()
+                if self.controller is not None:
+                    self.controller.on_capture_stopped(source.value if source else "")
+
+        panel.recording_changed.connect(recording_changed)
+        transcriber.start()
+        return transcriber
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         self.audio_panel.stop()

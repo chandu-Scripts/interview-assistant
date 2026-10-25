@@ -37,7 +37,7 @@ from interview_assistant.ui.relay_panel import RelayPanel
 from interview_assistant.ui.session_dialog import SessionDialog
 from interview_assistant.ui.settings_dialog import SettingsDialog
 
-KEYS = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY")
+KEYS = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "SPEECHMATICS_API_KEY")
 
 
 @pytest.fixture
@@ -56,12 +56,14 @@ def test_store_roundtrip_only_editable_and_no_secrets(clean_env):
         {
             "whisper_model": "small.en",
             "openai_api_key": "sk-secret",
+            "speechmatics_api_key": "speechmatics-test-secret",
             "unknown": 1,
             "log_level": None,
         }
     )
     assert st.load() == {"whisper_model": "small.en"}
     assert "sk-secret" not in st.path.read_text(encoding="utf-8")
+    assert "speechmatics-test-secret" not in st.path.read_text(encoding="utf-8")
     assert not any(k.endswith("_api_key") for k in EDITABLE)
 
 
@@ -242,9 +244,9 @@ def test_check_anthropic_and_gemini_request_shape():
     ("provider", "status", "ok", "fragment"),
     [
         ("openai", 401, False, "rejected"),
-        ("anthropic", 403, False, "rejected"),
-        ("gemini", 400, False, "rejected"),
-        ("openai", 429, True, "rate limited"),
+        ("anthropic", 403, False, "permission"),
+        ("gemini", 400, False, "HTTP 400"),
+        ("openai", 429, False, "rate limited"),
         ("openai", 500, False, "HTTP 500"),
     ],
 )
@@ -365,6 +367,53 @@ def test_key_row_states_and_buttons(qtbot, clean_env):
     qtbot.keyClicks(row.edit, "sk-new-key-1234")
     assert row.test_btn.isEnabled() and row.save_btn.isEnabled()
     assert row.edit.echoMode().name == "Password"
+
+
+def test_speechmatics_key_save_load_remove_and_env_precedence(qtbot, clean_env, monkeypatch):
+    row, store = make_row(qtbot, provider="speechmatics")
+    secret = "speechmatics-test-not-a-real-key-1234"
+    assert row.test_btn.isHidden()
+    assert row.edit.echoMode().name == "Password"
+    row.edit.setText(secret)
+    row.save_btn.click()
+    assert row.edit.text() == ""
+    assert store.get("speechmatics") == secret
+    assert secret not in row.state.text() + row.result.text()
+    settings = load_settings(store, MemoryRelayTokenStore())
+    assert settings.speechmatics_api_key.get_secret_value() == secret
+    assert secret not in repr(settings)
+    monkeypatch.setenv("SPEECHMATICS_API_KEY", "environment-test-key")
+    settings = load_settings(store, MemoryRelayTokenStore())
+    assert settings.speechmatics_api_key.get_secret_value() == "environment-test-key"
+    monkeypatch.delenv("SPEECHMATICS_API_KEY")
+    row.remove_btn.click()
+    assert store.get("speechmatics") is None
+    assert load_settings(store, MemoryRelayTokenStore()).speechmatics_api_key is None
+
+
+def test_speechmatics_key_does_not_count_as_an_answer_provider(clean_env):
+    from interview_assistant.config.keys import PROVIDERS
+    from interview_assistant.llm.factory import build_providers
+
+    assert "speechmatics" not in PROVIDERS
+    assert build_providers(Settings(speechmatics_api_key="test-only")) == {}
+
+
+def test_speechmatics_field_in_settings(dialog, qtbot):
+    window, keys = dialog
+    window.show()
+    window.tabs.setCurrentIndex(0)
+    row = window.key_rows["speechmatics"]
+    window.tabs.widget(0).ensureWidgetVisible(row)
+    qtbot.waitUntil(lambda: row.edit.isVisible())
+    assert "Speechmatics" in row.title.text()
+    row.edit.setText("test-speechmatics-ui-not-real")
+    row.save_btn.click()
+    assert keys.get("speechmatics") == "test-speechmatics-ui-not-real"
+    assert row.edit.text() == ""
+    assert "Credential Manager" in row.state.text()
+    row.remove_btn.click()
+    assert keys.get("speechmatics") is None
 
 
 def test_key_row_save_clears_field_and_emits(qtbot, clean_env):
@@ -596,6 +645,42 @@ def test_dialog_loads_current_values(dialog):
     assert not d.auto_generate.isChecked()  # default answer_mode is "manual"
 
 
+def test_speechmatics_selection_requires_key_and_persists_without_secret(dialog):
+    d, keys = dialog
+    d.stt_provider.setCurrentIndex(d.stt_provider.findData("speechmatics"))
+    with pytest.raises(ValueError, match="Speechmatics key"):
+        d.collect()
+    keys.set("speechmatics", "dummy-speech-secret")
+    assert d.collect()["stt_provider"] == "speechmatics"
+    d.save()
+    saved = d._store.path.read_text(encoding="utf-8")
+    assert '"speechmatics"' in saved
+    assert "dummy-speech-secret" not in saved
+
+
+def test_missing_speech_key_does_not_prevent_opening_settings(dialog, monkeypatch):
+    d, keys = dialog
+    monkeypatch.setenv("STT_PROVIDER", "speechmatics")
+    d.load()
+    assert d.stt_provider.currentData() == "speechmatics"
+    d.save()
+    assert "Speechmatics key" in d.message.text()
+    keys.set("speechmatics", "test-only")
+    d.save()
+    assert "Not saved" not in d.message.text()
+
+
+def test_dialog_can_select_and_save_gpt54_mini(dialog):
+    d, _ = dialog
+    for field in ("openai_model", "openai_smart_model"):
+        box = d.model_boxes[field]
+        assert box.findText("gpt-5.4-mini") >= 0
+        box.setCurrentText("gpt-5.4-mini")
+    d.save()
+    assert d._store.load()["openai_model"] == "gpt-5.4-mini"
+    assert d._store.load()["openai_smart_model"] == "gpt-5.4-mini"
+
+
 def test_dialog_save_writes_only_non_defaults_and_requests_restart(qtbot, dialog):
     d, _ = dialog
     d.whisper_model.setCurrentIndex(d.whisper_model.findData("small.en"))
@@ -653,7 +738,8 @@ def test_dialog_key_change_needs_restart(qtbot, dialog):
 
 def test_dialog_has_shared_access_tab_wired_to_restart_flag(qtbot, dialog):
     d, _ = dialog
-    assert d.tabs.tabText(d.tabs.indexOf(d.relay_panel)) == "Shared access"
+    tab = next(i for i in range(d.tabs.count()) if d.tabs.widget(i).widget() is d.relay_panel)
+    assert d.tabs.tabText(tab) == "Shared access"
     d.relay_panel.connected.emit()
     assert "Restart" in d.message.text()
     with qtbot.waitSignal(d.saved) as sig:
@@ -726,10 +812,15 @@ def test_dialog_dual_audio_toggle_round_trips(qtbot, dialog):
 
 
 def test_dialog_models_fill_from_key_test(qtbot, dialog):
-    d, _ = dialog
-    d.key_rows["openai"].models_found.emit("openai", ["gpt-x", "gpt-y"])
+    from interview_assistant.ui.provider_catalog import fingerprint
+
+    d, keys = dialog
+    keys.set("openai", "test-only")
+    d.key_rows["openai"].tested.emit(
+        "openai", fingerprint("test-only"), CheckResult(True, "Verified", ["gpt-x", "gpt-y"])
+    )
     box = d.model_boxes["openai_model"]
-    assert [box.itemText(i) for i in range(box.count())] == ["gpt-x", "gpt-y"]
+    assert box.count() == 0  # unrelated account models stay out of the recommended shortlist
     assert box.currentText() == "gpt-4o-mini"  # the current choice is kept even if not listed
     assert d.model_boxes["gemini_model"].count() == 0  # other providers untouched
 
@@ -796,7 +887,8 @@ def test_session_dialog_emits_created_with_collected_details(qtbot):
     (got,) = sig.args
     assert got.company == "Google" and got.role_title == "Software Engineer"
     assert got.job_description == "Build search infra." and got.resume_override == ""
-    assert got.model_route_override == "openai:gpt-4o"
+    assert got.fast_model_route == "openai:gpt-4o"
+    assert got.coding_model_route == "" and got.model_route_override == ""
     assert (got.answer_format, got.answer_length, got.answer_tone) == (
         "Bullet points",
         "Short",

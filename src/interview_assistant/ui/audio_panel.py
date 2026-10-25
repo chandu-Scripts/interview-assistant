@@ -4,7 +4,6 @@ from collections.abc import Callable
 import numpy as np
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -16,6 +15,8 @@ from PySide6.QtWidgets import (
 from interview_assistant.audio.capture import AudioCapture
 from interview_assistant.audio.devices import list_devices
 from interview_assistant.audio.types import AudioDevice, DeviceKind
+from interview_assistant.audio.vad import VadConfig
+from interview_assistant.ui.controls import ChoiceComboBox
 
 log = logging.getLogger(__name__)
 
@@ -47,12 +48,13 @@ class AudioPanel(QWidget):
         # (the default) keeps today's exact single-panel, pick-any-device behavior.
         self._restrict_kind = restrict_kind
         self._factory = capture_factory
+        self.realtime = False
         # Optional gate run before capture starts (e.g. the recording-consent notice).
         self.before_start: Callable[[], bool] | None = None
         self._capture: AudioCapture | None = None
         self._segments = 0
 
-        self.device_combo = QComboBox()
+        self.device_combo = ChoiceComboBox()
         self.refresh_button = QPushButton("Refresh")
         self.toggle_button = QPushButton("Start capture")
         self.recording_label = QLabel("Not recording")
@@ -156,6 +158,7 @@ class AudioPanel(QWidget):
             on_speech_state=self.speech_changed.emit,
             on_segment=self.segment_ready.emit,
             on_partial=self.partial_ready.emit,
+            **({"vad_config": VadConfig(partial_interval_ms=120)} if self.realtime else {}),
         )
         try:
             capture.start()

@@ -118,6 +118,11 @@ def looks_like_question(text: str) -> bool:
         return False
     if "?" in t:
         return True
+    # STT often omits punctuation on short technical questions.
+    if re.match(r"^(explain|define|compare|describe)\s+\S+", t, re.I):
+        return True
+    if len(t.split()) >= 3 and re.match(r"^(what|how|why|when|where|which|who)\b", t, re.I):
+        return True
     return len(t.split()) >= 4 and bool(_QUESTION_CUES.match(t))
 
 

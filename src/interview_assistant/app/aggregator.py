@@ -32,7 +32,7 @@ class UtteranceAggregator:
 
     def __init__(
         self,
-        quiet_s: float = 0.5,
+        quiet_s: float = 0.25,
         max_hold_s: float = 8.0,
         stale_s: float = 20.0,
         clock: Callable[[], float] = time.monotonic,
@@ -96,5 +96,8 @@ class UtteranceAggregator:
             return text, source
         return None
 
-    def reset(self) -> None:
-        self._by_source.clear()
+    def reset(self, source: str | None = None) -> None:
+        if source is None:
+            self._by_source.clear()
+        else:
+            self._by_source.pop(source, None)

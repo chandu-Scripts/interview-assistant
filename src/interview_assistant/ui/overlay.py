@@ -14,7 +14,6 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -25,7 +24,6 @@ from PySide6.QtWidgets import (
     QSlider,
     QStyle,
     QStyleOptionButton,
-    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -34,25 +32,29 @@ from interview_assistant.agents.specialists import ANSWERABLE_CATEGORIES, LABELS
 from interview_assistant.agents.types import Category, Decision
 from interview_assistant.app.controller import DETECTED_QUESTION_PREFIX, AssistantController
 from interview_assistant.cost.tracker import BudgetLevel, BudgetState, Summary, format_usd
+from interview_assistant.stt.base import NO_WORDS_MESSAGE
+from interview_assistant.ui.answer_view import AnswerView
 from interview_assistant.ui.audio_panel import AudioPanel
+from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.screenshot import capture_screen_png
+from interview_assistant.ui.theme import paint_glass
 
-# Dark translucent live bar, matching the Parakeet layout the user asked for: one toolbar with
+# Navy glass live bar: one toolbar with
 # labelled shortcut buttons, a listening line under it, and the answer panel below.
-BG = QColor(30, 28, 27, 238)
-BORDER = QColor(92, 87, 83, 180)
+BG = QColor(17, 31, 52, 240)
+BORDER = QColor(164, 220, 240, 65)
 STYLE = """
 QWidget { font-family: 'Segoe UI'; font-size: 12px; }
-QLabel { color: #f0efed; background: transparent; }
-#title { color: #a8a39f; font-size: 10px; }
-#chip { color: #bcb7b2; font-size: 11px; }
-#question { color: #faf9f7; font-size: 14px; font-weight: 600; padding: 8px 0; }
+QLabel { color: #e6f3ff; background: transparent; }
+#title { color: #9eb9cf; font-size: 10px; }
+#chip { color: #a7b9d2; font-size: 11px; }
+#question { color: #f0fbff; font-size: 14px; font-weight: 600; padding: 8px 0; }
 #transcript { background: rgba(255,255,255,0.08); border-radius: 8px; padding: 6px 10px; }
-#history { color: #bcb7b2; font-size: 11px; }
+#history { color: #a7b9d2; font-size: 11px; }
 #warn { color: #ffb86b; font-size: 11px; }
 #timer { color: #e8eaf2; font-size: 12px; }
 #status { color: #aab0c4; font-size: 12px; }
-QTextBrowser { background: transparent; color: #f0efed; border: none; font-size: 14px; }
+QTextBrowser { background: transparent; color: #e6f3ff; border: none; font-size: 14px; }
 QLineEdit { background: rgba(255,255,255,0.06); color: #e8eaf2; border: 1px solid #3a3e4c;
             border-radius: 6px; padding: 4px 8px; }
 QPushButton { background: rgba(255,255,255,0.08); color: #e8eaf2; border: none;
@@ -60,16 +62,16 @@ QPushButton { background: rgba(255,255,255,0.08); color: #e8eaf2; border: none;
 QPushButton:hover { background: rgba(255,255,255,0.16); }
 QPushButton:disabled { color: #5d6276; background: rgba(255,255,255,0.04); }
 #iconbtn { padding: 2px 8px; font-weight: bold; }
-#pill { font-weight: 600; }
+#pill { font-weight: 600; background: rgba(104,225,223,28); color: #abf6f0; }
 #audio { padding: 4px 8px; }
 #audio:checked { background: #d6363f; color: #ffffff; }
 #end { background: #d6363f; color: #ffffff; font-weight: 600; }
 #end:hover { background: #e5484f; }
-QMenu { background: #292725; color: #f0efed; border: 1px solid #5c5753; padding: 5px; }
+QMenu { background: #162b42; color: #e6f3ff; border: 1px solid #44637e; padding: 5px; }
 QMenu::item { padding: 6px 18px; }
-QMenu::item:selected { background: #48433f; border-radius: 4px; }
+QMenu::item:selected { background: #285c74; border-radius: 4px; }
 QScrollBar:vertical { background: transparent; width: 7px; }
-QScrollBar::handle:vertical { background: #68605a; border-radius: 3px; min-height: 24px; }
+QScrollBar::handle:vertical { background: #46657f; border-radius: 3px; min-height: 24px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 """
 COST_COLOR = {
@@ -137,7 +139,7 @@ class ShortcutButton(QPushButton):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(255, 255, 255, 22 if self.isEnabled() else 8))
         painter.drawRoundedRect(badge, 4, 4)
-        painter.setPen(QColor("#f0efed" if self.isEnabled() else "#77716b"))
+        painter.setPen(QColor("#e6f3ff" if self.isEnabled() else "#687e99"))
         painter.drawText(
             QRectF(9, 0, badge.left() - 12, self.height()), Qt.AlignmentFlag.AlignVCenter, label
         )
@@ -174,6 +176,9 @@ class OverlayWindow(QWidget):
         self._current_question = ""
         self._current_source = "typed"
         self._qa_history: list[tuple[str, str, str]] = []  # (question, answer, source)
+        self._answer_origins: list[str] = []
+        self._live_origin = ""
+        self._locally_formatted = False
         self._history_index = 0  # == len(self._qa_history) means "viewing the live answer"
         self._drag: QPoint | None = None
         self._press_global: QPoint | None = None
@@ -294,7 +299,7 @@ class OverlayWindow(QWidget):
         self.warn_label.setObjectName("warn")
         self.warn_label.setWordWrap(True)
         self.warn_label.setVisible(False)
-        self.category_combo = QComboBox()
+        self.category_combo = ChoiceComboBox()
         for cat in ANSWERABLE_CATEGORIES:
             self.category_combo.addItem(LABELS[cat], cat.value)
         self.fix_apply_btn = QPushButton("Redo")
@@ -306,9 +311,10 @@ class OverlayWindow(QWidget):
         self.fix_row = QWidget()
         self.fix_row.setLayout(fix_row)
         self.fix_row.setVisible(False)
-        self.answer = QTextBrowser()
-        self.answer.setOpenExternalLinks(False)
+        self.answer = AnswerView()
         self.answer.setPlaceholderText("Answers stream in here.")
+        self.origin_label = QLabel()
+        self.origin_label.setWordWrap(True)
 
         self.input = QLineEdit()
         self.input.setPlaceholderText("Type a question and press Enter…")
@@ -322,6 +328,10 @@ class OverlayWindow(QWidget):
         self.chat_row.setVisible(False)
 
         self.stop_btn = QPushButton("Stop")
+        self.continue_btn = QPushButton("Continue answer")
+        self.continue_btn.setToolTip("Request the missing text. Uses additional AI tokens.")
+        self.continue_btn.setVisible(False)
+        self._incomplete = False
         self.copy_btn = QPushButton("Copy")
         self.opacity = QSlider(Qt.Orientation.Horizontal)
         self.opacity.setRange(30, 100)
@@ -342,6 +352,7 @@ class OverlayWindow(QWidget):
         answer_toolbar = QHBoxLayout()
         answer_toolbar.addWidget(self.nav_row)
         answer_toolbar.addStretch(1)
+        answer_toolbar.addWidget(self.continue_btn)
         answer_toolbar.addWidget(self.clear_btn)
         answer_toolbar.addWidget(self.copy_btn)
         body.addLayout(answer_toolbar)
@@ -349,6 +360,7 @@ class OverlayWindow(QWidget):
         body.addWidget(self.warn_label)
         body.addWidget(self.fix_row)
         body.addWidget(self.chat_row)
+        body.addWidget(self.origin_label)
         body.addWidget(self.answer, 1)
         body.addWidget(self.footer)
         self.grip = QSizeGrip(self)
@@ -362,7 +374,7 @@ class OverlayWindow(QWidget):
 
         self._render_timer = QTimer(self)
         self._render_timer.setSingleShot(True)
-        self._render_timer.setInterval(50)
+        self._render_timer.setInterval(25)
         self._render_timer.timeout.connect(self._render)
 
         self.fix_btn.clicked.connect(self._toggle_fix_row)
@@ -394,6 +406,7 @@ class OverlayWindow(QWidget):
         QShortcut(QKeySequence("Ctrl+Right"), self, self.next_qa)
         QShortcut(QKeySequence("Escape"), self, self._stop)
         self.stop_btn.clicked.connect(self._stop)
+        self.continue_btn.clicked.connect(self._continue_answer)
 
         self._menu_actions: list[tuple[str, Callable[[], None]]] = []
         self._menu_devices: list[tuple[str, AudioPanel]] = []
@@ -444,9 +457,12 @@ class OverlayWindow(QWidget):
         c.answer_delta.connect(self.on_delta)
         c.answer_reset.connect(self.on_reset)
         c.answer_finished.connect(self.on_finished)
+        c.answer_incomplete.connect(self.on_incomplete)
+        c.continuation_failed.connect(self.on_continuation_failed)
         c.answer_failed.connect(self.on_failed)
         c.answer_stopped.connect(self.on_stopped)
         c.live_text.connect(self.on_live_text)
+        c.transcription_status.connect(self.on_transcription_status)
         c.busy_changed.connect(self._set_busy)
         c.answer_cost.connect(self.on_answer_cost)
         c.latency_ready.connect(self.on_latency)
@@ -465,6 +481,11 @@ class OverlayWindow(QWidget):
         )
 
     def on_question(self, gen: int, text: str, source: str) -> None:
+        self._incomplete = False
+        self.continue_btn.hide()
+        self._locally_formatted = False
+        self._live_origin = ""
+        self.origin_label.clear()
         self._gen = gen
         self._text = ""
         self._answer_cost = None
@@ -498,6 +519,8 @@ class OverlayWindow(QWidget):
         if gen != self._gen:
             return
         self.chip.setText(f"{d.category.value} · {d.tier}")
+        self._live_origin = "AI-generated"
+        self.origin_label.setText(self._live_origin)
         self._last_decision = d
         self.fix_btn.setEnabled(d.should_answer)
         if d.should_answer:
@@ -523,15 +546,25 @@ class OverlayWindow(QWidget):
     def on_finished(self, gen: int, route: str, first_token_s: float, total_s: float) -> None:
         if gen != self._gen:
             return
+        self._live_origin = (
+            "Saved fictional Q&A" if route == "Saved fictional Q&A" else "AI-generated"
+        )
         self._render()
+        self.origin_label.setText(self._live_origin)
+        self._answer_origins.append(self._live_origin)
         detected, answer = split_detected_question(self._text)
+        if self._live_origin == "Saved fictional Q&A":
+            detected, answer = "", self._text
         question = detected or self._current_question
         self._qa_history.append((question, answer, self._current_source))
         self._history_index = len(self._qa_history)  # still live, now one past the new entry
         self._update_nav()
         cat = self.chip.text().split(" · ")[0]
         cost = f" · {format_usd(self._answer_cost)}" if self._answer_cost is not None else ""
-        self.chip.setText(f"{cat} · {route} · {first_token_s:.1f}s{cost}")
+        if route == "Saved fictional Q&A":
+            self.chip.setText(f"Local lookup · {first_token_s * 1000:.0f} ms · $0")
+        else:
+            self.chip.setText(f"{cat} · {route} · {first_token_s:.1f}s{cost}")
         self._update_dot()
 
     def on_failed(self, gen: int, message: str) -> None:
@@ -540,6 +573,30 @@ class OverlayWindow(QWidget):
             self.chip.setText("error")
             self.answer.append(f"\n⚠ {message}")
             self._update_dot()
+
+    def on_incomplete(self, gen: int, route: str, first_token_s: float, total_s: float) -> None:
+        if gen != self._gen:
+            return
+        self.on_finished(gen, route, first_token_s, total_s)
+        self._incomplete = True
+        self._live_origin = "AI-generated · Incomplete — output limit reached"
+        self.origin_label.setText(self._live_origin)
+        self._answer_origins[-1] = self._live_origin
+        self.continue_btn.setVisible(True)
+        self.continue_btn.setEnabled(not self._busy)
+        self.chip.setText("Incomplete — click Continue answer")
+
+    def _continue_answer(self) -> None:
+        if self._controller is not None and self._incomplete and not self._busy:
+            self.continue_btn.setEnabled(False)
+            self._controller.continue_answer(self._gen)
+
+    def on_continuation_failed(self, gen: int) -> None:
+        if gen == self._gen:
+            self._incomplete = True
+            self._live_origin = "AI-generated · Incomplete — continuation failed"
+            self.origin_label.setText(self._live_origin)
+            self.continue_btn.show()
 
     def on_latency(self, gen: int, timings: dict) -> None:
         """Hover the chip to see where the time went."""
@@ -593,12 +650,28 @@ class OverlayWindow(QWidget):
 
     def on_stopped(self, gen: int) -> None:
         if gen == self._gen:
+            self._incomplete = False
+            self.continue_btn.hide()
             self.chip.setText("stopped")
             self._update_dot()
 
     def on_live_text(self, text: str) -> None:
-        if text:
+        if text.strip():
+            self.transcript.setToolTip("")
+            if self.status_label.text() in ("No words", "Speech status"):
+                self._update_dot()
             self.transcript.set_transcript(text)
+
+    def on_transcription_status(self, message: str) -> None:
+        if message:
+            self.status_label.setText(
+                "No words" if message == NO_WORDS_MESSAGE else "Speech status"
+            )
+            self.transcript.set_transcript(message)
+            self.transcript.setToolTip(message)
+        else:
+            self.transcript.setToolTip("")
+            self._update_dot()
 
     def set_listening(self, listening: bool) -> None:
         self._listening = listening
@@ -608,6 +681,9 @@ class OverlayWindow(QWidget):
     def _render(self) -> None:
         if self._history_index < len(self._qa_history):
             return  # the user is reviewing a past answer (prev_qa) - don't hijack their view
+        if self._live_origin == "Saved fictional Q&A" and not self._locally_formatted:
+            self.answer.setPlainText(self._text)
+            return
         bar = self.answer.verticalScrollBar()
         at_bottom = bar.value() >= bar.maximum() - 4
         detected, answer = split_detected_question(self._text)
@@ -662,10 +738,13 @@ class OverlayWindow(QWidget):
         self._text = ""
         self.answer.clear()
         self._hide_warning()
+        self.continue_btn.hide()
+        self._incomplete = False
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         self.stop_btn.setEnabled(busy)
+        self.continue_btn.setEnabled(not busy)
         if not busy:
             self._update_dot()
 
@@ -676,13 +755,43 @@ class OverlayWindow(QWidget):
     # ---- user actions ----
     def _submit_typed(self) -> None:
         text = self.input.text().strip()
+        if text.casefold() == "fix format":
+            from interview_assistant.app.answer_format import format_answer_blocks
+
+            source = (
+                self._qa_history[self._history_index][1]
+                if self._history_index < len(self._qa_history)
+                else self._text
+            )
+            if source:
+                if self._busy:
+                    self.chip.setText(
+                        "Still streaming — format is checked when the answer finishes"
+                    )
+                else:
+                    formatted = format_answer_blocks(source)
+                    if self._history_index < len(self._qa_history):
+                        question, _, origin = self._qa_history[self._history_index]
+                        self._qa_history[self._history_index] = (question, formatted, origin)
+                    else:
+                        self._text = formatted
+                        self._locally_formatted = True
+                    self.answer.setMarkdown(formatted)
+                    self.chip.setText("Format fixed locally")
+            else:
+                self.chip.setText("No answer to format yet")
+            self.input.clear()
+            return
         if text and self._controller is not None:
             self.input.clear()
             self._controller.ask(text, "typed")
 
     def _stop(self) -> None:
         if self._controller is not None:
+            self._incomplete = False
+            self.continue_btn.hide()
             self._controller.stop()
+            self.chip.setText("stopped")
 
     def answer_now(self) -> None:
         """Answer the waiting question (Answer button, Ctrl+Enter, or the global hotkey)."""
@@ -798,13 +907,21 @@ class OverlayWindow(QWidget):
 
     def _show_at(self, index: int) -> None:
         """Read-only: displays a past Q&A without touching self._text or re-triggering anything."""
+        self.continue_btn.setVisible(self._incomplete and index >= len(self._qa_history))
         if index >= len(self._qa_history):
+            self.origin_label.setText(self._live_origin)
             self._display_question(self._current_question, self._current_source)
             self._render()  # restores the live answer
         else:
+            self.origin_label.setText(
+                self._answer_origins[index] if index < len(self._answer_origins) else ""
+            )
             question, answer, source = self._qa_history[index]
             self._display_question(question, source)
-            self.answer.setMarkdown(answer)
+            if self.origin_label.text() == "Saved fictional Q&A":
+                self.answer.setPlainText(answer)
+            else:
+                self.answer.setMarkdown(answer)
         self._update_nav()
 
     def prev_qa(self) -> None:
@@ -836,7 +953,7 @@ class OverlayWindow(QWidget):
         else:
             for panel in (self.header, self.transcript_panel, self.body):
                 if panel.isVisibleTo(self):
-                    p.drawRoundedRect(QRectF(panel.geometry()).adjusted(0, 0, -1, -1), 12, 12)
+                    paint_glass(p, QRectF(panel.geometry()), 14)
 
     def mousePressEvent(self, e) -> None:  # noqa: N802
         if e.button() == Qt.MouseButton.LeftButton and (self._bubble or e.position().y() < 44):

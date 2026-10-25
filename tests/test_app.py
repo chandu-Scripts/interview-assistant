@@ -1,5 +1,7 @@
 import asyncio
 import pathlib
+import threading
+import time
 
 import pytest
 from PySide6.QtCore import QObject, QSettings, Qt, Signal
@@ -10,6 +12,8 @@ from interview_assistant.agents.types import Category, Decision
 from interview_assistant.app.aggregator import UtteranceAggregator
 from interview_assistant.app.async_runner import AsyncRunner
 from interview_assistant.app.controller import AssistantController, friendly_error
+from interview_assistant.app.practice_library import PracticeAnswer
+from interview_assistant.app.practice_matcher import PracticeMatch
 from interview_assistant.audio.types import DeviceKind
 from interview_assistant.history.store import HistoryStore
 from interview_assistant.llm.router import (
@@ -246,8 +250,8 @@ def test_typed_question_streams_in_order(qtbot, make_controller):
     c.ask("What is a mutex?")
     qtbot.waitUntil(lambda: rec.has("busy", False), timeout=3000)
     assert rec.log == [
-        ("q", 1, "What is a mutex?", "typed"),
         ("busy", True),
+        ("q", 1, "What is a mutex?", "typed"),
         ("d", 1),
         ("delta", 1, "Hel"),
         ("delta", 1, "lo"),
@@ -263,7 +267,12 @@ def test_voice_filler_is_ignored_and_keeps_current_answer(qtbot, make_controller
     n = len(rec.log)
     c.ask("Okay, great.", "voice")
     qtbot.waitUntil(lambda: rec.has("ignored", "Okay, great."), timeout=3000)
-    assert len(rec.log) == n + 1  # nothing else happened: no reset of the answer on screen
+    qtbot.waitUntil(lambda: rec.log[-1] == ("busy", False))
+    assert rec.log[n:] == [
+        ("busy", True),
+        ("ignored", "Okay, great."),
+        ("busy", False),
+    ]  # pending classification is cancellable without resetting the displayed answer
 
 
 def test_new_question_cancels_running_answer(qtbot, make_controller):
@@ -303,6 +312,137 @@ def test_stop_cancels_answer(qtbot, make_controller):
     c.stop()
     qtbot.waitUntil(lambda: rec.has("stopped", 1), timeout=3000)
     qtbot.waitUntil(lambda: rec.log[-1] == ("busy", False), timeout=3000)
+    assert "done" not in rec.kinds()
+
+
+def test_latency_includes_lookup_and_classification(qtbot, make_controller):
+    class SlowLookup:
+        def lookup(self, text):
+            time.sleep(0.06)
+            return PracticeMatch()
+
+    c, rec = make_controller(FakeJev(delays={"Question?": 0.06}))
+    c.practice_matcher = SlowLookup()
+    timings = []
+    c.latency_ready.connect(lambda gen, value: timings.append(value))
+    c.ask("Question?")
+    qtbot.waitUntil(lambda: rec.has("busy", False))
+    assert timings[0]["question_to_first_token_s"] >= 0.12
+    assert timings[0]["total_s"] >= timings[0]["question_to_first_token_s"]
+
+
+@pytest.mark.parametrize("matches", [True, False])
+def test_stop_during_lookup_discards_result_and_allows_next_question(
+    qtbot, make_controller, tmp_path, matches
+):
+    entered, release, exited = threading.Event(), threading.Event(), threading.Event()
+
+    class BlockingMatcher:
+        def lookup(self, question):
+            entered.set()
+            assert release.wait(5)
+            exited.set()
+            return PracticeMatch(PracticeAnswer("1", question, "Saved text") if matches else None)
+
+    jev = FakeJev()
+    history = HistoryStore(":memory:")
+    c, rec = make_controller(jev, history=history)
+    c.practice_matcher = BlockingMatcher()
+    overlay = OverlayWindow(c, QSettings(str(tmp_path / "cancel.ini"), QSettings.Format.IniFormat))
+    qtbot.addWidget(overlay)
+    overlay.show()
+    try:
+        c.ask("Old question?")
+        qtbot.waitUntil(entered.is_set)
+        qtbot.waitUntil(overlay.stop_btn.isEnabled)
+        overlay.stop_btn.click()
+        qtbot.waitUntil(lambda: rec.has("stopped", 1))
+        qtbot.waitUntil(lambda: not overlay.stop_btn.isEnabled())
+        assert overlay.chip.text() == "stopped"
+        release.set()
+        qtbot.waitUntil(exited.is_set)
+        c.practice_matcher = None
+        c.ask("New question?")
+        qtbot.waitUntil(lambda: "New question?" in jev.asked)
+        qtbot.waitUntil(lambda: not overlay.stop_btn.isEnabled())
+        assert jev.asked == ["New question?"]
+        assert not any(e[0] in ("delta", "done", "fail", "q") and e[1] == 1 for e in rec.log)
+        assert "Saved text" not in overlay.answer_text
+        assert history.counts()[1] == 1
+    finally:
+        release.set()
+
+
+def test_stop_during_classification_and_repeated_stop(qtbot, make_controller):
+    entered = threading.Event()
+
+    class SlowJev(FakeJev):
+        async def decide(self, question):
+            entered.set()
+            await asyncio.sleep(10)
+            return decision()
+
+    jev = SlowJev()
+    c, rec = make_controller(jev)
+    c.ask("Pending question?")
+    qtbot.waitUntil(entered.is_set)
+    c.stop()
+    c.stop()
+    qtbot.waitUntil(lambda: rec.has("busy", False))
+    assert jev.asked == []
+    assert not any(e[0] in ("q", "delta", "done", "fail") for e in rec.log)
+
+
+def test_stop_before_request_starts_does_not_cancel_new_request(qtbot, make_controller):
+    entered, release = threading.Event(), threading.Event()
+    jev = FakeJev()
+    c, rec = make_controller(jev)
+
+    def block_runner():
+        entered.set()
+        release.wait(5)
+
+    c._runner.call_soon(block_runner)
+    try:
+        qtbot.waitUntil(entered.is_set)
+        c.ask("Old queued question?")
+        c.stop()
+        c.ask("New question?")
+    finally:
+        release.set()
+    qtbot.waitUntil(lambda: rec.has("busy", False))
+    assert jev.asked == ["New question?"]
+
+
+def test_stop_cancels_both_audio_streams_and_pending_request(qtbot, make_controller):
+    jev = FakeJev(delays={"Pending?": 10}, chunks=("a", "b"), hold=10)
+    c, rec = make_controller(jev)
+    c.ask("Mic?", "voice:mic")
+    c.ask("System?", "voice:loopback")
+    c.ask("Pending?")
+    qtbot.waitUntil(lambda: rec.has("delta", 1, "a") and rec.has("delta", 2, "a"))
+    c.stop()
+    qtbot.waitUntil(lambda: rec.has("busy", False))
+    assert all(rec.has("stopped", gen) for gen in (1, 2, 3))
+    assert "done" not in rec.kinds()
+    assert "Pending?" not in jev.asked
+
+
+def test_late_provider_output_after_cancellation_is_discarded(qtbot, make_controller):
+    class StubbornJev(FakeJev):
+        async def ask(self, *args, **kwargs):
+            yield RouteEvent(StreamEvent(delta="First"), Route("p", "m"), 0)
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                yield RouteEvent(StreamEvent(delta="Late"), Route("p", "m"), 0)
+
+    c, rec = make_controller(StubbornJev())
+    c.ask("Question?")
+    qtbot.waitUntil(lambda: rec.has("delta", 1, "First"))
+    c.stop()
+    qtbot.waitUntil(lambda: rec.has("busy", False))
+    assert not rec.has("delta", 1, "Late")
     assert "done" not in rec.kinds()
 
 
@@ -357,9 +497,33 @@ def test_error_is_reported_friendly(qtbot, make_controller):
 
 def test_friendly_error_variants():
     assert "API key" in friendly_error(NoRoutesAvailable("x"))
+    assert "Settings" in friendly_error(NoRoutesAvailable("x"))
+    assert ".env" not in friendly_error(NoRoutesAvailable("x"))
+    missing = friendly_error(NoRoutesAvailable("x", reason="selected_provider"))
+    assert "selected AI provider is not loaded" in missing and "restart" in missing
+    mismatch = friendly_error(NoRoutesAvailable("x", reason="provider_mismatch"))
+    assert "Reselect Preferred model" in mismatch and "API key" not in mismatch
     e = AllRoutesFailed([LLMError("openai", ErrorKind.AUTH, "bad key")])
     assert "openai" in friendly_error(e)
     assert friendly_error(ValueError("boom")).startswith("ValueError")
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_builtin_toggle_controls_automatic_block_wrapping(qtbot, make_controller, enabled):
+    jev = FakeJev(chunks=("Plain response without fences.",))
+    jev.config.format_answer_blocks = True
+    jev.config.use_builtin_prompt = enabled
+    controller, rec = make_controller(jev)
+    controller.ask("Explain a tuple")
+    qtbot.waitUntil(lambda: "done" in rec.kinds(), timeout=3000)
+    rendered = ""
+    for event in rec.log:
+        if event[0] == "reset":
+            rendered = ""
+        elif event[0] == "delta":
+            rendered += event[2]
+    assert ("```" in rendered) is enabled
+    assert "Plain response without fences." in rendered
 
 
 def test_voice_fragments_merge_into_one_question(qtbot, make_controller):
@@ -501,6 +665,16 @@ def test_live_partial_text_signal(qtbot, make_controller):
     assert sig.args == ["tell me abo"]
 
 
+def test_stopping_one_live_audio_source_retires_only_its_pending_speech(qtbot, make_controller):
+    c, _ = make_controller(FakeJev())
+    c.on_speech_started("mic")
+    c.on_speech_started("loopback")
+    c.on_capture_stopped("mic")
+    assert c._agg.in_flight == 1
+    c.on_transcript_event(TranscriptEvent(1, "Question?", True, 1, DeviceKind.LOOPBACK))
+    assert c._agg.in_flight == 0
+
+
 def test_clear_history_delegates(qtbot, make_controller):
     jev = FakeJev()
     c, _ = make_controller(jev)
@@ -613,7 +787,7 @@ def test_attached_screenshot_goes_with_the_next_question_only(qtbot, make_contro
     c.attach_screenshot(SHOT)
     c.ask("What is a mutex?")
     c.ask("What is a lock?")
-    qtbot.waitUntil(lambda: rec.log.count(("busy", False)) == 2, timeout=3000)
+    qtbot.waitUntil(lambda: len(jev.images) == 2 and rec.log[-1] == ("busy", False), timeout=3000)
     assert jev.images == [SHOT, None]
 
 
@@ -748,6 +922,19 @@ def test_overlay_live_text_and_listening_dot(overlay):
     assert overlay.dot.toolTip() == "listening"
     overlay.set_listening(False)
     assert overlay.dot.toolTip() == "idle"
+
+
+def test_transcription_warning_shows_reason_and_recovers_on_partial(overlay):
+    overlay.set_listening(True)
+    message = "Live transcription interrupted. Using fallback; text follows after speech."
+    overlay.on_transcription_status(message)
+    assert overlay.status_label.text() == "Speech status"
+    assert overlay.transcript.toolTip() == message
+    assert "Transcription issue" not in overlay.transcript.text()
+    overlay.on_live_text("How do I optimize")
+    assert overlay.status_label.text() != "Speech status"
+    assert overlay.dot.toolTip() == "listening"
+    assert overlay.transcript.toolTip() == "How do I optimize"
 
 
 def test_live_transcript_does_not_replace_answer_under_review(overlay):

@@ -42,7 +42,7 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     skip_onboarding: bool = False  # automation / managed installs: never show the first-run wizard
-    stt_provider: Literal["local", "openai"] = "local"
+    stt_provider: Literal["local", "openai", "speechmatics"] = "local"
     whisper_model: str = "base.en"
     stt_language: str | None = "en"
     default_audio_kind: Literal["loopback", "mic"] = "loopback"  # source pre-selected at start
@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     # Candidate background injected into every answer prompt (resume summary, target role).
     candidate_profile: str | None = None
     jev_classify_timeout_s: float = 1.0
+    jev_classify_with_llm: bool = False  # avoid a separate network request before answering
     # "manual": a detected voice question waits for the user to click Answer/Ctrl+Enter before
     # it's sent to the AI. "auto": answered immediately, the old always-on behavior. Typed
     # questions and Chat always answer immediately regardless of this setting.
@@ -92,6 +93,9 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
+    speechmatics_api_key: SecretStr | None = None
+    # Explicit in-app Save can select a Credential Manager key over environment/.env.
+    prefer_saved_keys: list[Literal["openai", "anthropic", "gemini", "speechmatics"]] = []
     # Shared access (config/relay.py): connecting to someone else's relay instead of using your
     # own provider keys. relay_url/relay_pending_id are ordinary settings; relay_token is a
     # credential and is NEVER written to settings.json (see config/loader.py).

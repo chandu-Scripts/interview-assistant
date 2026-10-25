@@ -52,6 +52,107 @@ def test_dashboard_opens_post_call_review_and_presentation_pauses_it(parts_facto
     assert page._controller._paused
 
 
+def test_navigation_reuses_one_workspace_and_settings_can_be_reopened(parts_factory, qtbot):
+    p = parts_factory()
+    screen = p.start_screen
+    p.overlay.hide()
+    before = screen.size()
+    for key, button, widget in (
+        ("settings", screen.extra_nav["settings"], p.settings_dialog),
+        ("privacy", screen.extra_nav["privacy"], p.privacy_dialog),
+        ("history", screen.dashboard_btn, p.window.history_window),
+        ("controls", screen.extra_nav["controls"], p.window.audio_panel),
+    ):
+        button.click()
+        qtbot.waitUntil(lambda w=widget: w.isVisible())
+        assert widget.window() is screen and not widget.isWindow()
+        assert screen.pages.currentWidget() is screen._workspace_pages[key]
+        assert screen.size() == before
+        assert not p.window.isVisible()
+    p.window.show_settings()
+    p.settings_dialog.cancel_btn.click()
+    assert screen.pages.currentIndex() == 0
+    p.window.show_settings()
+    assert p.settings_dialog.isVisible()
+    p.settings_dialog.save_btn.click()
+    assert screen.pages.currentIndex() == 0
+
+
+def test_resume_privacy_notice_and_management_after_explicit_toggle(parts_factory, qtbot, tmp_path):
+    p = parts_factory()
+    page = p.start_screen.resume_page
+    p.privacy.set_incognito(True)
+    p.start_screen.resumes_btn.click()
+    assert page.write_notice.isVisible()
+    assert not page.import_btn.isEnabled()
+    assert not page.delete_btn.isEnabled()
+    page.privacy_btn.click()
+    assert p.privacy_dialog.isVisible()
+    assert p.privacy_dialog.window() is p.start_screen
+    assert p.privacy.incognito
+    p.privacy.set_incognito(False)
+    p.start_screen.resumes_btn.click()
+    assert not page.write_notice.isVisible()
+    assert page.import_btn.isEnabled()
+    path = tmp_path / "fictional.txt"
+    path.write_text("Fictional engineer", encoding="utf-8")
+    page.import_files([path])
+    qtbot.waitUntil(lambda: page._worker is None)
+    assert page.selected_name() == path.name
+    assert page.preview.toPlainText() == "Fictional engineer"
+    p.privacy.set_incognito(True)
+    assert not page.rename_btn.isEnabled()
+    assert not page.delete_btn.isEnabled()
+    assert page.preview.toPlainText() == "Fictional engineer"
+    p.privacy.set_incognito(False)
+    assert page.delete_btn.isEnabled()
+    page._confirm_delete = lambda name: True
+    page.delete_btn.click()
+    assert page.library.list() == []
+    assert path.read_text(encoding="utf-8") == "Fictional engineer"
+
+
+def test_history_create_uses_existing_wizard(parts_factory):
+    p = parts_factory()
+    p.window.show_history()
+    p.window.history_window.create_session_btn.click()
+    assert p.start_screen.pages.currentWidget() is p.start_screen.create_page
+    assert p.window.history_window._session_dialog is None
+
+
+def test_practice_bank_stays_in_workspace_and_respects_privacy(parts_factory):
+    p = parts_factory()
+    screen = p.start_screen
+    screen.extra_nav["practice"].click()
+    page = screen._workspace_widgets["practice"]
+    assert page.isVisible() and page.window() is screen
+    assert screen.pages.currentWidget() is screen._workspace_pages["practice"]
+    p.privacy.set_incognito(True)
+    assert not page.save_btn.isEnabled()
+    page.privacy_btn.click()
+    assert p.privacy_dialog.isVisible()
+    p.presentation.activate()
+    previous = screen.pages.currentWidget()
+    screen.extra_nav["practice"].click()
+    assert screen.isMinimized() and screen.pages.currentWidget() is previous
+
+
+def test_presentation_hides_embedded_privacy_and_blocks_navigation(parts_factory):
+    p = parts_factory()
+    p.window.show_privacy()
+    assert p.privacy_dialog.window() is p.start_screen
+    p.privacy_dialog.presentation_btn.click()
+    assert p.start_screen.isMinimized() and p.presentation.active
+    previous = p.start_screen.pages.currentWidget()
+    p.window.show_settings()
+    p.open_main()
+    assert p.start_screen.isMinimized()
+    assert p.start_screen.pages.currentWidget() is previous
+    p.presentation.deactivate()
+    assert not p.start_screen.isMinimized()
+    assert p.privacy_dialog.isVisible()
+
+
 @pytest.mark.parametrize(
     "options, expected",
     [
@@ -65,7 +166,7 @@ def test_dashboard_opens_post_call_review_and_presentation_pauses_it(parts_facto
                 "router_fast": "openai:custom",
                 "router_smart": "openai:custom",
             },
-            ["", "openai:custom"],
+            [""],  # configured keys/models are not selectable until verified
         ),
     ],
 )
@@ -75,10 +176,58 @@ def test_wizard_models_follow_configured_routes(parts_factory, options, expected
     assert [combo.itemData(i) for i in range(combo.count())] == expected
 
 
+def test_provider_and_preferred_model_popups_close_for_presentation(parts_factory, qtbot):
+    p = parts_factory()
+    p.window.show_settings()
+    p.settings_dialog.provider_buttons["openai"].click()
+    popup = p.settings_dialog.provider_dialogs["openai"]
+    assert popup.isVisible()
+    p.presentation.activate()
+    assert not popup.isVisible()
+    p.presentation.deactivate()
+    assert not popup.isVisible()
+    p.start_screen._open_create()
+    wizard = p.start_screen.create_page
+    wizard.company.setText("Example")
+    wizard.next_btn.click()
+    wizard.model_override.showPopup()
+    picker = wizard.model_override.picker
+    assert picker.isVisible()
+    p.presentation.activate()
+    assert not picker.isVisible()
+    p.presentation.deactivate()
+    assert not picker.isVisible()
+
+
+def test_composition_shares_verified_catalog_with_wizard(parts_factory, monkeypatch):
+    from interview_assistant.config.provider_check import CheckResult
+    from interview_assistant.ui.provider_catalog import fingerprint
+
+    p = parts_factory(openai_api_key="runtime-test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "runtime-test-key")
+    catalog = p.settings_dialog.catalog
+    catalog.record(
+        "openai", fingerprint("runtime-test-key"), CheckResult(True, "ok", ["gpt-5.4-mini"])
+    )
+    wizard = p.start_screen.create_page
+    wizard.company.setText("Example")
+    selector = wizard.model_override
+    assert selector.catalog is catalog
+    selector.setCurrentIndex(selector.findData("openai:gpt-5.4-mini"))
+    details = wizard.collect()
+    assert details.fast_model_route == "openai:gpt-5.4-mini"
+    p.interview_sessions.activate(details)
+    assert p.jev.config.fast_model_route == "openai:gpt-5.4-mini"
+    assert wizard.coding_model_override.catalog is catalog
+
+
 @pytest.fixture
 def parts_factory(qtbot, tmp_path, monkeypatch):
     built: list[AppParts] = []
     monkeypatch.setattr("interview_assistant.app.composition.build_provider", lambda s: FakeSTT())
+    monkeypatch.setattr(
+        "interview_assistant.app.composition.build_preview_provider", lambda s: FakeSTT()
+    )
     for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.chdir(tmp_path)  # no project .env
@@ -99,9 +248,10 @@ def parts_factory(qtbot, tmp_path, monkeypatch):
             restart_ok,
             UserSettingsStore(tmp_path / "settings.json"),
         )
-        for w in (parts.window, parts.overlay):
+        for w in (parts.window, parts.start_screen, parts.overlay):
             qtbot.addWidget(w)
-            w.show()
+            if w is not parts.window:
+                w.show()
         built.append(parts)
         return parts
 
@@ -125,6 +275,21 @@ def test_everything_is_created_and_connected(parts_factory):
     assert p.jev.config.redact is True and p.tracker.budget is None
 
 
+def test_speechmatics_composition_uses_live_workers_without_local_previews(parts_factory):
+    from interview_assistant.stt.realtime import RealtimeTranscriber
+    from interview_assistant.stt.speechmatics import SpeechmaticsProvider
+
+    stt = SpeechmaticsProvider("dummy", FakeSTT())
+    p = parts_factory(stt=stt, stt_provider="speechmatics", speechmatics_api_key="dummy")
+    assert isinstance(p.window.transcriber, RealtimeTranscriber)
+    assert isinstance(p.window.mic_transcriber, RealtimeTranscriber)
+    assert p.window._preview_provider is None
+    assert p.window._mic_preview_provider is None
+    assert p.window.audio_panel.realtime and p.window.mic_panel.realtime
+    assert not p.window.audio_panel.recording and not p.window.mic_panel.recording
+    p.window.mic_transcriber.stop()
+
+
 def test_typed_question_reaches_jev_and_reports_a_missing_provider(qtbot, parts_factory):
     p = parts_factory()
     p.overlay.input.setText("Write a function to solve the two sum problem.")
@@ -135,27 +300,173 @@ def test_typed_question_reaches_jev_and_reports_a_missing_provider(qtbot, parts_
     assert turn.status == "error" and turn.source == "typed"
 
 
+@pytest.mark.parametrize(
+    "sample_index, wording", [(0, None), (1, None), (3, None), (0, "How many catalogs u have sed?")]
+)
+def test_saved_practice_question_returns_verbatim_without_provider(
+    qtbot, parts_factory, monkeypatch, sample_index, wording
+):
+    from interview_assistant.app.practice_library import EXAMPLES
+    from tests.test_router import Script
+
+    marker = "PROVIDER TEST RESPONSE — not the saved practice answer."
+    requests = []
+
+    class Spy(Script):
+        async def stream(self, request):
+            requests.append(request)
+            async for event in super().stream(request):
+                yield event
+
+    provider = Spy("openai", [marker])
+    monkeypatch.setattr(
+        "interview_assistant.app.composition.build_providers", lambda s: {"openai": provider}
+    )
+    p = parts_factory(router_fast="openai:test-model", router_smart="openai:test-model")
+    page = p.start_screen._workspace_widgets["practice"]
+    page.library.add_examples()
+    question, saved_answer = EXAMPLES[sample_index]
+    assert any(e.question == question and e.answer == saved_answer for e in page.library.entries())
+    p.overlay.input.setText(wording or question)
+    with qtbot.waitSignal(p.controller.answer_finished, timeout=10000):
+        p.overlay.ask_btn.click()
+    assert p.overlay._text == saved_answer
+    assert not requests
+    assert p.overlay.origin_label.text() == "Saved fictional Q&A"
+    assert p.jev.history == []
+    p.overlay.prev_qa()
+    assert p.overlay.origin_label.text() == "Saved fictional Q&A"
+    print(f"Question: {question} | source: saved fictional Q&A | provider calls: 0")
+
+
+@pytest.mark.parametrize("ambiguous", [False, True])
+def test_saved_match_never_requires_selection(qtbot, parts_factory, monkeypatch, ambiguous):
+    from tests.test_router import Script
+
+    provider = Script("openai", ["AI fallback test answer"])
+    monkeypatch.setattr(
+        "interview_assistant.app.composition.build_providers", lambda s: {"openai": provider}
+    )
+    p = parts_factory(router_fast="openai:test", router_smart="openai:test")
+    page = p.start_screen._workspace_widgets["practice"]
+    page.library.add_examples()
+    if ambiguous:
+        page.library.save(
+            None, "How many pipelines did you build in your project?", "Different answer"
+        )
+    p.overlay.input.setText("How many ADF pipelines did you build?")
+    with qtbot.waitSignal(p.controller.answer_finished, timeout=5000):
+        p.overlay.ask_btn.click()
+    if ambiguous:
+        assert provider.calls
+        assert p.overlay.origin_label.text() == "AI-generated"
+        assert "AI fallback test answer" in p.overlay.answer.toPlainText()
+    else:
+        assert not provider.calls
+        assert p.overlay.origin_label.text() == "Saved fictional Q&A"
+
+
+def test_saved_lookup_is_cancelled_by_presentation(qtbot, parts_factory, monkeypatch):
+    import threading
+
+    p = parts_factory()
+    p.start_screen._workspace_widgets["practice"].library.add_examples()
+    started, release = threading.Event(), threading.Event()
+    lookup = p.controller.practice_matcher.lookup
+
+    def delayed(question):
+        started.set()
+        release.wait(3)
+        return lookup(question)
+
+    monkeypatch.setattr(p.controller.practice_matcher, "lookup", delayed)
+    try:
+        p.controller.ask("How many ADF pipelines did you build?")
+        qtbot.waitUntil(started.is_set)
+        p.presentation.activate()
+    finally:
+        release.set()
+    qtbot.waitUntil(lambda: not p.controller._runs)
+    assert p.overlay.answer.toPlainText() == ""
+    assert p.jev.history == []
+
+
+def test_unrelated_question_uses_ai_with_populated_bank(qtbot, parts_factory, monkeypatch):
+    from tests.test_router import Script
+
+    provider = Script("openai", ["AI: lists are mutable; tuples are immutable."])
+    monkeypatch.setattr(
+        "interview_assistant.app.composition.build_providers", lambda s: {"openai": provider}
+    )
+    p = parts_factory(router_fast="openai:test", router_smart="openai:test")
+    p.start_screen._workspace_widgets["practice"].library.add_examples()
+    with qtbot.waitSignal(p.controller.answer_finished, timeout=5000):
+        p.controller.ask("What is the difference between a list and a tuple?")
+    assert len(provider.calls) == 1  # answer only: no pre-answer classification request
+    assert p.overlay.origin_label.text() == "AI-generated"
+    assert p.overlay._text.startswith("```text") and p.overlay._text.endswith("```")
+
+
+def test_local_answer_preserves_literal_text_and_incognito(qtbot, parts_factory):
+    p = parts_factory()
+    page = p.start_screen._workspace_widgets["practice"]
+    answer = "Question: literal text\n\n**Not markdown** <b>literal</b>"
+    page.library.save(None, "What was your team size?", answer)
+    p.privacy.set_incognito(True)
+    with qtbot.waitSignal(p.controller.answer_finished, timeout=5000):
+        p.controller.ask("What was your team size?")
+    assert p.overlay.answer.toPlainText() == answer
+    assert p.history.counts()[1] == 0
+    assert not p.jev.history
+    p.overlay.prev_qa()
+    assert p.overlay.answer.toPlainText() == answer
+
+
+def test_fix_format_is_local_and_copy_uses_fixed_text(parts_factory):
+    p = parts_factory()
+    p.overlay.on_question(1, "Example?", "typed")
+    p.overlay.on_delta(1, "One paragraph.\n\nAnother paragraph.")
+    p.overlay.on_finished(1, "test:provider", 0.1, 0.2)
+    p.overlay.input.setText("fix format")
+    p.overlay.ask_btn.click()
+    assert p.overlay._text == "```text\nOne paragraph.\n```\n\n```text\nAnother paragraph.\n```"
+    assert p.overlay.chip.text() == "Format fixed locally"
+    assert not p.controller._runs
+
+
+def test_consecutive_saved_questions_need_no_selection(qtbot, parts_factory):
+    p = parts_factory()
+    p.start_screen._workspace_widgets["practice"].library.add_examples()
+    with qtbot.waitSignal(p.controller.answer_finished, timeout=5000):
+        p.controller.ask("How many ADF pipelines did you build?")
+    with qtbot.waitSignal(p.controller.answer_finished, timeout=5000):
+        p.controller.ask("What was your team size?")
+    assert "There were six of us" in p.overlay.answer.toPlainText()
+
+
 def test_presentation_mode_tray_and_second_launch_behaviour(qtbot, parts_factory):
     p = parts_factory()
     p.presentation.toggle()
     assert not p.overlay.isVisible() and p.tray.presentation_action.isChecked()
-    assert "PRESENTATION MODE" in p.tray.tray.toolTip() and p.window.banner.isVisibleTo(p.window)
+    assert "PRESENTATION MODE" in p.tray.tray.toolTip()
+    assert "PRESENTATION MODE" in p.window.banner.text()
     p.toggle_overlay()  # the hotkey must not pop the overlay up while presenting
     p.on_second_launch()  # nor may a second app launch
-    assert not p.overlay.isVisible() and p.window.isMinimized()
+    assert not p.overlay.isVisible() and p.start_screen.isMinimized()
     p.presentation.toggle()
     assert p.overlay.isVisible() and not p.tray.presentation_action.isChecked()
     p.toggle_overlay()
     assert not p.overlay.isVisible()
-    p.on_second_launch()  # normal second launch: bring everything to the front
-    assert p.overlay.isVisible() and p.window.isVisible()
+    p.on_second_launch()  # bring back the workspace without opening another window
+    assert not p.overlay.isVisible() and p.start_screen.isVisible()
+    assert not p.window.isVisible()
 
 
 def test_incognito_from_tray_updates_everything(parts_factory):
     p = parts_factory()
     p.tray.incognito_action.trigger()
     assert p.privacy.incognito and p.history.suspended and p.tracker.persist is False
-    assert "INCOGNITO" in p.tray.tray.toolTip() and p.window.banner.isVisibleTo(p.window)
+    assert "INCOGNITO" in p.tray.tray.toolTip() and "INCOGNITO" in p.window.banner.text()
     p.tray.incognito_action.trigger()
     assert not p.privacy.incognito and not p.history.suspended
 
@@ -169,7 +480,7 @@ def test_settings_change_offers_a_restart_and_quits_when_accepted(
     p.settings_dialog.saved.emit(False)
     assert asked == [] and app.quit_calls == 0  # nothing changed: no prompt
     p.settings_dialog.saved.emit(True)
-    assert asked == [p.window] and app.quit_calls == 1 and restart.restart_requested()
+    assert asked == [p.start_screen] and app.quit_calls == 1 and restart.restart_requested()
     monkeypatch.setattr(restart, "_requested", False)
 
 
@@ -222,10 +533,79 @@ def test_hotkey_bubble_is_advertised_and_can_be_disabled(parts_factory):
     assert "collapse overlay to a bubble" not in labels2
 
 
-def test_billed_speech_recognition_turns_off_partials(parts_factory):
+def test_billed_speech_recognition_uses_local_previews(parts_factory):
     free = parts_factory()
     billed = parts_factory(stt=BilledSTT())
-    assert free.window._partials is True and billed.window._partials is False
+    assert free.window._partials is True and billed.window._partials is True
+    assert free.window.transcriber._preview is None
+    assert billed.window.transcriber._preview is not None
+    assert billed.window.mic_transcriber._preview is not None
+
+
+@pytest.mark.parametrize("source", ["mic", "loopback"])
+@pytest.mark.parametrize("mode", ["manual", "auto"])
+def test_live_cloud_preview_updates_overlay_without_answering(qtbot, parts_factory, source, mode):
+    from tests.test_audio import tone
+
+    class CloudFinal(BilledSTT):
+        def __init__(self):
+            self.calls = 0
+
+        def transcribe(self, pcm):
+            self.calls += 1
+            return "How do you optimise SQL queries?"
+
+    class Preview(FakeSTT):
+        def transcribe(self, pcm):
+            return "How do you" if len(pcm) < 32000 else "How do you optimise"
+
+    cloud = CloudFinal()
+    p = parts_factory(stt=cloud, answer_mode=mode)
+    transcriber = p.window.mic_transcriber if source == "mic" else p.window.transcriber
+    transcriber._preview._provider = Preview()
+    live, pending = [], []
+    p.controller.live_text.connect(live.append)
+    p.controller.question_pending.connect(lambda text, lag: pending.append(text))
+    p.controller.on_speech_started(source)
+    transcriber.speech_started()
+    transcriber.submit_partial(tone(1))
+    qtbot.waitUntil(lambda: "How do you" in live)
+    transcriber.submit_partial(tone(2))
+    qtbot.waitUntil(lambda: "How do you optimise" in live)
+    assert cloud.calls == 0 and p.history.counts()[1] == 0 and pending == []
+    assert not p.overlay._busy
+    p.controller.on_speech_ended(source)
+    transcriber.submit_final(tone(3))
+    qtbot.waitUntil(lambda: "How do you optimise SQL queries?" in live)
+    assert cloud.calls == 1
+    if mode == "manual":
+        qtbot.waitUntil(lambda: bool(pending))
+        assert p.history.counts()[1] == 0
+    else:
+        qtbot.waitUntil(lambda: p.history.counts()[1] == 1)
+
+
+def test_cloud_final_mic_and_system_transcripts_are_visible(parts_factory):
+    from interview_assistant.audio.types import DeviceKind
+    from interview_assistant.stt.base import TranscriptEvent
+
+    p = parts_factory(stt=BilledSTT(), answer_mode="auto")
+    p.window.transcript_panel.event_received.emit(
+        TranscriptEvent(1, "What is CDC", True, 1, DeviceKind.LOOPBACK)
+    )
+    p.window.mic_transcript_received.emit(
+        TranscriptEvent(1, "Explain ADF", True, 1, DeviceKind.MIC)
+    )
+    assert p.window.transcript_panel.final_texts == ["What is CDC", "Explain ADF"]
+    assert "Explain ADF" in p.overlay.transcript.text()
+    p.window.mic_transcript_received.emit(TranscriptEvent(2, "", True, 1, DeviceKind.MIC))
+    assert "No words recognized" in p.overlay.transcript.toolTip()
+    assert p.overlay.status_label.text() == "No words"
+    p.window.mic_transcript_received.emit(TranscriptEvent(3, "Define", False, 0.5, DeviceKind.MIC))
+    assert p.overlay.status_label.text() != "No words"
+    assert p.overlay.transcript.toolTip() == "Define"
+    p.window.mic_transcript_received.emit(TranscriptEvent(3, "Define RAG", True, 1, DeviceKind.MIC))
+    assert "Define RAG" in p.overlay.transcript.text()
 
 
 def test_old_history_is_purged_at_startup(qtbot, tmp_path, monkeypatch):
@@ -317,7 +697,7 @@ def test_screenshot_asks_for_its_own_consent_notice_not_the_recording_one(parts_
 def test_overlay_menu_carries_the_actions_of_the_old_main_window(parts_factory):
     p = parts_factory()
     labels = [label for label, _ in p.window.overlay._menu_actions]
-    assert labels == ["History", "Settings", "Privacy", "New interview", "Show transcript window"]
+    assert labels == ["History", "Settings", "Privacy", "New interview", "Audio and transcript"]
 
 
 def test_session_choices_drive_answer_mode_and_saving_until_the_session_ends(parts_factory):

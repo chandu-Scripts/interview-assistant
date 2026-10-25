@@ -68,6 +68,27 @@ async def test_openai_collect_usage():
 
 
 # ---------------- Anthropic ----------------
+@pytest.mark.parametrize("model", ["gpt-5.4-mini", "gpt-5.4-mini-2026-03-17"])
+async def test_gpt54_mini_stream_uses_low_latency_payload(model):
+    def handler(req):
+        body = json.loads(req.content)
+        assert body["model"] == model
+        assert body["reasoning_effort"] == "none"
+        assert "temperature" not in body
+        assert body["max_completion_tokens"] == 500
+        return openai_ok(req)
+
+    async with client(handler) as transport:
+        provider = OpenAIProvider("test", client=transport)
+        result = await collect(
+            provider,
+            LLMRequest(
+                [Message("user", "Explain ADF")], model=model, temperature=0.3, max_tokens=500
+            ),
+        )
+        assert result.text == "Hello" and result.usage == Usage(11, 2)
+
+
 def anthropic_ok(_req):
     return sse(
         ("message_start", {"type": "message_start", "message": {"usage": {"input_tokens": 9}}}),

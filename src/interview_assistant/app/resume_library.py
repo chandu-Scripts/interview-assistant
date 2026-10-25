@@ -25,6 +25,10 @@ class ResumeLibrary:
         self._can_write = can_write or (lambda: True)
         self.error: str | None = None
 
+    @property
+    def writable(self) -> bool:
+        return self._can_write()
+
     def list(self) -> list[Resume]:
         try:
             resumes = self._read()
@@ -72,6 +76,20 @@ class ResumeLibrary:
         self._save(
             [Resume(r.name, r.text, time.time()) if r.name == name else r for r in self._read()]
         )
+
+    def add_copy(self, name: str, text: str) -> Resume:
+        """Import without replacing an existing resume, including case-only collisions."""
+        resumes = self._read()
+        names = {r.name.casefold() for r in resumes}
+        original = Path(name)
+        candidate = name
+        number = 2
+        while candidate.casefold() in names:
+            candidate = f"{original.stem} ({number}){original.suffix}"
+            number += 1
+        resume = Resume(candidate, text, time.time())
+        self._save([*resumes, resume])
+        return resume
 
     def rename(self, name: str, new_name: str) -> None:
         new_name = new_name.strip()

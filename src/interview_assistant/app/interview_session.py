@@ -25,10 +25,13 @@ class SessionDetails:
     resume_override: str = ""  # empty = fall back to the global candidate_profile
     resume_name: str = ""  # which saved resume it came from ("" = none)
     ai_instructions: str = ""
+    use_builtin_prompt: bool = True
     answer_format: str = ""
     answer_length: str = ""
     answer_tone: str = ""
     model_route_override: str = ""
+    coding_model_route: str | None = None
+    fast_model_route: str | None = None
     session_type: str = "Interview"
     language: str = "English"
     auto_generate: bool = False
@@ -51,8 +54,7 @@ class InterviewSessionManager:
         self.on_change: Callable[[SessionDetails | None], None] | None = None
 
     def activate(self, details: SessionDetails) -> InterviewSession:
-        if details.model_route_override and len(parse_chain(details.model_route_override)) != 1:
-            raise ValueError("Choose one preferred model or Auto.")
+        self._validate_models(details)
         self.end_active()
         session_id = self._history.create_interview_session(
             company=details.company,
@@ -60,10 +62,13 @@ class InterviewSessionManager:
             job_description=details.job_description,
             resume_override=details.resume_override,
             ai_instructions=details.ai_instructions,
+            use_builtin_prompt=details.use_builtin_prompt,
             answer_format=details.answer_format,
             answer_length=details.answer_length,
             answer_tone=details.answer_tone,
             model_route_override=details.model_route_override,
+            coding_model_route=details.coding_model_route,
+            fast_model_route=details.fast_model_route,
             session_type=details.session_type,
             language=details.language,
             auto_generate=details.auto_generate,
@@ -87,8 +92,7 @@ class InterviewSessionManager:
                 if hasattr(session, field.name)
             }
         )
-        if details.model_route_override and len(parse_chain(details.model_route_override)) != 1:
-            raise ValueError("Choose one preferred model or Auto.")
+        self._validate_models(details)
         self.end_active()
         return self._apply(session, details)
 
@@ -100,11 +104,14 @@ class InterviewSessionManager:
         self._config.role_title = details.role_title
         self._config.job_description = details.job_description
         self._config.instructions = details.ai_instructions
+        self._config.use_builtin_prompt = details.use_builtin_prompt
         self._config.answer_format = details.answer_format
         self._config.answer_length = details.answer_length
         self._config.answer_tone = details.answer_tone
         self._config.language = details.language
         self._config.model_route_override = details.model_route_override
+        self._config.coding_model_route = details.coding_model_route
+        self._config.fast_model_route = details.fast_model_route
         if self.on_change is not None:
             self.on_change(details)
         return session
@@ -121,10 +128,23 @@ class InterviewSessionManager:
         self._config.role_title = ""
         self._config.job_description = ""
         self._config.instructions = ""
+        self._config.use_builtin_prompt = True
         self._config.answer_format = ""
         self._config.answer_length = ""
         self._config.answer_tone = ""
         self._config.language = "English"
         self._config.model_route_override = ""
+        self._config.coding_model_route = None
+        self._config.fast_model_route = None
         if self.on_change is not None:
             self.on_change(None)
+
+    @staticmethod
+    def _validate_models(details: SessionDetails) -> None:
+        for route in (
+            details.model_route_override,
+            details.coding_model_route,
+            details.fast_model_route,
+        ):
+            if route and len(parse_chain(route)) != 1:
+                raise ValueError("Choose one model per selection or Auto.")

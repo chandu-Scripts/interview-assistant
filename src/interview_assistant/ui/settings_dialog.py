@@ -1,18 +1,20 @@
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -20,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from interview_assistant.app.hotkeys import parse_hotkey
-from interview_assistant.config.keys import PROVIDERS, KeyStatus, KeyStore, key_status
+from interview_assistant.config.keys import KEY_PROVIDERS, KeyStatus, KeyStore, key_status
 from interview_assistant.config.provider_check import check_key
 from interview_assistant.config.relay import (
     KeyringRelayTokenStore,
@@ -32,7 +34,11 @@ from interview_assistant.config.settings import Settings
 from interview_assistant.config.user_settings import UserSettingsStore
 from interview_assistant.llm.router_factory import parse_chain
 from interview_assistant.ui.bg import Runner, run_in_thread
+from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.key_row import Checker, KeyRow
+from interview_assistant.ui.provider_catalog import MODEL_FIELDS as PROVIDER_FIELDS
+from interview_assistant.ui.provider_catalog import NAMES, SUGGESTIONS, ProviderCatalog
+from interview_assistant.ui.provider_picker import GlassDialog, update_provider_button
 from interview_assistant.ui.relay_panel import RelayPanel, RequestFn, StatusFn
 
 WHISPER_CHOICES = [
@@ -41,15 +47,9 @@ WHISPER_CHOICES = [
     ("small.en - more accurate, ~3x slower", "small.en"),
     ("medium.en - most accurate, slow on CPU", "medium.en"),
 ]
-MODEL_FIELDS = [
-    ("openai_model", "OpenAI - fast"),
-    ("openai_smart_model", "OpenAI - smart"),
-    ("anthropic_model", "Anthropic - smart"),
-    ("anthropic_fast_model", "Anthropic - fast"),
-    ("gemini_model", "Gemini - smart"),
-    ("gemini_fast_model", "Gemini - fast"),
-]
-MODEL_PROVIDER = {f: f.split("_")[0] for f, _ in MODEL_FIELDS}
+MODEL_PROVIDER = {
+    field: provider for provider, fields in PROVIDER_FIELDS.items() for field in fields
+}
 
 
 class SettingsDialog(QDialog):
@@ -68,11 +68,18 @@ class SettingsDialog(QDialog):
         relay_store: RelayTokenStore | None = None,
         relay_request_fn: RequestFn = request_access,
         relay_status_fn: StatusFn = check_status,
+        catalog: ProviderCatalog | None = None,
     ) -> None:
         super().__init__()
         self._store = store
         self._keys = keys
         self._raw = raw_settings
+        self.catalog = catalog or ProviderCatalog(
+            raw_settings,
+            keys,
+            store.path.parent / "provider_models.json",
+            can_write=lambda: not self._raw().incognito,
+        )
         self._keys_changed = False
         self._initial: dict[str, Any] = {}
         self.setWindowTitle("Settings")
@@ -91,6 +98,18 @@ class SettingsDialog(QDialog):
             ),
             "Shared access",
         )
+        # Each tab scrolls independently; hidden tabs must not widen the whole workspace.
+        for index in range(self.tabs.count()):
+            content = self.tabs.widget(index)
+            assert content is not None
+            title = self.tabs.tabText(index)
+            self.tabs.removeTab(index)
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setWidget(content)
+            self.tabs.insertTab(index, scroll, title)
+        self.tabs.setCurrentIndex(0)
         self.message = QLabel("")
         self.message.setWordWrap(True)
         self.save_btn = QPushButton("Save")
@@ -105,30 +124,84 @@ class SettingsDialog(QDialog):
         self.save_btn.clicked.connect(self.save)
         self.cancel_btn.clicked.connect(self.reject)
         self.load()
+        self.catalog.changed.connect(self._refresh_providers)
+        self._refresh_providers()
 
     # ---- tabs ----
     def _providers_tab(self, checker: Checker, runner: Runner) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
         note = QLabel(
-            "Keys are stored encrypted in the Windows Credential Manager, never in a file. "
-            "A key set in the environment or .env overrides the stored one."
+            "Choose a provider to manage its key and Fast / Smart models. "
+            "Green: key verified. Red: missing or rejected. Amber: test needed or connection issue."
         )
         note.setWordWrap(True)
         lay.addWidget(note)
-        for p in PROVIDERS:
-            row = KeyRow(p, self._keys, self._status_fn(p), checker, runner)
-            row.changed.connect(self._on_key_changed)
-            row.models_found.connect(self._fill_models)
+        self.provider_buttons: dict[str, QPushButton] = {}
+        self.provider_dialogs: dict[str, GlassDialog] = {}
+        self.provider_states: dict[str, QLabel] = {}
+        self.model_boxes: dict[str, ChoiceComboBox] = {}
+        for p in KEY_PROVIDERS:
+            row = KeyRow(
+                p,
+                self._keys,
+                self._status_fn(p),
+                checker,
+                runner,
+                key_getter=partial(self.catalog.key, p),
+                preferences=self._store,
+            )
+            row.changed.connect(lambda provider=p: self._on_provider_key_changed(provider))
+            row.tested.connect(self.catalog.record)
             self.key_rows[p] = row
-            lay.addWidget(row)
+            if p == "speechmatics":
+                lay.addWidget(row)
+                note = QLabel("Select Speechmatics in the Speech tab to enable live transcription.")
+                note.setWordWrap(True)
+                lay.addWidget(note)
+                continue
+            popup = GlassDialog(NAMES[p], self)
+            self.provider_dialogs[p] = popup
+            state = QLabel()
+            state.setWordWrap(True)
+            self.provider_states[p] = state
+            popup.body.addWidget(state)
+            popup.body.addWidget(row)
+            model_note = QLabel(
+                "Recommended: Fast — gpt-5.4-mini; Smart — gpt-5.4. "
+                "Only these two models are listed. Existing selections stay until you save."
+                if p == "openai"
+                else "Fast and Smart are your routing presets. Select an actual model for each. "
+                "Test key refreshes the same account model list used in Preferred model."
+            )
+            model_note.setWordWrap(True)
+            popup.body.addWidget(model_note)
+            model_form = QFormLayout()
+            model_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            for tier, field in zip(("Fast", "Smart"), PROVIDER_FIELDS[p], strict=True):
+                box = ChoiceComboBox()
+                box.setEditable(True)
+                box.addItems(SUGGESTIONS.get(p, []))
+                self.model_boxes[field] = box
+                model_form.addRow(tier, box)
+            popup.body.addLayout(model_form)
+            if p == "openai":
+                self.recommended_models_btn = QPushButton("Use recommended models")
+                self.recommended_models_btn.clicked.connect(self._use_recommended_models)
+                popup.body.addWidget(self.recommended_models_btn)
+            note = QLabel(
+                "Test key checks authentication only; credits and model access may vary. "
+                "Keys save immediately. Close this popup and use Settings → Save "
+                "to apply model changes."
+            )
+            note.setWordWrap(True)
+            popup.body.addWidget(note)
+            popup.body.addStretch(1)
+            button = QPushButton()
+            button.clicked.connect(lambda _checked=False, provider=p: self._open_provider(provider))
+            self.provider_buttons[p] = button
+            lay.addWidget(button)
         form = QFormLayout()
-        self.model_boxes: dict[str, QComboBox] = {}
-        for field, label in MODEL_FIELDS:
-            box = QComboBox()
-            box.setEditable(True)
-            self.model_boxes[field] = box
-            form.addRow(label, box)
         self.router_fast = QLineEdit()
         self.router_fast.setPlaceholderText(
             "auto (e.g. openai:gpt-4o-mini,gemini:gemini-flash-latest)"
@@ -137,29 +210,79 @@ class SettingsDialog(QDialog):
         self.router_smart.setPlaceholderText("auto")
         form.addRow("Fast chain (advanced)", self.router_fast)
         form.addRow("Smart chain (advanced)", self.router_smart)
-        lay.addWidget(
-            QLabel(
-                "Models (a successful key test fills these lists with what your account offers):"
-            )
-        )
-        lay.addLayout(form)
+        advanced = QWidget()
+        advanced.setLayout(form)
+        advanced.hide()
+        advanced_button = QPushButton("Advanced routing")
+        advanced_button.setCheckable(True)
+        advanced_button.toggled.connect(advanced.setVisible)
+        lay.addWidget(advanced_button)
+        lay.addWidget(advanced)
         lay.addStretch(1)
         return w
+
+    def _open_provider(self, provider: str) -> None:
+        self.key_rows[provider].refresh()
+        self._refresh_providers()
+        self.provider_dialogs[provider].present()
+
+    def _use_recommended_models(self) -> None:
+        for field, model in zip(PROVIDER_FIELDS["openai"], SUGGESTIONS["openai"], strict=True):
+            self.model_boxes[field].setCurrentText(model)
+        self.message.setText("Recommended models selected. Save settings and restart to apply.")
+
+    def close_provider_popups(self) -> None:
+        for popup in self.provider_dialogs.values():
+            popup.reject()
+
+    def _on_provider_key_changed(self, provider: str) -> None:
+        if provider in NAMES:
+            self.catalog.invalidate(provider)
+        self._on_key_changed()
+
+    def _refresh_providers(self) -> None:
+        for provider, button in self.provider_buttons.items():
+            update_provider_button(button, provider, self.catalog)
+            state, detail = self.catalog.status(provider)
+            self.provider_states[provider].setText(
+                detail
+                + ("\n" + self.catalog.persistence_error if self.catalog.persistence_error else "")
+            )
+            self._fill_models(
+                provider,
+                self.catalog.models(provider)
+                if state == "verified"
+                else SUGGESTIONS.get(provider, []),
+            )
+        verified = self.catalog.status("openai")[0] == "verified"
+        available = self.catalog.models("openai")
+        self.recommended_models_btn.setEnabled(
+            not verified or all(model in available for model in SUGGESTIONS["openai"])
+        )
+        self.recommended_models_btn.setToolTip(
+            "Set Fast to gpt-5.4-mini and Smart to gpt-5.4. Save settings to apply."
+            if self.recommended_models_btn.isEnabled()
+            else "Both recommended models must be listed by your account."
+        )
 
     def _speech_tab(self) -> QWidget:
         w = QWidget()
         form = QFormLayout(w)
-        self.stt_provider = QComboBox()
+        self.stt_provider = ChoiceComboBox()
         self.stt_provider.addItem("Local Whisper - offline, free, private", "local")
         self.stt_provider.addItem("OpenAI cloud - sends audio to OpenAI, billed", "openai")
-        self.whisper_model = QComboBox()
+        self.stt_provider.addItem(
+            "Speechmatics live - cloud, billed; OpenAI fallback if configured, else local",
+            "speechmatics",
+        )
+        self.whisper_model = ChoiceComboBox()
         for label, value in WHISPER_CHOICES:
             self.whisper_model.addItem(label, value)
         self.stt_language = QLineEdit()
         self.stt_language.setPlaceholderText("en (leave empty to auto-detect)")
         self.stt_vocabulary = QLineEdit()
         self.stt_vocabulary.setPlaceholderText("terms the recognizer should expect (empty = off)")
-        self.default_audio_kind = QComboBox()
+        self.default_audio_kind = ChoiceComboBox()
         self.default_audio_kind.addItem("System audio (the interviewer's voice)", "loopback")
         self.default_audio_kind.addItem("Microphone", "mic")
         self.dual_audio = QCheckBox("Capture system audio AND microphone at the same time")
@@ -199,7 +322,7 @@ class SettingsDialog(QDialog):
         self.budget_usd.setRange(0.01, 10000)
         self.budget_usd.setDecimals(2)
         self.budget_usd.setPrefix("$")
-        self.budget_scope = QComboBox()
+        self.budget_scope = ChoiceComboBox()
         for label, value in (
             ("per session", "session"),
             ("per day", "day"),
@@ -325,20 +448,22 @@ class SettingsDialog(QDialog):
         for row in self.key_rows.values():
             row.refresh()
         self.relay_panel.refresh()
-        self._initial = self.collect()
+        # Missing credentials must not prevent opening the page that lets the user add them.
+        self._initial = self.collect(validate_keys=False)
+        self._refresh_providers()
 
     @staticmethod
-    def _select(combo: QComboBox, value: str) -> None:
+    def _select(combo: ChoiceComboBox, value: str) -> None:
         i = combo.findData(value)
         combo.setCurrentIndex(max(i, 0))
 
     @staticmethod
-    def _select_or_add(combo: QComboBox, value: str) -> None:
+    def _select_or_add(combo: ChoiceComboBox, value: str) -> None:
         if combo.findData(value) < 0:
             combo.addItem(value, value)
         combo.setCurrentIndex(combo.findData(value))
 
-    def collect(self) -> dict[str, Any]:
+    def collect(self, *, validate_keys: bool = True) -> dict[str, Any]:
         """Form values as saved settings. Raises ValueError with a user-readable reason."""
         values: dict[str, Any] = {f: b.currentText().strip() for f, b in self.model_boxes.items()}
         for field, edit in (("router_fast", self.router_fast), ("router_smart", self.router_smart)):
@@ -383,10 +508,17 @@ class SettingsDialog(QDialog):
                     raise ValueError(str(e)) from e
             values[field] = spec
         if (
-            values["stt_provider"] == "openai"
+            validate_keys
+            and values["stt_provider"] == "openai"
             and not key_status("openai", self._raw(), self._keys).present
         ):
             raise ValueError("Cloud speech-to-text needs an OpenAI key (AI providers tab).")
+        if (
+            validate_keys
+            and values["stt_provider"] == "speechmatics"
+            and not key_status("speechmatics", self._raw(), self._keys).present
+        ):
+            raise ValueError("Live transcription needs a Speechmatics key (AI providers tab).")
         return values
 
     def save(self) -> None:
@@ -401,8 +533,13 @@ class SettingsDialog(QDialog):
         needs_restart = bool(changed) or self._keys_changed
         self._initial = values
         self.message.setText("Saved." + (" Restart to apply." if needs_restart else ""))
+        self.catalog.changed.emit()
         self.saved.emit(needs_restart)
         self.accept()
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self.close_provider_popups()
+        super().hideEvent(event)
 
     def _to_store(self, values: dict[str, Any]) -> dict[str, Any]:
         """Merge the form into the saved file, keeping only values that differ from the built-in

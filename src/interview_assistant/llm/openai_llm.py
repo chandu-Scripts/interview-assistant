@@ -52,7 +52,11 @@ class OpenAIProvider:
             "stream_options": {"include_usage": True},
             "max_completion_tokens": req.max_tokens,
         }
-        if req.temperature is not None:
+        model = body["model"]
+        if model == "gpt-5.4-mini" or model.startswith("gpt-5.4-mini-"):
+            # Explicitly disable reasoning for interactive interview response latency.
+            body["reasoning_effort"] = "none"
+        elif req.temperature is not None:
             body["temperature"] = req.temperature
         return body
 

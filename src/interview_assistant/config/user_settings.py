@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 EDITABLE = frozenset(
     {
         "log_level",
+        "prefer_saved_keys",
         "stt_provider",
         "whisper_model",
         "stt_language",

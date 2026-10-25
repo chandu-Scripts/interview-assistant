@@ -28,21 +28,25 @@ class ResumeImport(QThread):
     loaded = Signal(str, str)
     failed = Signal(str)
 
-    def __init__(self, path: Path, parent: QWidget) -> None:
+    def __init__(self, paths: list[Path], parent: QWidget) -> None:
         super().__init__(parent)
-        self.path = path
+        self.paths = paths
 
     def run(self) -> None:
-        try:
-            text = read_attachment(self.path)
-        except AttachmentError as e:
-            self.failed.emit(str(e))
-        else:
-            self.loaded.emit(self.path.name, text)
+        for path in self.paths:
+            if self.isInterruptionRequested():
+                break
+            try:
+                text = read_attachment(path)
+            except AttachmentError as e:
+                self.failed.emit(f"{path.name}: {e}")
+            else:
+                self.loaded.emit(path.name, text)
 
 
 class ResumePage(QWidget):
     changed = Signal()
+    privacy_requested = Signal()
 
     def __init__(
         self, library: ResumeLibrary, confirm_delete: Callable[[str], bool] | None = None
@@ -51,16 +55,31 @@ class ResumePage(QWidget):
         self.library = library
         self._confirm_delete = confirm_delete or self._confirm
         self._worker: ResumeImport | None = None
+        self._imported = 0
+        self._import_total = 0
+        self._import_errors: list[str] = []
         self._texts: dict[str, str] = {}
         self.title = QLabel("Resumes")
         self.title.setObjectName("title")
         hint = QLabel("Manage the resume text used to personalize your interview answers.")
         hint.setObjectName("hint")
         hint.setWordWrap(True)
-        self.import_btn = QPushButton("Import Resume")
+        self.import_btn = QPushButton("Import Resumes")
+        self.import_btn.setToolTip("Select multiple PDF, DOCX or text files with Ctrl or Shift")
         self.import_btn.setObjectName("create")
         self.rename_btn = QPushButton("Rename")
         self.delete_btn = QPushButton("Delete")
+        self.write_notice = QLabel(
+            "Incognito is on. Importing, renaming and deleting saved resumes are paused. "
+            "Open Privacy and turn off Incognito to manage your saved resumes."
+        )
+        self.write_notice.setWordWrap(True)
+        self.write_notice.setStyleSheet("color: #ffd29b;")
+        self.privacy_btn = QPushButton("Open Privacy")
+        self.privacy_btn.clicked.connect(self.privacy_requested.emit)
+        privacy_row = QHBoxLayout()
+        privacy_row.addWidget(self.write_notice, 1)
+        privacy_row.addWidget(self.privacy_btn)
         top = QHBoxLayout()
         top.addWidget(self.title, 1)
         top.addWidget(self.import_btn)
@@ -94,6 +113,7 @@ class ResumePage(QWidget):
         layout.setSpacing(16)
         layout.addLayout(top)
         layout.addWidget(hint)
+        layout.addLayout(privacy_row)
         layout.addWidget(split, 1)
         layout.addLayout(actions)
         layout.addWidget(note)
@@ -129,52 +149,80 @@ class ResumePage(QWidget):
     def _selection_changed(self) -> None:
         name = self.selected_name()
         self.preview.setPlainText(self._texts.get(name, ""))
+        writable = self.library.writable
+        self.write_notice.setVisible(not writable)
+        self.privacy_btn.setVisible(not writable)
+        self.import_btn.setEnabled(writable and self._worker is None)
         for button in (self.rename_btn, self.delete_btn):
-            button.setEnabled(bool(name) and self._worker is None)
+            button.setEnabled(bool(name) and writable and self._worker is None)
+
+    def _can_edit(self) -> bool:
+        if self.library.writable:
+            return True
+        self.message.setText("Turn off Incognito in Privacy before changing saved resumes.")
+        self._selection_changed()
+        return False
 
     def _pick_import(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Import resume", "", ATTACHMENT_FILTER)
-        if path:
-            self.import_file(Path(path))
+        if not self._can_edit():
+            return
+        paths, _ = QFileDialog.getOpenFileNames(self, "Import resumes", "", ATTACHMENT_FILTER)
+        self.import_files([Path(path) for path in paths])
 
     def import_file(self, path: Path) -> None:
-        if self._worker is not None:
+        self.import_files([path])
+
+    def import_files(self, paths: list[Path]) -> None:
+        if self._worker is not None or not paths:
             return
-        self.message.setText("Reading resume…")
+        if not self._can_edit():
+            return
+        self._imported = 0
+        self._import_total = len(paths)
+        self._import_errors = []
+        self.message.setText(f"Reading {len(paths)} resume(s)…")
         self.import_btn.setEnabled(False)
-        self._worker = ResumeImport(path, self)
+        self._worker = ResumeImport(paths, self)
         self._worker.loaded.connect(self._save_import)
-        self._worker.failed.connect(self.message.setText)
+        self._worker.failed.connect(self._import_failed)
         self._worker.finished.connect(self._import_finished)
         self._selection_changed()
         self._worker.start()
 
     def _save_import(self, name: str, text: str) -> None:
         try:
-            if any(r.name.casefold() == name.casefold() for r in self.library.list()):
-                raise ValueError(
-                    "A resume with that name already exists. "
-                    "Rename it before importing another copy."
-                )
-            self.library.add(name, text)
+            saved = self.library.add_copy(name, text)
         except (OSError, ValueError) as e:
-            self.message.setText(str(e))
+            self._import_failed(f"{name}: {e}")
             return
-        self.refresh(name)
+        self._imported += 1
+        self.refresh(saved.name)
+        self.message.setText(f"Imported {self._imported} of {self._import_total}: {saved.name}")
         self.changed.emit()
+
+    def _import_failed(self, error: str) -> None:
+        self._import_errors.append(error)
 
     def _import_finished(self) -> None:
         if self._worker is not None:
             self._worker.deleteLater()
             self._worker = None
-        self.import_btn.setEnabled(True)
         self._selection_changed()
+        summary = f"Imported {self._imported} of {self._import_total} resume(s)."
+        if self._import_errors:
+            summary += " " + " | ".join(self._import_errors[:3])
+            if len(self._import_errors) > 3:
+                summary += f" (+{len(self._import_errors) - 3} more errors)"
+        self.message.setText(summary)
+        self.message.setToolTip("\n".join(self._import_errors))
 
     def wait_for_import(self) -> None:
         if self._worker is not None:
             self._worker.wait()
 
     def _rename(self) -> None:
+        if not self._can_edit():
+            return
         name = self.selected_name()
         if not name:
             return
@@ -202,6 +250,8 @@ class ResumePage(QWidget):
         return box.exec() == QMessageBox.StandardButton.Yes
 
     def _delete(self) -> None:
+        if not self._can_edit():
+            return
         name = self.selected_name()
         if not name or not self._confirm_delete(name):
             return

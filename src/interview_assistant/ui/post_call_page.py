@@ -154,7 +154,9 @@ class PostCallPage(QWidget):
                 else ""
             )
         )
-        self._preferred = session.model_route_override if session else ""
+        self._preferred = (
+            (session.fast_model_route or session.model_route_override) if session else ""
+        )
         ended = (
             datetime.fromtimestamp(session.ended_at).strftime("%b %d, %Y %H:%M")
             if session and session.ended_at is not None

@@ -114,14 +114,14 @@ def test_purge_removes_data_keys_and_saved_state(tmp_path):
     data.mkdir()
     (data / "settings.json").write_text("{}", encoding="utf-8")
     (data / "history.db").write_bytes(b"secret history")
-    keys = MemoryKeyStore({"openai": "sk-x", "gemini": "AIza-y"})
+    keys = MemoryKeyStore({"openai": "sk-x", "gemini": "AIza-y", "speechmatics": "test-key"})
     qs = [ini(tmp_path, "a"), ini(tmp_path, "b")]
     for q in qs:
         q.setValue("onboarding/done_v1", True)
         q.sync()
     report = purge(data, keys, qs)
     assert report.data_dir_removed and not data.exists()
-    assert sorted(report.keys_removed) == ["gemini", "openai"] and keys.data == {}
+    assert sorted(report.keys_removed) == ["gemini", "openai", "speechmatics"] and keys.data == {}
     assert report.settings_cleared == 2 and all(q.allKeys() == [] for q in qs)
     assert report.errors == []
 

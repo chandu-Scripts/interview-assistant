@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -55,12 +56,18 @@ def test_v4_upgrade_preserves_turns_and_notes_persist_and_delete(tmp_path):
     store = HistoryStore(path)
     sid = seed(store)
     store.close()
-    with sqlite3.connect(path) as db:
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("DROP TABLE interview_notes")
+        # Build a real v4 fixture, not a v7 database with only its version label changed.
+        for column in ("coding_model_route", "fast_model_route", "use_builtin_prompt"):
+            db.execute(f"ALTER TABLE interview_sessions DROP COLUMN {column}")
         db.execute("PRAGMA user_version = 4")
     store = HistoryStore(path)
     assert len(store.get_interview_turns(sid)) == 2
     assert store._db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    session = store.get_interview_session(sid)
+    assert session.coding_model_route is None and session.fast_model_route is None
+    assert session.use_builtin_prompt is True
     store.save_interview_notes(sid, "Practice examples")
     store.close()
     store = HistoryStore(path)

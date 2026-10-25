@@ -49,8 +49,62 @@ async def test_preferred_model_works_when_default_tier_has_no_available_provider
     )
     events = [e async for e in router.stream(REQ, "fast", preferred=Route("b", "smart"))]
     assert events[-1].route == Route("b", "smart")
-    with pytest.raises(NoRoutesAvailable, match="no longer configured"):
-        _ = [e async for e in router.stream(REQ, preferred=Route("b", "removed"))]
+    events = [e async for e in router.stream(REQ, preferred=Route("b", "account-model"))]
+    assert events[-1].route == Route("b", "account-model")
+    with pytest.raises(NoRoutesAvailable) as exc:
+        _ = [e async for e in router.stream(REQ, preferred=Route("missing", "model"))]
+    assert exc.value.reason == "selected_provider"
+
+
+@pytest.mark.parametrize("model", ["gpt-5.4-mini", "gpt-5.4"])
+async def test_recommended_account_model_streams_outside_auto_presets(model):
+    provider = Script("openai", ["answer"])
+    records = []
+    router = build_router(
+        Settings(_env_file=None, openai_model="gpt-4o-mini", openai_smart_model="gpt-4o"),
+        {"openai": provider},
+        on_attempt=records.append,
+    )
+    events = [e async for e in router.stream(REQ, preferred=Route("openai", model))]
+    assert provider.calls == [model]
+    assert "".join(e.event.delta for e in events) == "answer"
+    assert len(records) == 1 and records[0].ok and records[0].route.model == model
+
+
+async def test_account_model_access_failure_falls_back_to_configured_preset():
+    class AccountProvider(Script):
+        async def stream(self, request):
+            if request.model == "gpt-5.4":
+                self.calls.append(request.model)
+                raise err("openai", ErrorKind.BAD_REQUEST)
+            async for event in super().stream(request):
+                yield event
+
+    provider = AccountProvider("openai", ["fallback answer"])
+    records = []
+    router = build_router(
+        Settings(_env_file=None, openai_model="gpt-4o-mini"),
+        {"openai": provider},
+        on_attempt=records.append,
+    )
+    events = [e async for e in router.stream(REQ, preferred=Route("openai", "gpt-5.4"))]
+    assert provider.calls == ["gpt-5.4", "gpt-4o-mini"]
+    assert "".join(e.event.delta for e in events) == "fallback answer"
+    assert [r.ok for r in records] == [False, True]
+
+
+async def test_account_model_cannot_override_explicit_provider_constraint():
+    provider = Script("openai", ["answer"])
+    router = build_router(Settings(_env_file=None), {"openai": provider})
+    with pytest.raises(NoRoutesAvailable) as exc:
+        _ = [
+            e
+            async for e in router.stream(
+                REQ, provider="gemini", preferred=Route("openai", "gpt-5.4")
+            )
+        ]
+    assert exc.value.reason == "provider_mismatch"
+    assert not provider.calls
 
 
 class Script:

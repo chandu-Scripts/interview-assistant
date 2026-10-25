@@ -7,6 +7,7 @@ from interview_assistant.config.settings import Settings
 log = logging.getLogger(__name__)
 
 PROVIDERS = ("openai", "anthropic", "gemini")
+KEY_PROVIDERS = (*PROVIDERS, "speechmatics")
 SERVICE = "InterviewAssistant"
 Source = Literal["env", "keyring", "none"]
 
@@ -74,7 +75,8 @@ class KeyStatus:
 
     @property
     def editable(self) -> bool:
-        return self.source != "env"  # environment/.env values win; edit them there
+        # Editing an environment source requires an explicit saved-key preference.
+        return self.source != "env"
 
     def describe(self) -> str:
         return {
@@ -91,8 +93,25 @@ def mask(key: str) -> str:
     return f"{key[:3]}…{key[-4:]}"
 
 
+def effective_key(provider: str, settings: Settings, store: KeyStore) -> str:
+    """Resolve the same explicitly selected credential for testing and answering."""
+    if provider in settings.prefer_saved_keys:
+        return (store.get(provider) or "").strip()
+    value = getattr(settings, f"{provider}_api_key", None)
+    if value is not None and value.get_secret_value().strip():
+        return str(value.get_secret_value()).strip()
+    return (store.get(provider) or "").strip()
+
+
 def key_status(provider: str, settings: Settings, store: KeyStore) -> KeyStatus:
     """Where the key comes from. Pass RAW settings (Settings(), not load_settings())."""
+    if provider in settings.prefer_saved_keys:
+        stored = store.get(provider)
+        return (
+            KeyStatus(provider, "keyring", mask(stored))
+            if stored
+            else KeyStatus(provider, "none", "")
+        )
     env_key = getattr(settings, f"{provider}_api_key")
     if env_key is not None and env_key.get_secret_value():
         return KeyStatus(provider, "env", mask(env_key.get_secret_value()))
@@ -103,4 +122,4 @@ def key_status(provider: str, settings: Settings, store: KeyStore) -> KeyStatus:
 
 
 def all_status(settings: Settings, store: KeyStore) -> dict[str, KeyStatus]:
-    return {p: key_status(p, settings, store) for p in PROVIDERS}
+    return {p: key_status(p, settings, store) for p in KEY_PROVIDERS}

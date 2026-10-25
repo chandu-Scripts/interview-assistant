@@ -135,12 +135,21 @@ def test_model_choices_are_only_auto_or_the_configured_models(qtbot):
     assert items == ["", "openai:gpt-4o-mini", "anthropic:claude-sonnet-5"]
 
 
-def test_session_instructions_outrank_the_default_style_rules():
+def test_session_instructions_respect_builtin_mode_and_preserve_factuality():
     from interview_assistant.agents.specialists import SPECIALISTS, system_prompt
 
     prompt = system_prompt(
         SPECIALISTS[Category.CONCEPT], None, instructions="Speak in short spoken sentences."
     )
     assert "Speak in short spoken sentences." in prompt
-    assert "take priority over the style" in prompt
+    assert "preferences within the format lock" in prompt
     assert "never override the rules against inventing facts" in prompt
+    custom_prompt = system_prompt(
+        SPECIALISTS[Category.CONCEPT],
+        None,
+        instructions="Speak in short spoken sentences.",
+        use_builtin_prompt=False,
+    )
+    assert "Speak in short spoken sentences." in custom_prompt
+    assert "FORMAT LOCK" not in custom_prompt
+    assert "Do not invent personal experience" in custom_prompt

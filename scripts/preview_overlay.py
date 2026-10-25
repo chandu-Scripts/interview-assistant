@@ -12,10 +12,12 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from interview_assistant.agents.types import Category, Decision  # noqa: E402
 from interview_assistant.ui.overlay import OverlayWindow  # noqa: E402
+from interview_assistant.ui.theme import apply_theme  # noqa: E402
 
 
 def main() -> None:
     app = QApplication([])
+    apply_theme(app)
     for font in ("segoeui.ttf", "segoeuib.ttf", "seguisym.ttf"):
         path = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / font
         if path.exists():

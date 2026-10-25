@@ -66,10 +66,12 @@ class Classifier:
         if not looks_like_question(text):
             return _decision(Category.NOT_A_QUESTION, 0.9, "rules", text)
         rule = classify_rules(text)
-        if rule.confidence >= RULES_ACCEPT or self._complete is None:
+        if rule.confidence >= RULES_ACCEPT:
             return _decision(rule.category, rule.confidence, "rules", text)
         if prev is not None and prev is not Category.NOT_A_QUESTION and is_follow_up(text):
             return _decision(prev, 0.7, "rules", text)  # follow-up: stay with the same specialist
+        if self._complete is None:
+            return _decision(rule.category, rule.confidence, "rules", text)
         try:
             prompt = (
                 f"{('Previous question: ' + context + chr(10)) if context else ''}Utterance: {text}"

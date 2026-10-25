@@ -1,7 +1,12 @@
 import httpx
 import numpy as np
 
-from interview_assistant.stt.base import STTError, is_mostly_latin_script, pcm_to_wav
+from interview_assistant.stt.base import (
+    STTError,
+    is_mostly_latin_script,
+    is_prompt_echo,
+    pcm_to_wav,
+)
 
 URL = "https://api.openai.com/v1/audio/transcriptions"
 
@@ -48,6 +53,8 @@ class OpenAISTTProvider:
             )
             r.raise_for_status()
             text = str(r.json().get("text", "")).strip()
+            if is_prompt_echo(text, self._prompt):
+                return ""
             if self._language == "en" and not is_mostly_latin_script(text):
                 return ""  # the model drifted into another script despite the English lock
             return text

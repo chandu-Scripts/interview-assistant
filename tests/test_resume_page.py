@@ -24,12 +24,68 @@ def test_import_preview_duplicate_and_unreadable_file(qtbot, tmp_path):
     file.write_text("Replacement", encoding="utf-8")
     page.import_file(file)
     qtbot.waitUntil(lambda: page._worker is None)
-    assert "already exists" in page.message.text()
-    assert library.list()[0].text == "Engineer <b>literal text</b>"
+    assert "Imported 1 of 1" in page.message.text()
+    saved = {r.name: r.text for r in library.list()}
+    assert saved == {"resume.txt": "Engineer <b>literal text</b>", "resume (2).txt": "Replacement"}
     page.import_file(tmp_path / "missing.pdf")
     qtbot.waitUntil(lambda: page._worker is None)
     assert "Could not read" in page.message.text()
     assert page.import_btn.isEnabled()
+
+
+def test_batch_picker_preserves_duplicates_and_continues_after_bad_file(
+    qtbot, tmp_path, monkeypatch
+):
+    from interview_assistant.ui.resume_page import QFileDialog
+
+    library = ResumeLibrary(tmp_path / "resumes.json")
+    library.add("cv.txt", "Existing copy")
+    first = tmp_path / "CV.txt"
+    first.write_text("New copy", encoding="utf-8")
+    last = tmp_path / "platform.txt"
+    last.write_text("Platform engineer", encoding="utf-8")
+    missing = tmp_path / "missing.pdf"
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileNames", lambda *a, **k: ([str(first), str(missing), str(last)], "")
+    )
+    page = ResumePage(library)
+    qtbot.addWidget(page)
+    page.import_btn.click()
+    qtbot.waitUntil(lambda: page._worker is None)
+    assert {r.name: r.text for r in library.list()} == {
+        "cv.txt": "Existing copy",
+        "CV (2).txt": "New copy",
+        "platform.txt": "Platform engineer",
+    }
+    assert "Imported 2 of 3" in page.message.text()
+    assert "missing.pdf" in page.message.text()
+    assert page.import_btn.isEnabled()
+
+
+def test_batch_import_updates_session_resume_choices(qtbot, tmp_path):
+    library = ResumeLibrary(tmp_path / "resumes.json")
+    screen = StartScreen(
+        HistoryStore(":memory:"), library, lambda d: None, lambda: None, lambda: None
+    )
+    qtbot.addWidget(screen)
+    paths = [tmp_path / "one.txt", tmp_path / "two.txt"]
+    for path in paths:
+        path.write_text(f"Resume for {path.stem}", encoding="utf-8")
+    screen.resume_page.import_files(paths)
+    qtbot.waitUntil(lambda: screen.resume_page._worker is None)
+    assert all(screen.create_page.resume_combo.findData(p.name) >= 0 for p in paths)
+
+
+def test_import_does_not_write_in_incognito(qtbot, tmp_path):
+    library = ResumeLibrary(tmp_path / "resumes.json", can_write=lambda: False)
+    path = tmp_path / "cv.txt"
+    path.write_text("Personal resume", encoding="utf-8")
+    page = ResumePage(library)
+    qtbot.addWidget(page)
+    page.import_files([path])
+    qtbot.waitUntil(lambda: page._worker is None)
+    assert library.list() == []
+    assert "incognito" in page.message.text().casefold()
 
 
 def test_resume_management_refreshes_wizard_and_preserves_session_copy(

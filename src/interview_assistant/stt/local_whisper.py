@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from interview_assistant.stt.base import STTError, is_mostly_latin_script
+from interview_assistant.stt.base import STTError, is_mostly_latin_script, is_prompt_echo
 
 log = logging.getLogger(__name__)
 
@@ -22,6 +22,7 @@ class FasterWhisperProvider:
         compute_type: str = "int8",
         language: str | None = "en",
         initial_prompt: str | None = None,
+        cpu_threads: int = 4,
     ) -> None:
         self._model_size = model_size
         self._initial_prompt = initial_prompt or None
@@ -29,6 +30,7 @@ class FasterWhisperProvider:
         self._device = device
         self._compute_type = compute_type
         self._language = language
+        self._cpu_threads = cpu_threads
         self._model: Any = None
         self._lock = threading.Lock()
 
@@ -39,7 +41,10 @@ class FasterWhisperProvider:
 
                 log.info("Loading whisper model %s", self._model_size)
                 self._model = WhisperModel(
-                    self._model_size, device=self._device, compute_type=self._compute_type
+                    self._model_size,
+                    device=self._device,
+                    compute_type=self._compute_type,
+                    cpu_threads=self._cpu_threads,
                 )
 
     def transcribe(self, pcm: np.ndarray) -> str:
@@ -57,6 +62,8 @@ class FasterWhisperProvider:
                 initial_prompt=self._initial_prompt,  # vocabulary hint (see settings)
             )
             text = " ".join(s.text.strip() for s in segments).strip()
+            if is_prompt_echo(text, self._initial_prompt):
+                return ""
             if self._language == "en" and not is_mostly_latin_script(text):
                 return ""  # the model drifted into another script despite the English lock
             return text

@@ -17,6 +17,14 @@ class ErrorKind(StrEnum):
 RETRYABLE = {ErrorKind.RATE_LIMIT, ErrorKind.TIMEOUT, ErrorKind.SERVER, ErrorKind.NETWORK}
 
 
+def output_limit_reached(reason: str | None) -> bool:
+    return (reason or "").casefold() in {"length", "max_tokens"}
+
+
+def completion_is_normal(reason: str | None) -> bool:
+    return reason is None or reason.casefold() in {"stop", "end_turn", "stop_sequence"}
+
+
 class LLMError(RuntimeError):
     def __init__(self, provider: str, kind: ErrorKind, message: str, status: int | None = None):
         super().__init__(f"[{provider}] {kind.value}: {message}")
