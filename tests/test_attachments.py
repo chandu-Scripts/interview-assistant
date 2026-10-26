@@ -48,6 +48,41 @@ def test_docx_text_is_extracted(tmp_path):
     assert "Senior Azure data engineer" in text and "Databricks" in text
 
 
+def test_docx_table_only_resume_and_nested_cells_are_read(tmp_path):
+    import docx
+
+    doc = docx.Document()
+    table = doc.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "Project Cedar"
+    table.cell(0, 1).text = "Used ADF for 12 daily pipelines"
+    nested = table.cell(0, 1).add_table(rows=1, cols=1)
+    nested.cell(0, 0).text = "Team size: six"
+    path = tmp_path / "table-resume.docx"
+    doc.save(path)
+    text = read_attachment(path)
+    assert "Project Cedar" in text
+    assert "Used ADF for 12 daily pipelines" in text
+    assert "Team size: six" in text
+
+
+def test_docx_keeps_body_order_and_reads_header_footer_without_duplicate_merged_cells(tmp_path):
+    import docx
+
+    doc = docx.Document()
+    doc.sections[0].header.paragraphs[0].text = "Candidate name"
+    doc.add_paragraph("Project A")
+    table = doc.add_table(rows=1, cols=2)
+    table.cell(0, 0).merge(table.cell(0, 1)).text = "ADF only in Project A"
+    doc.add_paragraph("Project B")
+    doc.sections[0].footer.paragraphs[0].text = "Certification AZ-900"
+    path = tmp_path / "ordered.docx"
+    doc.save(path)
+    text = read_attachment(path)
+    assert text.index("Project A") < text.index("ADF only") < text.index("Project B")
+    assert text.count("ADF only") == 1
+    assert "Candidate name" in text and "Certification AZ-900" in text
+
+
 def test_pdf_text_is_extracted(tmp_path):
     path = tmp_path / "resume.pdf"
     path.write_bytes(minimal_pdf("Azure Data Engineer"))

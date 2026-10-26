@@ -47,6 +47,7 @@ class ResumeImport(QThread):
 class ResumePage(QWidget):
     changed = Signal()
     privacy_requested = Signal()
+    use_for_session_requested = Signal()
 
     def __init__(
         self, library: ResumeLibrary, confirm_delete: Callable[[str], bool] | None = None
@@ -67,11 +68,14 @@ class ResumePage(QWidget):
         self.import_btn = QPushButton("Import Resumes")
         self.import_btn.setToolTip("Select multiple PDF, DOCX or text files with Ctrl or Shift")
         self.import_btn.setObjectName("create")
+        self.session_import_btn = QPushButton("Use a resume for this session")
+        self.session_import_btn.setObjectName("create")
+        self.session_import_btn.clicked.connect(self.use_for_session_requested.emit)
         self.rename_btn = QPushButton("Rename")
         self.delete_btn = QPushButton("Delete")
         self.write_notice = QLabel(
             "Incognito is on. Importing, renaming and deleting saved resumes are paused. "
-            "Open Privacy and turn off Incognito to manage your saved resumes."
+            "Use a resume for a session without saving it, or open Privacy to manage saved resumes."
         )
         self.write_notice.setWordWrap(True)
         self.write_notice.setStyleSheet("color: #ffd29b;")
@@ -82,6 +86,7 @@ class ResumePage(QWidget):
         privacy_row.addWidget(self.privacy_btn)
         top = QHBoxLayout()
         top.addWidget(self.title, 1)
+        top.addWidget(self.session_import_btn)
         top.addWidget(self.import_btn)
         self.resumes = QListWidget()
         self.resumes.setMinimumWidth(200)
@@ -152,6 +157,7 @@ class ResumePage(QWidget):
         writable = self.library.writable
         self.write_notice.setVisible(not writable)
         self.privacy_btn.setVisible(not writable)
+        self.session_import_btn.setVisible(not writable)
         self.import_btn.setEnabled(writable and self._worker is None)
         for button in (self.rename_btn, self.delete_btn):
             button.setEnabled(bool(name) and writable and self._worker is None)

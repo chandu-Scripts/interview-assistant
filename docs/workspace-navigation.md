@@ -39,3 +39,49 @@ the same workspace. Explicitly turning Incognito off immediately restores those 
 the app does not change privacy preferences automatically. Regression coverage verifies
 import and confirmed deletion after that toggle, with the original file preserved.
 Validation: 84 resume/composition/privacy tests passed; Ruff and mypy passed.
+
+## Resume import and answer context, October 26, 2026
+
+The effective local configuration again had Incognito enabled. Its saved-library write block
+is intentional and remains in place. The Resumes page now offers **Use a resume for this
+session**, which opens the existing wizard and attaches the file without saving it to the
+library. Cancel/reset clears the draft's temporary text. Existing saved resumes remain
+selectable. A file whose extraction started in Incognito is never added to the library even
+if privacy changes before extraction finishes. History/usage privacy behavior is unchanged;
+explicitly changing privacy later controls subsequent session/history persistence as before.
+
+The wizard now parses attachments on its background worker instead of blocking Qt. It
+disables advancement during loading, shows completion/errors in view, and discards cancelled
+results. A failed import or a removed/renamed selected resume must be resolved by retrying or
+explicitly selecting a resume (including No resume) before creation; it cannot silently use
+the old/global profile. Creating/cancelling clears temporary attachments. Saved imports still
+ask before replacing the same filename. Existing session snapshots are not modified.
+
+DOCX extraction previously ignored all tables, headers and footers. Reproductions showed
+that table-only resumes were rejected as empty and mixed-layout resumes lost project facts.
+Extraction now preserves paragraph/table body order, includes nested tables and header/footer
+text, and avoids repeating merged cells. The existing 12,000-character limit remains. Scanned
+PDFs still require text recognition; empty-file errors now explain this limitation.
+
+Disabled primary buttons now look disabled, including Import Resumes when Incognito is on.
+The active session-only action uses the existing cyan styling. Native screenshots verified
+one 960 x 680 logical-pixel workspace and visible upload status text after automatic scrolling.
+Screenshots and test data are isolated under `tmp/resume-native-final`.
+
+Validation: 41 distinct attachment/library/wizard tests passed (30 also run with native
+Windows rendering), plus 186 broader composition, session, privacy, formatting, Q&A matching
+and end-to-end tests. Ruff and mypy passed (101 source files). End-to-end mocked-provider tests
+verify extracted table facts reach the actual request, replace the old profile, and remain
+out of persistent library/session storage in Incognito. They cover cancellation, privacy
+changes mid-import, retries, explicit selection and compact UI sizing.
+
+Three live synthetic checks used the real DOCX parser and Jev/router: six team members,
+12 pipelines, and a list-versus-tuple question all received relevant answers. No personal
+resume was sent. Results are in ignored `tmp/imported-resume-live/answers.json`. This proves
+the tested resume-context path, not universal answer correctness. The user's specific bad
+question/answer example was requested and has not yet been supplied. Saved fictional answer
+precedence and AI prompts were not changed in this fix.
+
+These are source-preview changes; restart Chandoo - Glass Preview to load them. The installed
+release and website installer were not rebuilt. No real resumes, sessions, keys or privacy
+settings were changed during testing.

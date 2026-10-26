@@ -116,6 +116,13 @@ with the safety boundaries below), and the file:line references each step builds
   capture; navigation must not reopen it during presentation. See `docs/workspace-navigation.md`.
 - Resume library imports accept multiple files and preserve existing names with numbered copies.
   Resume text remains local JSON; session/history storage remains SQLite.
+  DOCX extraction includes tables (including nested/merged cells), headers and footers, with
+  body order preserved. Both library and session-file extraction run off the UI thread.
+  Incognito still blocks library writes; the Resumes page offers a session-only attachment
+  through the existing wizard. These attachments stay in memory and are cleared on cancel
+  or draft reset. Privacy changes during extraction cannot persist a private attachment.
+  Failed uploads and removed/renamed selections block creation until a resume is explicitly
+  chosen again, preventing silent fallback to an unrelated profile. See docs/workspace-navigation.md.
 - Fictional / Realistic Q&A is one local practice bank (`practice_qa.json`), with explicit
   fictional examples, search and editing. Incognito blocks mutations. Text questions check
   this bank before AI routing: clear matches return unchanged, labelled Saved fictional Q&A;

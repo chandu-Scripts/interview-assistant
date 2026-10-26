@@ -113,6 +113,9 @@ def test_resume_management_refreshes_wizard_and_preserves_session_copy(
     page.rename_btn.click()
     assert page.selected_name() == "Platform CV"
     assert wizard.resume_combo.findData("Platform CV") >= 0
+    with pytest.raises(ValueError, match="choose a resume again"):
+        wizard.collect()
+    wizard.resume_combo.activated.emit(wizard.resume_combo.findData(""))
     assert wizard.collect().resume_override == ""
     page._confirm_delete = lambda name: False
     page.delete_btn.click()
@@ -211,4 +214,5 @@ def test_wizard_replacement_requires_confirmation(qtbot, tmp_path, monkeypatch):
     ):
         monkeypatch.setattr(QMessageBox, "exec", lambda self, r=response: r)
         wizard.resume_combo.activated.emit(wizard.resume_combo.findData(ATTACH_NEW))
+        qtbot.waitUntil(lambda: wizard._resume_worker is None)
         assert library.list()[0].text == expected

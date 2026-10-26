@@ -67,6 +67,7 @@ def test_attach_new_resume_saves_it_and_selects_it(qtbot, tmp_path, monkeypatch)
     index = d.resume_combo.findData(ATTACH_NEW)
     d.resume_combo.setCurrentIndex(index)
     d.resume_combo.activated.emit(index)
+    qtbot.waitUntil(lambda: d._resume_worker is None)
     assert [r.name for r in lib.list()] == ["cv_genai.txt"]
     assert d.collect().resume_name == "cv_genai.txt"
     assert "Saved cv_genai.txt" in d.resume_status.text()

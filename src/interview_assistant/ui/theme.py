@@ -22,6 +22,8 @@ QPushButton#create, QPushButton#connect, QPushButton#rowStart {
     background: #77e5df; color: #08232f; border: none; font-weight: 600; }
 QPushButton#create:hover, QPushButton#connect:hover, QPushButton#rowStart:hover {
     background: #a2f5ed; }
+QPushButton#create:disabled, QPushButton#connect:disabled, QPushButton#rowStart:disabled {
+    color: #687e99; background: rgba(133,174,211,10); border: 1px solid rgba(171,210,240,35); }
 QPushButton#nav { text-align: left; background: transparent; border: none; padding: 11px 9px; }
 QPushButton#nav:checked { background: rgba(95,220,222,28); color: #8af0ed; }
 QPushButton#filter { padding: 7px 16px; }

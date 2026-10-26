@@ -134,6 +134,8 @@ class StartScreen(QWidget):
         if self.resume_page is not None:
             self.pages.addWidget(self.resume_page)
             self.resume_page.changed.connect(self.create_page.refresh_resumes)
+            self.resume_page.use_for_session_requested.connect(self._attach_session_resume)
+            self.create_page.resumes_changed.connect(self.resume_page.refresh)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 0, 8, 6)
         layout.setSpacing(0)
@@ -408,6 +410,10 @@ class StartScreen(QWidget):
         self._select_nav("sessions")
         self.create_page.refresh_resumes()
         self.pages.setCurrentWidget(self.create_page)
+
+    def _attach_session_resume(self) -> None:
+        self._open_create()
+        self.create_page.attach_new_resume()
 
     def _show_resumes(self) -> None:
         if self.resume_page is not None:

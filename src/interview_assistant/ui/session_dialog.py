@@ -14,6 +14,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QFileDialog,
@@ -32,13 +33,14 @@ from PySide6.QtWidgets import (
 )
 
 from interview_assistant.agents.specialists import BUILTIN_FEATURE_TITLES
-from interview_assistant.app.attachments import ATTACHMENT_FILTER, AttachmentError, read_attachment
+from interview_assistant.app.attachments import ATTACHMENT_FILTER
 from interview_assistant.app.interview_session import SessionDetails
 from interview_assistant.app.resume_library import ResumeLibrary
 from interview_assistant.llm.router_factory import parse_chain
 from interview_assistant.ui.controls import ChoiceComboBox, ToggleSwitch
 from interview_assistant.ui.provider_catalog import SUGGESTIONS
 from interview_assistant.ui.provider_picker import ModelSelector
+from interview_assistant.ui.resume_page import ResumeImport
 
 SESSION_TYPES = ["Interview", "Regular"]
 LANGUAGES = ["English", "Hindi", "Telugu", "Tamil", "Spanish", "French", "German"]
@@ -55,6 +57,7 @@ class SessionDialog(QWidget):
 
     created = Signal(object)  # SessionDetails
     cancelled = Signal()
+    resumes_changed = Signal()
 
     def __init__(
         self, library: ResumeLibrary | None = None, model_choices: list[str] | None = None
@@ -64,6 +67,11 @@ class SessionDialog(QWidget):
         self._model_choices = model_choices or []
         self._resume_texts: dict[str, str] = {}
         self._chosen_resume = NO_RESUME
+        self._temporary_resumes: dict[str, str] = {}
+        self._resume_worker: ResumeImport | None = None
+        self._resume_error = ""
+        self._discard_resume = False
+        self._resume_save_allowed = False
 
         self.pages = QStackedWidget()
         for page in (self._details_page(), self._preferences_page()):
@@ -109,6 +117,9 @@ class SessionDialog(QWidget):
         self.next_btn.clicked.connect(self._next_or_create)
         self.cancel_btn.clicked.connect(self._cancel)
         self._update_buttons()
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.wait_for_import)
 
     # ---- details (step 1) ----
     def _details_page(self) -> QWidget:
@@ -148,6 +159,8 @@ class SessionDialog(QWidget):
         self.resume_combo = ChoiceComboBox()
         self.resume_combo.activated.connect(self._on_resume_chosen)
         self.resume_status = QLabel("")
+        self.resume_status.setWordWrap(True)
+        self.resume_status.setTextFormat(Qt.TextFormat.PlainText)
 
         form.addRow("Session type", types)
         form.addRow("Company *", self.company)
@@ -168,6 +181,9 @@ class SessionDialog(QWidget):
                 self.resume_combo.addItem(resume.name, resume.name)
             if self._library.error:
                 self.resume_status.setText(self._library.error)
+        for name, text in self._temporary_resumes.items():
+            self._resume_texts[name] = text
+            self.resume_combo.addItem(f"{name} (session only)", name)
         self.resume_combo.addItem("Attach new resume…", ATTACH_NEW)
         index = max(self.resume_combo.findData(select), 0)
         self.resume_combo.setCurrentIndex(index)
@@ -178,28 +194,32 @@ class SessionDialog(QWidget):
         previous = self._chosen_resume
         self._refresh_resumes(select=previous)
         if previous and previous != self._chosen_resume:
-            self.resume_status.setText(
+            self._resume_error = (
                 "The selected resume was renamed or deleted. Choose a resume again."
             )
+            self.resume_status.setText(self._resume_error)
 
     def _on_resume_chosen(self, index: int) -> None:
+        if self._resume_worker is not None:
+            return
         choice = self.resume_combo.itemData(index)
         if choice != ATTACH_NEW or index != self.resume_combo.count() - 1:
             self._chosen_resume = choice
+            self._resume_error = ""
             self.resume_status.setText("")
             return
+        self.attach_new_resume()
+
+    def attach_new_resume(self) -> None:
+        if self._resume_worker is not None:
+            return
         path, _ = QFileDialog.getOpenFileName(self, "Attach resume", "", ATTACHMENT_FILTER)
-        if not path or self._library is None:
+        if not path:
             self._refresh_resumes(select=self._chosen_resume)
             return
-        try:
-            text = read_attachment(Path(path))
-        except AttachmentError as e:
-            self.resume_status.setText(str(e))
-            self._refresh_resumes(select=self._chosen_resume)
-            return
+        self._resume_save_allowed = self._library is not None and self._library.writable
         name = Path(path).name
-        if name in self._resume_texts:
+        if self._resume_save_allowed and name in self._resume_texts:
             box = QMessageBox(self)
             box.setWindowTitle("Replace saved resume")
             box.setTextFormat(Qt.TextFormat.PlainText)
@@ -211,14 +231,71 @@ class SessionDialog(QWidget):
             if box.exec() != QMessageBox.StandardButton.Yes:
                 self._refresh_resumes(select=self._chosen_resume)
                 return
-        try:
-            self._library.add(name, text)
-        except (OSError, ValueError) as e:
-            self.resume_status.setText(str(e))
-            self._refresh_resumes(select=self._chosen_resume)
+        self._resume_error = ""
+        self._discard_resume = False
+        self.resume_status.setText(f"Reading {name}...")
+        QTimer.singleShot(0, self._reveal_resume_status)
+        self.resume_combo.setEnabled(False)
+        self.next_btn.setEnabled(False)
+        self._resume_worker = ResumeImport([Path(path)], self)
+        self._resume_worker.loaded.connect(self._resume_loaded)
+        self._resume_worker.failed.connect(self._resume_failed)
+        self._resume_worker.finished.connect(self._resume_finished)
+        self._resume_worker.start()
+
+    def _resume_loaded(self, name: str, text: str) -> None:
+        if self._discard_resume:
             return
-        self._refresh_resumes(select=Path(path).name)
-        self.resume_status.setText(f"Saved {Path(path).name} for future sessions")
+        if self._resume_save_allowed and self._library is not None and self._library.writable:
+            try:
+                self._library.add(name, text)
+            except (OSError, ValueError) as e:
+                self._resume_failed(str(e))
+                return
+            notice = f"Saved {name} for future sessions"
+            self.resumes_changed.emit()
+        else:
+            # Never persist an attachment started in incognito, even if privacy changes mid-read.
+            original = name
+            number = 2
+            while name in self._resume_texts or name in (ATTACH_NEW, NO_RESUME):
+                name = f"{Path(original).stem} ({number}){Path(original).suffix}"
+                number += 1
+            self._temporary_resumes[name] = text
+            notice = f"Using {name} for this session only. Not saved to the resume library."
+        self._refresh_resumes(select=name)
+        self.resume_status.setText(notice)
+        QTimer.singleShot(0, self._reveal_resume_status)
+
+    def _resume_failed(self, error: str) -> None:
+        if self._discard_resume:
+            return
+        self._resume_error = error
+        self._refresh_resumes(select=self._chosen_resume)
+        self.resume_status.setText(error)
+        QTimer.singleShot(0, self._reveal_resume_status)
+
+    def _reveal_resume_status(self) -> None:
+        scroll = self.pages.widget(0)
+        if self.isVisible() and self.pages.currentIndex() == 0 and isinstance(scroll, QScrollArea):
+            scroll.ensureWidgetVisible(self.resume_status, 12, 12)
+
+    def _resume_finished(self) -> None:
+        if self._resume_worker is not None:
+            self._resume_worker.deleteLater()
+            self._resume_worker = None
+        self.resume_combo.setEnabled(True)
+        self.next_btn.setEnabled(True)
+
+    def wait_for_import(self) -> None:
+        if self._resume_worker is not None:
+            self._resume_worker.requestInterruption()
+            self._resume_worker.wait()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        self._discard_resume = True
+        self.wait_for_import()
+        super().closeEvent(event)
 
     # ---- preferences (step 2) ----
     def _preferences_page(self) -> QWidget:
@@ -428,6 +505,13 @@ class SessionDialog(QWidget):
         self._update_buttons()
 
     def _next_or_create(self) -> None:
+        if self._resume_worker is not None:
+            return
+        if self._resume_error:
+            self.message.setText(
+                "Resume attachment failed. Retry or explicitly choose a saved resume or No resume."
+            )
+            return
         if self.pages.currentIndex() == 0:
             if not self.company.text().strip():
                 self.message.setText("Enter a company name.")
@@ -442,7 +526,11 @@ class SessionDialog(QWidget):
         except ValueError as e:
             self.message.setText(str(e))
             return
-        if self._library is not None and details.resume_name:
+        if (
+            self._library is not None
+            and details.resume_name
+            and details.resume_name not in self._temporary_resumes
+        ):
             try:
                 self._library.touch(details.resume_name)
             except (OSError, ValueError) as e:
@@ -456,6 +544,11 @@ class SessionDialog(QWidget):
         self.cancelled.emit()
 
     def _reset(self) -> None:
+        self._discard_resume = True
+        if self._resume_worker is not None:
+            self._resume_worker.requestInterruption()
+        self._temporary_resumes.clear()
+        self._resume_error = ""
         self.company.clear()
         self.role_title.clear()
         self.job_description.clear()
@@ -484,6 +577,10 @@ class SessionDialog(QWidget):
 
     def collect(self) -> SessionDetails:
         """Raises ValueError with a user-readable reason if the model override is invalid."""
+        if self._resume_worker is not None:
+            raise ValueError("Wait for the resume to finish loading.")
+        if self._resume_error:
+            raise ValueError("Resume attachment failed. Retry or choose a resume again.")
         routes = []
         for selector in self.model_selectors:
             selected = selector.currentData()
