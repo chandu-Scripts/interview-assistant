@@ -11,6 +11,7 @@ import numpy as np
 
 from interview_assistant.audio.types import TARGET_RATE, DeviceKind
 from interview_assistant.stt.base import StreamingSTTProvider, TranscriptEvent
+from interview_assistant.stt.speechmatics import SpeechmaticsError
 from interview_assistant.stt.streaming import MAX_BACKLOG
 
 log = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class RealtimeTranscriber:
         self._busy = False
         self._generation = 0
         self._retry_at = 0.0
+        self._fallback_notice = SpeechmaticsError("failure").fallback_notice
         self._thread = threading.Thread(target=self._run, name="realtime-stt", daemon=True)
 
     def start(self, warmup: bool = False) -> None:
@@ -157,20 +159,20 @@ class RealtimeTranscriber:
                 if time.monotonic() < self._retry_at:
                     raise RuntimeError("Speechmatics reconnect cooldown")
                 text = self._provider.stream(self._chunks(utterance, generation), preview)
-            except Exception:
+            except Exception as exc:
                 with self._cv:
                     utterance.cancelled = True
                     self._cv.notify_all()
                     valid = self._valid(generation)
                     if valid and time.monotonic() >= self._retry_at:
                         self._retry_at = time.monotonic() + 10
-                    if valid and self._on_error:
-                        self._on_error(
-                            RuntimeError(
-                                "Live transcription interrupted. Using fallback; "
-                                "text may appear after you finish speaking."
-                            )
+                        self._fallback_notice = (
+                            exc.fallback_notice
+                            if isinstance(exc, SpeechmaticsError)
+                            else SpeechmaticsError("failure").fallback_notice
                         )
+                    if valid and self._on_error:
+                        self._on_error(RuntimeError(self._fallback_notice))
                 with self._cv:
 
                     def ready_for_fallback(

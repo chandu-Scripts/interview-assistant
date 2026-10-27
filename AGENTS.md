@@ -186,6 +186,10 @@ with the safety boundaries below), and the file:line references each step builds
   utterance and independent mic/loopback workers. Partials update the UI; only the completed
   utterance enters question aggregation. Stop/presentation cancels pending streams.
   Failures use OpenAI if configured, otherwise local Whisper, with a 10-second reconnect cooldown.
+  Allowlisted Speechmatics error categories distinguish account usage, concurrent-session,
+  authentication, configuration and connection failures in the overlay and logs. Never expose
+  remote reason strings. Preserve the specific notice during cooldown; successful partials
+  clear it. Live diagnostics must use the same effective credential precedence as the app.
   Speechmatics usage duration is recorded with unknown dollar cost until a pricing override is set.
   See `docs/paragraph-cards-transcripts.md` for measurements and limits.
 - First run shows the setup wizard (skip with SKIP_ONBOARDING=true for automation). Tests are isolated from the real

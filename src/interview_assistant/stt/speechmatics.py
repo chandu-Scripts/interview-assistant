@@ -8,11 +8,61 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 import numpy as np
+from websockets.exceptions import ConnectionClosed, InvalidStatus
 from websockets.sync.client import connect
 
 from interview_assistant.stt.base import STTError, STTProvider
 
 log = logging.getLogger(__name__)
+
+
+_ERROR_NOTICES = {
+    "quota_exceeded": (
+        "Speechmatics concurrent-session limit reached. Close other transcription sessions."
+    ),
+    "timelimit_exceeded": (
+        "Speechmatics usage allowance exhausted. Check your Speechmatics account."
+    ),
+    "not_authorised": "Speechmatics key rejected. Check the key in Settings.",
+    "not_allowed": "Speechmatics access denied. Check your account permissions.",
+    "invalid_model": "Speechmatics model unavailable for this account.",
+    "invalid_language": "Speechmatics does not support the selected language.",
+    "invalid_config": "Speechmatics rejected the transcription settings.",
+    "invalid_audio_type": "Speechmatics rejected the audio format.",
+    "invalid_message": "Speechmatics rejected a transcription request.",
+    "invalid_output_format": "Speechmatics rejected the output format.",
+    "protocol_error": "Speechmatics transcription protocol error.",
+    "job_error": "Speechmatics could not process this speech.",
+    "internal_error": "Speechmatics service temporarily unavailable.",
+    "idle_timeout": "Speechmatics closed an idle connection.",
+    "session_timeout": "Speechmatics session time limit reached.",
+    "rate_limited": "Speechmatics request limit reached. Retrying shortly.",
+    "timeout": "Speechmatics connection timed out.",
+    "connection_lost": "Speechmatics connection dropped.",
+    "failure": "Live transcription interrupted.",
+}
+_CLOSE_ERRORS = {
+    1003: "protocol_error",
+    1011: "internal_error",
+    4001: "not_authorised",
+    4003: "not_allowed",
+    4004: "invalid_model",
+    4005: "quota_exceeded",
+    4006: "timelimit_exceeded",
+    4013: "job_error",
+}
+
+
+class SpeechmaticsError(STTError):
+    """Only allowlisted categories reach logs/UI; remote reasons can contain secrets."""
+
+    def __init__(self, reason: object) -> None:
+        self.reason = reason if isinstance(reason, str) and reason in _ERROR_NOTICES else "failure"
+        super().__init__(_ERROR_NOTICES[self.reason])
+
+    @property
+    def fallback_notice(self) -> str:
+        return f"{self} Using fallback; text may appear after you finish speaking."
 
 
 class SpeechmaticsProvider:
@@ -83,8 +133,10 @@ class SpeechmaticsProvider:
                     ready = json.loads(ws.recv(timeout=max(0.01, deadline - time.monotonic())))
                     if ready.get("message") == "RecognitionStarted":
                         break
-                    if ready.get("message") == "Error" or time.monotonic() >= deadline:
-                        raise STTError("Speechmatics could not start recognition.")
+                    if ready.get("message") == "Error":
+                        raise SpeechmaticsError(ready.get("type"))
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError
 
                 def send() -> None:
                     sequence = 0
@@ -111,7 +163,7 @@ class SpeechmaticsProvider:
                     data = json.loads(ws.recv(timeout=8))
                     kind = data.get("message")
                     if kind == "Error":
-                        raise STTError("Speechmatics recognition failed.")
+                        raise SpeechmaticsError(data.get("type"))
                     if kind in {"AddTranscript", "AddPartialTranscript"}:
                         text = data.get("metadata", {}).get("transcript", "")
                         if kind == "AddTranscript":
@@ -125,11 +177,22 @@ class SpeechmaticsProvider:
                         return confirmed.strip()
         except Exception as exc:
             # Remote errors can contain request details. Expose only our own safe message.
-            reason = "timeout" if isinstance(exc, TimeoutError) else "failure"
-            log.warning("Speechmatics %s: %s; fallback requested", phase, reason)
-            raise STTError(
-                f"Speechmatics {phase} {reason}; using fallback transcription."
-            ) from None
+            error = SpeechmaticsError("failure")
+            if isinstance(exc, SpeechmaticsError):
+                error = exc
+            elif isinstance(exc, TimeoutError):
+                error = SpeechmaticsError("timeout")
+            elif isinstance(exc, InvalidStatus):
+                error = SpeechmaticsError(
+                    {401: "not_authorised", 403: "not_allowed", 429: "rate_limited"}.get(
+                        exc.response.status_code, "failure"
+                    )
+                )
+            elif isinstance(exc, ConnectionClosed):
+                code = exc.rcvd.code if exc.rcvd is not None else 0
+                error = SpeechmaticsError(_CLOSE_ERRORS.get(code, "connection_lost"))
+            log.warning("Speechmatics %s: %s; fallback requested", phase, error.reason)
+            raise error from None
         finally:
             finished.set()
             # The chunk iterator polls finished via its owning worker's cancellation signal.

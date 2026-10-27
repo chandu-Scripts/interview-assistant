@@ -14,7 +14,7 @@ import numpy as np
 
 from interview_assistant.audio.convert import to_mono_16k
 from interview_assistant.audio.vad import SpeechSegmenter, VadConfig
-from interview_assistant.config.keys import KeyringStore
+from interview_assistant.config.loader import load_settings
 from interview_assistant.stt.realtime import RealtimeTranscriber
 from interview_assistant.stt.speechmatics import SpeechmaticsProvider
 
@@ -33,9 +33,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("wav")
     args = parser.parse_args()
-    key = KeyringStore().get("speechmatics")
-    if not key:
+    credential = load_settings().speechmatics_api_key
+    if credential is None:
         raise SystemExit("No Speechmatics credential found")
+    key = credential.get_secret_value()
     with wave.open(args.wav, "rb") as wav:
         if wav.getsampwidth() != 2:
             raise SystemExit("Use a 16-bit PCM WAV")

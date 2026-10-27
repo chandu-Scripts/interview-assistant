@@ -111,3 +111,37 @@ timeout/failure category, never remote exception text, credentials, audio or tra
 The October 25 screenshot's exact trigger could not be recovered from the old logs, which
 did not record streaming failure stages. These changes fix misleading/stale status handling;
 they do not establish or eliminate a network/provider cause for that particular incident.
+
+## Specific failure diagnostics (October 28, 2026)
+
+The October 28 screenshot coincides with repeated `recognition startup: failure` log entries.
+Those entries establish the failing stage, but the old transport discarded the provider's
+error type, so they cannot establish whether the cause was an account limit, authentication,
+configuration, service failure or connection interruption.
+
+The transport now maps allowlisted Error types, documented WebSocket close codes and HTTP
+authentication/rate-limit statuses to safe messages. In particular, `quota_exceeded` means a
+concurrent-session limit; `timelimit_exceeded` means usage allowance exhaustion. These are
+different remedies. Unknown types retain the generic fallback notice. Remote reason strings,
+headers, response bodies and arbitrary exception text are never displayed or logged.
+Reference: https://docs.speechmatics.com/api-ref/realtime-transcription-websocket#error
+
+The worker preserves the specific notice through its existing 10-second reconnect cooldown.
+Fallback, cancellation and recovery behavior remain unchanged. Native overlay checks confirm
+that the full message is available in the tooltip and a new partial clears the warning.
+The opt-in live helper now loads the effective settings credential instead of reading only
+Credential Manager; these differed on the inspected machine, so the old helper could test a
+different key from the running app. No credentials or settings were changed.
+
+Validation: 131 focused/regression tests passed, plus four parameterized overlay notice checks.
+A native Windows run passed 40 overlapping transport/UI checks. Ruff passed; mypy passed all
+101 source files. Coverage includes startup and midstream rejection, malicious/unknown error
+payloads, HTTP rejection, close codes, preserved cooldown messages, fallback and recovery.
+
+Live tests used synthetic speech only, with no microphone capture: three sequential streams
+each returned 38 partials, first text at 0.962-0.985 seconds after VAD speech start and finals
+0.433-0.446 seconds after VAD end. Two concurrent streams in one process both succeeded, each
+returning 42 partials, with first text 1.207-1.224 seconds after the stream call. No fallback
+occurred. A short synthetic-silence startup probe also succeeded. These tests do not reproduce
+or fix the historical provider failure; the new diagnostics identify the cause if it recurs.
+Restart the source preview to load the change. Installer and website download are unchanged.

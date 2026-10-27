@@ -12,7 +12,7 @@ from interview_assistant.stt.base import STTError
 from interview_assistant.stt.factory import build_provider
 from interview_assistant.stt.metered import MeteredSTT
 from interview_assistant.stt.realtime import RealtimeTranscriber
-from interview_assistant.stt.speechmatics import SpeechmaticsProvider
+from interview_assistant.stt.speechmatics import SpeechmaticsError, SpeechmaticsProvider
 from interview_assistant.ui.audio_panel import AudioPanel
 from interview_assistant.ui.main_window import MainWindow
 from tests.test_audio import DEVS, FakeSource, silence, tone
@@ -103,6 +103,110 @@ def test_network_errors_are_sanitized_and_transport_logging_disabled(caplog):
     assert "fake-secret" not in caplog.text
     assert "Speechmatics connection: failure" in caplog.text
     assert error.value.__suppress_context__
+
+
+@pytest.mark.parametrize("phase", ["startup", "live"])
+@pytest.mark.parametrize(
+    "code, notice",
+    [
+        ("quota_exceeded", "concurrent-session limit"),
+        ("timelimit_exceeded", "usage allowance exhausted"),
+        ("not_authorised", "key rejected"),
+        ("invalid_config", "rejected the transcription settings"),
+        ("fake-secret", "Live transcription interrupted"),
+        ({"unexpected": "fake-secret"}, "Live transcription interrupted"),
+    ],
+)
+def test_provider_errors_are_actionable_without_remote_details(caplog, phase, code, notice):
+    class RejectedSocket(Socket):
+        def send(self, data):
+            if isinstance(data, str) and json.loads(data)["message"] == "StartRecognition":
+                if phase == "live":
+                    self.messages.put({"message": "RecognitionStarted"})
+                self.messages.put({"message": "Error", "type": code, "reason": "fake-secret"})
+            else:
+                super().send(data)
+
+    with pytest.raises(SpeechmaticsError) as caught:
+        provider(RejectedSocket()).stream(iter([tone(0.1)]), lambda text: None)
+    assert notice in caught.value.fallback_notice
+    assert "fake-secret" not in str(caught.value)
+    assert "fake-secret" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "status, reason",
+    [
+        (401, "not_authorised"),
+        (403, "not_allowed"),
+        (429, "rate_limited"),
+        (503, "failure"),
+    ],
+)
+def test_http_rejection_sanitizes_response(status, reason, caplog):
+    from websockets.datastructures import Headers
+    from websockets.exceptions import InvalidStatus
+    from websockets.http11 import Response
+
+    def rejected(*args, **kwargs):
+        raise InvalidStatus(Response(status, "fake-secret", Headers(), b"fake-secret"))
+
+    with pytest.raises(SpeechmaticsError) as caught:
+        SpeechmaticsProvider("fake-secret", FakeSTT(), connector=rejected).stream(iter([]), print)
+    assert caught.value.reason == reason
+    assert "fake-secret" not in caplog.text + str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "code, reason",
+    [(4005, "quota_exceeded"), (4006, "timelimit_exceeded"), (1006, "connection_lost")],
+)
+def test_close_code_without_error_message_is_classified(code, reason, caplog):
+    from websockets.exceptions import ConnectionClosedError
+    from websockets.frames import Close
+
+    class ClosedSocket(Socket):
+        def recv(self, timeout):
+            raise ConnectionClosedError(Close(code, "fake-secret"), None)
+
+    with pytest.raises(SpeechmaticsError) as caught:
+        provider(ClosedSocket()).stream(iter([]), print)
+    assert caught.value.reason == reason
+    assert "fake-secret" not in caplog.text + str(caught.value)
+
+
+def test_specific_fallback_notice_survives_cooldown_and_retry_recovers():
+    events, errors, attempts = [], [], []
+
+    def connect(*args, **kwargs):
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise SpeechmaticsError("timelimit_exceeded")
+        return Socket()
+
+    t = RealtimeTranscriber(
+        SpeechmaticsProvider("test", FakeSTT(), connector=connect), events.append, errors.append
+    )
+    t.start()
+    try:
+        for _ in range(2):
+            t.speech_started()
+            t.submit_final(tone(0.3))
+            wait_idle(t)
+        assert len(attempts) == 1
+        assert len(errors) == 2
+        assert all("usage allowance exhausted" in str(e) for e in errors)
+        assert all("Using fallback" in str(e) for e in errors)
+        assert len([e for e in events if e.is_final]) == 2
+        t._retry_at = 0
+        t.speech_started()
+        t.submit_final(tone(0.3))
+        wait_idle(t)
+        assert len(attempts) == 2
+        assert events[-1].text == "How many catalogs?"
+        assert len(errors) == 2
+    finally:
+        t.stop()
 
 
 def test_streams_before_final_without_resending_prefix_and_meters_once():

@@ -924,9 +924,14 @@ def test_overlay_live_text_and_listening_dot(overlay):
     assert overlay.dot.toolTip() == "idle"
 
 
-def test_transcription_warning_shows_reason_and_recovers_on_partial(overlay):
+@pytest.mark.parametrize(
+    "reason", ["failure", "timelimit_exceeded", "quota_exceeded", "not_authorised"]
+)
+def test_transcription_warning_shows_reason_and_recovers_on_partial(overlay, reason):
+    from interview_assistant.stt.speechmatics import SpeechmaticsError
+
     overlay.set_listening(True)
-    message = "Live transcription interrupted. Using fallback; text follows after speech."
+    message = SpeechmaticsError(reason).fallback_notice
     overlay.on_transcription_status(message)
     assert overlay.status_label.text() == "Speech status"
     assert overlay.transcript.toolTip() == message
