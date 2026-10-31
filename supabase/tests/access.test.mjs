@@ -116,6 +116,24 @@ try {
   await denied(() => block(admin, true, 0), '22023');
   await denied(() => asUser(admin, () => scalar('select public.customer_admin_list(null, 1000) as value')), '22023');
 
+  // Deterministic expiration failpoint: the real identity guard first accepts the
+  // session, then its JWT clock bound expires before snapshot computation. The
+  // helper modification and temporary grant renewal are rolled back together.
+  await db.exec('begin');
+  try {
+    await db.query("update customer_private.grants set expires_at=now()+interval '1 day' where user_id=$1", [a]);
+    const identity = await scalar("select pg_get_functiondef('customer_private.require_identity()'::regprocedure) as value");
+    await db.exec(identity.replace('return caller;', `
+      perform set_config('request.jwt.claims', jsonb_set(auth.jwt(), '{exp}', '1'::jsonb)::text, true);
+      return caller;`));
+    const expiredDuringCheck = await snapshot(a);
+    check(expiredDuringCheck.allowed, false);
+    check(expiredDuringCheck.reason, 'expired');
+    check(expiredDuringCheck.lease_seconds, 0);
+  } finally {
+    await db.exec('rollback');
+  }
+
   await db.query('delete from auth.sessions where user_id=$1', [b]);
   await denied(() => snapshot(b));
   await denied(() => asUser(a, () => scalar('select public.customer_access_snapshot() as value'), {exp: 1}));

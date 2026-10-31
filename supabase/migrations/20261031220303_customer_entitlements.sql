@@ -98,6 +98,9 @@ begin
         ttl := least(60, extract(epoch from (grant_row.expires_at - stamp)),
             (auth.jwt()->>'exp')::numeric - extract(epoch from stamp),
             coalesce(extract(epoch from (session_expiry - stamp)), 60));
+        if ttl <= 0 then
+            reason := 'expired';
+        end if;
     end if;
     return jsonb_build_object('user_id', caller, 'allowed', reason = 'allowed',
         'reason', reason, 'lease_seconds', greatest(0, ttl), 'version', account_row.version,
