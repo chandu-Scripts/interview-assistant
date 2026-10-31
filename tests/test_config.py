@@ -177,7 +177,8 @@ def test_keyring_store_survives_backend_errors(monkeypatch):
     monkeypatch.setattr(keyring, "delete_password", boom)
     store = KeyringStore("x")
     assert store.get("openai") is None
-    store.delete("openai")  # no raise
+    with pytest.raises(RuntimeError, match="removal could not be verified"):
+        store.delete("openai")
     monkeypatch.setattr(keyring, "set_password", boom)
     with pytest.raises(RuntimeError):
         store.set("openai", "k")  # saving must fail loudly so the UI can tell the user
@@ -588,7 +589,8 @@ def test_relay_panel_approved_with_no_token_in_payload_does_not_crash(qtbot, cle
     )
     panel.check_btn.click()
     assert tokens.get() is None
-    assert "Connected" in panel.status.text()  # still reflects approval, just no local token yet
+    assert "did not include an access token" in panel.status.text()
+    assert panel.check_btn.isEnabled()
 
 
 def test_relay_panel_check_network_failure_reports_and_reenables(qtbot, clean_env):

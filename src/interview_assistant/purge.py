@@ -86,15 +86,9 @@ def _account_credentials(target: Path) -> set[tuple[str, str]]:
 
 
 def _delete_account_credential(service: str, username: str) -> None:
-    import keyring
-    from keyring.errors import PasswordDeleteError
+    from interview_assistant.config.credential_ops import delete_verified
 
-    try:
-        keyring.delete_password(service, username)
-    except PasswordDeleteError:
-        # Windows raises this for an absent credential. A vault-access failure must surface.
-        if keyring.get_password(service, username) is not None:
-            raise
+    delete_verified(service, username)
 
 
 @dataclass
@@ -128,12 +122,27 @@ def purge(
     if cleanup is None and keys is None:
         cleanup = _delete_account_credential
     if cleanup is not None:
+        credentials.add(("InterviewAssistantRelay", "token"))
         for service, username in sorted(credentials):
             try:
                 cleanup(service, username)
                 report.keys_removed.append(f"{service}/{username}")
             except Exception as error:
                 report.errors.append(f"Account credential cleanup: {type(error).__name__}")
+    if keys is None:
+        from interview_assistant.config.keys import KeyringStore
+
+        keys = KeyringStore()
+    for provider in KEY_PROVIDERS:
+        try:
+            present = bool(keys.get(provider))
+            # Runtime reads deliberately tolerate vault errors. Only strict deletion
+            # can verify absence, even if that runtime read returned None.
+            keys.delete(provider)
+            if present:
+                report.keys_removed.append(provider)
+        except Exception as e:
+            report.errors.append(f"{provider} key: {type(e).__name__}")
     if report.errors:
         # Keep inventory for a later retry instead of orphaning remaining vault credentials.
         return report
@@ -144,17 +153,6 @@ def purge(
             report.data_dir_removed = True
         except (OSError, ValueError) as e:
             report.errors.append(f"{target}: {e}")
-    if keys is None:
-        from interview_assistant.config.keys import KeyringStore
-
-        keys = KeyringStore()
-    for provider in KEY_PROVIDERS:
-        if keys.get(provider):
-            try:
-                keys.delete(provider)
-                report.keys_removed.append(provider)
-            except Exception as e:
-                report.errors.append(f"{provider} key: {type(e).__name__}")
     stores = (
         list(qsettings)
         if qsettings is not None
