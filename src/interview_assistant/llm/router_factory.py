@@ -1,5 +1,7 @@
 from collections.abc import Callable, Mapping
 
+from interview_assistant.account.context import current_context
+from interview_assistant.config.keys import PROVIDERS
 from interview_assistant.config.settings import Settings
 from interview_assistant.llm.base import LLMProvider
 from interview_assistant.llm.factory import build_providers
@@ -21,7 +23,10 @@ def parse_chain(spec: str) -> list[Route]:
 
 
 def default_chains(s: Settings) -> dict[str, list[Route]]:
-    if s.relay_url and s.relay_token:
+    context = current_context()
+    if context is not None:
+        context.require_active()
+    if context is None and s.relay_url and s.relay_token:
         # Connected via someone else's shared access (config/relay.py): route everything through
         # them instead of needing your own provider keys at all.
         fast, smart = "relay:fast", "relay:smart"
@@ -35,10 +40,18 @@ def default_chains(s: Settings) -> dict[str, list[Route]]:
         smart = (
             f"anthropic:{s.anthropic_model},openai:{s.openai_smart_model},gemini:{s.gemini_model}"
         )
-    return {
+    chains = {
         "fast": parse_chain(s.router_fast or fast),
         "smart": parse_chain(s.router_smart or smart),
     }
+    if context is not None:
+        # Old or imported relay-only preferences fall back to the customer's own
+        # provider presets. A missing customer key still leaves no usable route.
+        for tier, default in (("fast", fast), ("smart", smart)):
+            chains[tier] = [route for route in chains[tier] if route.provider in PROVIDERS]
+            if not chains[tier]:
+                chains[tier] = parse_chain(default)
+    return chains
 
 
 def build_router(
@@ -46,7 +59,14 @@ def build_router(
     providers: Mapping[str, LLMProvider] | None = None,
     on_attempt: Callable[[AttemptRecord], None] | None = None,
 ) -> Router:
+    context = current_context()
+    if context is not None:
+        context.require_active()
     providers = build_providers(settings) if providers is None else providers
+    if context is not None:
+        # Copy even injected maps: later mutation must not introduce a relay that a
+        # historical preferred route could otherwise select outside the default chains.
+        providers = {name: provider for name, provider in providers.items() if name in PROVIDERS}
     config = RouterConfig(
         chains=default_chains(settings),
         first_token_timeout_s=settings.router_first_token_timeout_s,

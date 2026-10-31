@@ -1,3 +1,4 @@
+from interview_assistant.account.context import current_context
 from interview_assistant.config.settings import Settings
 from interview_assistant.llm.anthropic_llm import AnthropicProvider
 from interview_assistant.llm.base import LLMProvider
@@ -7,6 +8,9 @@ from interview_assistant.llm.openai_llm import OpenAIProvider
 
 def build_providers(settings: Settings) -> dict[str, LLMProvider]:
     """Providers for which an API key is configured, keyed by name."""
+    context = current_context()
+    if context is not None:
+        context.require_active()
     out: dict[str, LLMProvider] = {}
     if settings.openai_api_key:
         out["openai"] = OpenAIProvider(
@@ -20,7 +24,7 @@ def build_providers(settings: Settings) -> dict[str, LLMProvider]:
         out["gemini"] = GeminiProvider(
             settings.gemini_api_key.get_secret_value(), settings.gemini_model
         )
-    if settings.relay_url and settings.relay_token:
+    if context is None and settings.relay_url and settings.relay_token:
         # OpenAIProvider's base_url param already speaks the relay's wire format exactly - no new
         # client code needed. "fast"/"smart" are sent as the literal model string; the relay (not
         # this client) decides what real model that maps to.

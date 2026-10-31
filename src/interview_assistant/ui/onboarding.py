@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QWizardPage,
 )
 
+from interview_assistant.account.context import current_context
 from interview_assistant.config.keys import (
     PROVIDERS,
     KeyStatus,
@@ -72,8 +73,15 @@ class ProvidersPage(QWizardPage):
     ) -> None:
         super().__init__()
         self.setTitle("AI providers")
+        billing = (
+            "Use your own provider API keys. Providers bill your provider account for usage, "
+            "separately from app access. "
+            if current_context() is not None
+            else ""
+        )
         self.setSubTitle(
-            "Add at least one API key. Keys are stored encrypted in the Windows Credential "
+            billing
+            + "Add at least one API key. Keys are stored encrypted in the Windows Credential "
             "Manager. Use Test to check a key (it is free), then Save."
         )
         lay = QVBoxLayout(self)

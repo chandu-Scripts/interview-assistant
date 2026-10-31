@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from uuid import uuid4
 
+from interview_assistant.account.locking import account_mutation
+
 
 @dataclass(frozen=True)
 class PracticeAnswer:
@@ -127,6 +129,7 @@ class PracticeLibrary:
         except (ValueError, TypeError, KeyError) as e:
             raise ValueError("Cannot read the Q&A library. The original file is preserved.") from e
 
+    @account_mutation
     def save(self, entry_id: str | None, question: str, answer: str) -> str:
         question, answer = question.strip(), answer.strip()
         if not question_key(question) or not answer:
@@ -149,9 +152,11 @@ class PracticeLibrary:
         )
         return entry_id
 
+    @account_mutation
     def delete(self, entry_id: str) -> None:
         self._write([e for e in self.entries() if e.id != entry_id])
 
+    @account_mutation
     def import_json(self, text: str) -> tuple[int, int]:
         pairs = parse_qa_json(text)
         if not self.writable:
@@ -165,6 +170,7 @@ class PracticeLibrary:
             self._write([*entries, *additions])
         return len(additions), len(pairs) - len(additions)
 
+    @account_mutation
     def add_examples(self) -> None:
         entries = self.entries()
         questions = {question_key(e.question) for e in entries}
@@ -197,6 +203,8 @@ class PracticeLibrary:
                 json.dump([asdict(e) for e in entries], stream, ensure_ascii=False, indent=2)
                 stream.flush()
                 os.fsync(stream.fileno())
+            if not self.writable:
+                raise ValueError("Turn off Incognito in Privacy to change saved Q&A.")
             temporary.replace(self.path)
         finally:
             if temporary is not None:

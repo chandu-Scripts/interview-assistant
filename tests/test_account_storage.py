@@ -144,7 +144,8 @@ def test_keyring_and_relay_use_account_namespaces_and_deny_late_calls(context, m
     relay.set("account-relay-token")
     settings = load_settings()
     assert settings.openai_api_key.get_secret_value() == "new-account-key"
-    assert settings.relay_token.get_secret_value() == "account-relay-token"
+    assert settings.relay_token is None  # Customers use their own direct provider keys.
+    assert vault[(relay._service, "token")] == "account-relay-token"
     assert vault[("InterviewAssistant", "openai")] == "legacy-key"
     assert keys._service.endswith(context.credential_namespace)
     assert relay._service.endswith(context.credential_namespace)

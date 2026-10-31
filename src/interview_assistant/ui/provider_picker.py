@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from interview_assistant.account.context import current_context
 from interview_assistant.config.keys import PROVIDERS
 from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.provider_catalog import NAMES, ProviderCatalog, fingerprint
@@ -213,6 +214,11 @@ class ModelPicker(GlassDialog):
 class ModelSelector(ChoiceComboBox):
     def __init__(self, choices: list[str], *, title: str = "Preferred model") -> None:
         super().__init__()
+        self._customer = current_context() is not None
+        if self._customer:
+            choices = [
+                route for route in choices if route.partition(":")[0].strip().lower() in PROVIDERS
+            ]
         self.picker_title = title
         self.setAccessibleName(title)
         self.catalog: ProviderCatalog | None = None
@@ -230,6 +236,8 @@ class ModelSelector(ChoiceComboBox):
         self.refresh_models()
 
     def provider_ready(self, provider: str) -> bool:
+        if self._customer and provider not in PROVIDERS:
+            return False
         return (
             provider == "relay"
             or self.runtime_keys is None

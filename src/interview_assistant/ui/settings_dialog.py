@@ -21,8 +21,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from interview_assistant.account.context import current_context
 from interview_assistant.app.hotkeys import parse_hotkey
-from interview_assistant.config.keys import KEY_PROVIDERS, KeyStatus, KeyStore, key_status
+from interview_assistant.config.keys import (
+    KEY_PROVIDERS,
+    PROVIDERS,
+    KeyStatus,
+    KeyStore,
+    key_status,
+)
 from interview_assistant.config.provider_check import check_key
 from interview_assistant.config.relay import (
     KeyringRelayTokenStore,
@@ -74,6 +81,8 @@ class SettingsDialog(QDialog):
         self._store = store
         self._keys = keys
         self._raw = raw_settings
+        self._customer = current_context() is not None
+        self.relay_panel: RelayPanel | None = None
         self.catalog = catalog or ProviderCatalog(
             raw_settings,
             keys,
@@ -92,12 +101,16 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self._profile_tab(), "Profile")
         self.tabs.addTab(self._budget_tab(), "Budget && history")
         self.tabs.addTab(self._privacy_tab(), "Privacy && hotkeys")
-        self.tabs.addTab(
-            self._shared_access_tab(
-                relay_store or KeyringRelayTokenStore(), relay_request_fn, relay_status_fn, runner
-            ),
-            "Shared access",
-        )
+        if not self._customer:
+            self.tabs.addTab(
+                self._shared_access_tab(
+                    relay_store or KeyringRelayTokenStore(),
+                    relay_request_fn,
+                    relay_status_fn,
+                    runner,
+                ),
+                "Shared access",
+            )
         # Each tab scrolls independently; hidden tabs must not widen the whole workspace.
         for index in range(self.tabs.count()):
             content = self.tabs.widget(index)
@@ -137,6 +150,13 @@ class SettingsDialog(QDialog):
         )
         note.setWordWrap(True)
         lay.addWidget(note)
+        if self._customer:
+            billing = QLabel(
+                "Use your own provider API keys. AI and cloud transcription usage is billed "
+                "by the provider to your provider account, separately from app access."
+            )
+            billing.setWordWrap(True)
+            lay.addWidget(billing)
         self.provider_buttons: dict[str, QPushButton] = {}
         self.provider_dialogs: dict[str, GlassDialog] = {}
         self.provider_states: dict[str, QLabel] = {}
@@ -419,8 +439,15 @@ class SettingsDialog(QDialog):
         s = self._raw()
         for field, box in self.model_boxes.items():
             box.setCurrentText(getattr(s, field))
-        self.router_fast.setText(s.router_fast or "")
-        self.router_smart.setText(s.router_smart or "")
+        for field, edit in (("router_fast", self.router_fast), ("router_smart", self.router_smart)):
+            value = getattr(s, field) or ""
+            if self._customer and value:
+                value = ",".join(
+                    f"{route.provider}:{route.model}"
+                    for route in parse_chain(value)
+                    if route.provider in PROVIDERS
+                )
+            edit.setText(value)
         self._select(self.stt_provider, s.stt_provider)
         self._select_or_add(self.whisper_model, s.whisper_model)
         self.stt_language.setText(s.stt_language or "")
@@ -447,7 +474,8 @@ class SettingsDialog(QDialog):
         self.hotkey_chat.setText(s.hotkey_chat)
         for row in self.key_rows.values():
             row.refresh()
-        self.relay_panel.refresh()
+        if self.relay_panel is not None:
+            self.relay_panel.refresh()
         # Missing credentials must not prevent opening the page that lets the user add them.
         self._initial = self.collect(validate_keys=False)
         self._refresh_providers()
@@ -470,7 +498,12 @@ class SettingsDialog(QDialog):
             text = edit.text().strip()
             if text:
                 try:
-                    parse_chain(text)
+                    routes = parse_chain(text)
+                    if self._customer and any(route.provider not in PROVIDERS for route in routes):
+                        raise ValueError(
+                            "Customer accounts use your OpenAI, Anthropic or Google keys. "
+                            "Shared access routes are unavailable."
+                        )
                 except ValueError as e:
                     raise ValueError(f"{field}: {e}") from e
             values[field] = text or None

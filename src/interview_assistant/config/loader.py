@@ -16,16 +16,16 @@ def load_settings(
     if context is not None:
         context.require_active()
     store = store or KeyringStore()
-    relay_store = relay_store or KeyringRelayTokenStore()
     update: dict[str, SecretStr | None] = {}
     for provider in KEY_PROVIDERS:
         key = effective_key(provider, settings, store)
         update[f"{provider}_api_key"] = SecretStr(key) if key else None
-    if (
-        context is not None
-        or settings.relay_token is None
-        or not settings.relay_token.get_secret_value()
-    ):
+    if context is not None:
+        # Customer subscriptions never opt into someone else's AI billing. Leave any
+        # earlier stored relay credential untouched, but do not construct or read its store.
+        update.update(relay_url=None, relay_token=None, relay_pending_id=None)
+    elif settings.relay_token is None or not settings.relay_token.get_secret_value():
+        relay_store = relay_store or KeyringRelayTokenStore()
         stored = relay_store.get()
         if stored:
             update["relay_token"] = SecretStr(stored)

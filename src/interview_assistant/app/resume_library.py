@@ -8,6 +8,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from interview_assistant.account.locking import account_mutation
+
 
 @dataclass(frozen=True)
 class Resume:
@@ -63,6 +65,7 @@ class ResumeLibrary:
             ) from e
         return sorted(resumes, key=lambda r: r.last_used, reverse=True)
 
+    @account_mutation
     def add(self, name: str, text: str) -> Resume:
         resumes = [r for r in self._read() if r.name != name]
         resume = Resume(name, text, time.time())
@@ -70,6 +73,7 @@ class ResumeLibrary:
         self._save(resumes)
         return resume
 
+    @account_mutation
     def touch(self, name: str) -> None:
         if not self._can_write():
             return
@@ -77,6 +81,7 @@ class ResumeLibrary:
             [Resume(r.name, r.text, time.time()) if r.name == name else r for r in self._read()]
         )
 
+    @account_mutation
     def add_copy(self, name: str, text: str) -> Resume:
         """Import without replacing an existing resume, including case-only collisions."""
         resumes = self._read()
@@ -91,6 +96,7 @@ class ResumeLibrary:
         self._save([*resumes, resume])
         return resume
 
+    @account_mutation
     def rename(self, name: str, new_name: str) -> None:
         new_name = new_name.strip()
         resumes = self._read()
@@ -104,6 +110,7 @@ class ResumeLibrary:
             [Resume(new_name, r.text, r.last_used) if r.name == name else r for r in resumes]
         )
 
+    @account_mutation
     def delete(self, name: str) -> None:
         self._save([r for r in self._read() if r.name != name])
 
@@ -126,6 +133,8 @@ class ResumeLibrary:
                 json.dump(data, f, ensure_ascii=False, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
+            if not self._can_write():
+                raise ValueError("Turn off incognito before changing the saved resume library.")
             temporary.replace(self._path)
         finally:
             if temporary is not None:

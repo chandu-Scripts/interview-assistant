@@ -248,6 +248,20 @@ and `server/DEPLOY.md`.
   Do not fund customer inference with owner credentials or automatically enroll
   customers in the existing friends relay. This decision does not remove that relay
   from personal use. See `docs/decisions/003-customer-owned-api-keys.md`.
+- Customer mode excludes relay credentials, provider construction and routing,
+  including stale custom chains and preferred routes; Shared access is not constructed.
+  The immutable account context controls this policy. Personal mode retains the relay.
+  API-key validation checks provider authentication, not ownership or billing identity.
+- Access enforcement uses server-owned grants and block state with a memory-only lease
+  of at most 60 seconds, bounded by token/grant/session expiry. Protected server RPCs
+  check the live session and authorization on every call. No per-answer Auth request
+  is added. Blocking denies protected access and future leases; it does not globally
+  delete Auth sessions. Main's default development config remains auth-only until
+  deliberately configured. See `docs/customer-entitlements.md`.
+- Resume and practice-library mutations, including existing JSON Q&A import, acquire
+  the account mutation lock before reading and recheck privacy before atomic replace.
+  Already-admitted writes may finish before revocation returns; later writes fail.
+  Never silently merge legacy data into a new account. See decision 004.
 - Design: `docs/decisions/001-account-login-architecture.md`; implementation and validation:
   `docs/account-login.md`. Customer login does not grant relay approval or paid entitlements.
 - Source development keeps the existing personal workspace unless `--customer` or

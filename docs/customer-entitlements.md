@@ -34,8 +34,10 @@ Account context checks use a pure local lease predicate, so new authority/persis
 also deny at the deadline even before the timer runs; expiry latches context revocation.
 An unresponsive desktop event loop can delay its visible lock; already-admitted atomic local
 mutations can finish. Protected server RPCs always check current database state.
-A modified BYOK client cannot be commercially controlled merely
-by a desktop gate. Owner-funded provider enforcement and the business model remain pending.
+A modified BYOK client cannot be commercially controlled merely by a desktop gate.
+The owner selected customer-owned provider keys; app pricing remains undecided.
+Customer mode excludes the personal/friends relay. See decision 003 and the
+integration record in `docs/decisions/004-customer-access-integration.md`.
 
 ## Database and RPC contract
 
@@ -114,7 +116,9 @@ Remember-me remains explicitly opted in: denied access revokes local runtime aut
 does not erase that opted-in remembered sign-in. Every restore rechecks current server access.
 Clearing remembered login remains an explicit logout/Incognito action. Atomic revocation keeps
 the existing persistence lock; slow admitted storage operations can delay Qt teardown. Local
-resume/Q&A mutation serialization is handled by the separate F5 account-storage change.
+resume/Q&A mutation serialization is included in the customer integration as a narrow
+extraction of F5's guards, without its legacy-transfer feature. Existing practice JSON
+imports are guarded too, and privacy is rechecked before each atomic file replacement.
 
 No hosted migrations, deployment, payments, cloud uploads, real users or keys were used.
 Hosted advisors, managed-role permissions and real JWT/PostgREST integration still require
