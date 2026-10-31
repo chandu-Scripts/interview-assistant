@@ -86,8 +86,11 @@ from being mistaken for successful logout.
 
 The Chrome bridge's read-only SQL preflight timed out without a result. Its
 completion is unknown. No schema migration, fixture provisioning, role assignment
-or hosted access acceptance is confirmed. The owner has been asked for the visible
-browser status; dependent hosted operations remain pending that response. Local
-regressions and the prepared opt-in runner can be completed independently. See
+or hosted access acceptance is confirmed. The owner's later screenshot showed the
+complete SELECT had not been run; Enable Explorer was only an optional feature card.
+One bounded follow-up reported browser keyboard-input and screenshot timeouts before
+Run, with no permission denial. Browser automation stopped and a manual result from
+the original, complete read-only query was requested. Dependent hosted operations
+remain pending that result. Local regressions and the opt-in runner are complete. See
 `docs/customer-access-acceptance.md` for the restricted fixture contract and
 `docs/steps/customer-access-integration-2026-11-01.md` for the recorded results.

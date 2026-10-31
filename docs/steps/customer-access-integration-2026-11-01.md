@@ -62,8 +62,17 @@ The Chrome bridge confirmed the signed-in `chandoo-assistant-dev` project,
 `lctuyznspcufmzzxbjzv`, was healthy and its SQL Editor accessible. The later read-only
 SQL preflight timed out without returning a result; completion is unknown. There
 is no confirmed hosted migration, test-account creation, role promotion or grant
-change. A user-visible browser status check is pending. CLI credentials are not
-available; no private browser storage or credentials were extracted.
+change. The owner subsequently supplied a screenshot showing the complete SELECT
+in the original editor with "Click Run to execute your query". Enable Explorer is
+an optional feature card, not a browser permission prompt.
+
+One bounded follow-up through Claude Chrome confirmed the project again but timed
+out during keyboard input (`Input.dispatchKeyEvent`), followed by a screenshot
+injection timeout. Claude reported it never clicked Run or read results, and no
+permission denial was returned. Its new tab may contain a partial query and remains
+open. Browser automation stopped; the owner was asked to run the complete read-only
+SELECT in the original screenshot's tab and share the Results area. CLI credentials
+are not available; no private browser storage or credentials were extracted.
 
 After browser access is resolved, verify existing schema before applying the
 reviewed migration, provision only dedicated synthetic fixtures, and run the
