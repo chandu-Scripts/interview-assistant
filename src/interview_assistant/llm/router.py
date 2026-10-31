@@ -13,6 +13,8 @@ from interview_assistant.llm.types import (
     LLMResult,
     StreamEvent,
     Usage,
+    completion_is_normal,
+    unfinished_stream,
 )
 
 log = logging.getLogger(__name__)
@@ -223,6 +225,8 @@ class Router:
                 showed_text = False
             inner = self._providers[route.provider].stream(replace(request, model=route.model))
             att = _AttemptState(route, attempt, self._clock())
+            finish_reason: str | None = None
+            has_text = False
             try:
                 while True:
                     timeout = (
@@ -244,9 +248,21 @@ class Router:
                     if ev.delta:
                         showed_text = True
                         att.out_chars += len(ev.delta)
+                        has_text = has_text or bool(ev.delta.strip())
                     if ev.usage:
                         att.usage = ev.usage
+                    if ev.finish_reason:
+                        finish_reason = ev.finish_reason
                     yield RouteEvent(ev, route, attempt)
+                if finish_reason is None:
+                    # Defense for new/custom providers that accidentally accept a clean EOF.
+                    terminal = unfinished_stream(route.provider, has_text)
+                    finish_reason = terminal.finish_reason
+                    yield RouteEvent(terminal, route, attempt)
+                if not has_text and (
+                    completion_is_normal(finish_reason) or finish_reason == "incomplete"
+                ):
+                    raise LLMError(route.provider, ErrorKind.NETWORK, "Stream returned no answer.")
             except LLMError as e:
                 log.warning("Route %s failed: %s", route, e)
                 errors.append(e)
@@ -259,6 +275,14 @@ class Router:
                 raise
             finally:
                 await inner.aclose()
+            if finish_reason in {"incomplete", "incomplete_non_resumable"}:
+                error = LLMError(
+                    route.provider, ErrorKind.NETWORK, "Stream ended before completion."
+                )
+                self._health.failure(route.provider, error.kind)
+                self._record(att.finish(self._clock(), False, tag, in_chars, error=error))
+                # Keep the shown text and require an explicit Continue, avoiding a paid restart.
+                return
             self._health.success(route.provider)
             self._record(att.finish(self._clock(), True, tag, in_chars))
             return
@@ -287,9 +311,14 @@ async def collect_routed(
     """Consume a routed stream into one result (text is reset when the router restarts)."""
     res = RoutedResult()
     parts: list[str] = []
+    previous_attempt: int | None = None
     async for re in router.stream(request, tier, provider, tag):
         if re.reset:
             parts.clear()
+        if re.attempt != previous_attempt:
+            res.usage = Usage()
+            res.finish_reason = None
+            previous_attempt = re.attempt
         parts.append(re.event.delta)
         if re.event.usage:
             res.usage = re.event.usage

@@ -1,13 +1,16 @@
 import asyncio
 import itertools
 import logging
+import threading
 import time
+from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from interview_assistant.agents.jev import guard_memory_commit
 from interview_assistant.agents.types import Category, Decision
 from interview_assistant.agents.verify import CLAIM_PRONE, find_unverified_claims
 from interview_assistant.app.aggregator import UtteranceAggregator
@@ -18,7 +21,11 @@ from interview_assistant.app.practice_matcher import PracticeMatcher
 from interview_assistant.cost.tracker import CostTracker, format_usd
 from interview_assistant.history.store import HistoryStore, Status, TurnRecord
 from interview_assistant.llm.router import AllRoutesFailed, NoRoutesAvailable, RouteEvent
-from interview_assistant.llm.types import completion_is_normal, output_limit_reached
+from interview_assistant.llm.types import (
+    completion_is_incomplete,
+    completion_is_normal,
+    output_limit_reached,
+)
 from interview_assistant.stt.base import NO_WORDS_MESSAGE, TranscriptEvent
 
 log = logging.getLogger(__name__)
@@ -155,6 +162,9 @@ class AssistantController(QObject):
         self._tasks: dict[str, asyncio.Task] = {}
         self._runs: dict[int, asyncio.Task] = {}
         self._invalid_before = 0
+        # Memory acceptance and UI-thread Stop/presentation invalidation share one
+        # linearization point; checking validity and then appending is otherwise racy.
+        self._answer_state_lock = threading.Lock()
         self._write_generation: ContextVar[int | None] = ContextVar(
             "history_generation", default=None
         )
@@ -192,7 +202,8 @@ class AssistantController(QObject):
 
     def set_paused(self, paused: bool) -> None:
         """While paused (presentation mode) no new question is accepted, voice or typed."""
-        self._paused = paused
+        with self._answer_state_lock:
+            self._paused = paused
         if paused:
             self._invalidate_answers()
             self._agg.reset()
@@ -278,9 +289,10 @@ class AssistantController(QObject):
 
     def stop(self) -> None:
         """Cancel every request submitted before this click, including pending lookups."""
-        cutoff = next(self._gen)
-        self._stopped_before = cutoff
-        self._invalid_before = cutoff
+        with self._answer_state_lock:
+            cutoff = next(self._gen)
+            self._stopped_before = cutoff
+            self._invalid_before = cutoff
         self._runner.call_soon(lambda: self._cancel_before(cutoff))
 
     def trigger_answer(self) -> None:
@@ -312,7 +324,8 @@ class AssistantController(QObject):
         )
 
     def clear_history(self) -> None:
-        self._jev.clear_history()
+        with self._answer_state_lock:
+            self._jev.clear_history()
 
     def new_interview(self) -> None:
         """Forget the conversation and start a fresh cost session."""
@@ -322,7 +335,7 @@ class AssistantController(QObject):
         self._invalidate_answers()
         self._last_question = None
         self._last_image = None
-        self._jev.clear_history()
+        self.clear_history()
         self._agg.reset()
         self._pending_question = None
         self._pending_lag = None
@@ -338,6 +351,7 @@ class AssistantController(QObject):
 
     def shutdown(self) -> None:
         self._timer.stop()
+        self._invalidate_answers()
         self._runner.stop()
         if self._history is not None:
             self._history.end_session()
@@ -371,9 +385,22 @@ class AssistantController(QObject):
         return self._history.generation if self._history.writable else -1
 
     def _invalidate_answers(self) -> None:
-        self._invalid_before = next(self._gen)
-        cutoff = self._invalid_before
+        with self._answer_state_lock:
+            self._invalid_before = next(self._gen)
+            cutoff = self._invalid_before
         self._runner.call_soon(lambda: self._cancel_before(cutoff))
+
+    def _remember_if_current(self, gen: int, commit: Callable[[], None]) -> None:
+        current = asyncio.current_task()
+        with self._answer_state_lock:
+            if (
+                not self._paused
+                and gen >= self._invalid_before
+                and current is not None
+                and not current.cancelling()
+                and self._runs.get(gen) is current
+            ):
+                commit()
 
     def _cancel_before(self, cutoff: int) -> None:
         if self._continuation is not None and self._continuation.gen < cutoff:
@@ -425,20 +452,21 @@ class AssistantController(QObject):
         )
         cost_token = self._tracker.begin_request() if self._tracker else None
         try:
-            if continuation is not None:
-                await self._answer(
-                    gen,
-                    continuation.question,
-                    continuation.source,
-                    continuation.decision,
-                    time.time(),
-                    image=continuation.image,
-                    prefix=continuation.prefix,
-                )
-            elif category is not None:
-                await self._run_corrected(gen, category)
-            else:
-                await self._run(gen, text, source, speech_lag, image, explicit)
+            with guard_memory_commit(lambda commit: self._remember_if_current(gen, commit)):
+                if continuation is not None:
+                    await self._answer(
+                        gen,
+                        continuation.question,
+                        continuation.source,
+                        continuation.decision,
+                        time.time(),
+                        image=continuation.image,
+                        prefix=continuation.prefix,
+                    )
+                elif category is not None:
+                    await self._run_corrected(gen, category)
+                else:
+                    await self._run(gen, text, source, speech_lag, image, explicit)
         finally:
             self._runs.pop(gen, None)
             self._set_busy(bool(self._runs))
@@ -660,14 +688,20 @@ class AssistantController(QObject):
                 route = str(ev.route)
             if self._paused or gen < self._invalid_before:
                 raise asyncio.CancelledError
-            if not completion_is_normal(finish_reason) and not output_limit_reached(finish_reason):
+            if not completion_is_normal(finish_reason) and not completion_is_incomplete(
+                finish_reason
+            ):
                 raise RuntimeError("The AI ended the response without completing the answer.")
             if self._tracker is not None:
                 self.answer_cost.emit(gen, self._request_cost())
             answer_text = "".join(parts)
-            if output_limit_reached(finish_reason):
+            if completion_is_incomplete(finish_reason):
                 status = "incomplete"
-                error = "Output limit reached; answer is incomplete."
+                error = (
+                    "Output limit reached; answer is incomplete."
+                    if output_limit_reached(finish_reason)
+                    else "Stream ended before completion; answer is incomplete."
+                )
                 if gen == self._visible_gen:
                     self._continuation = _Continuation(
                         gen, text, source, decision, answer_text, image
@@ -710,7 +744,11 @@ class AssistantController(QObject):
                 prefix
                 and gen == self._visible_gen
                 and gen >= self._invalid_before
-                and (completion_is_normal(finish_reason) or output_limit_reached(finish_reason))
+                and (
+                    finish_reason is None
+                    or completion_is_normal(finish_reason)
+                    or completion_is_incomplete(finish_reason)
+                )
             ):
                 self._continuation = _Continuation(
                     gen,

@@ -10,7 +10,14 @@ from interview_assistant.llm.sse import (
     parse_json,
     raise_for_status,
 )
-from interview_assistant.llm.types import ErrorKind, LLMError, LLMRequest, StreamEvent, Usage
+from interview_assistant.llm.types import (
+    ErrorKind,
+    LLMError,
+    LLMRequest,
+    StreamEvent,
+    Usage,
+    unfinished_stream,
+)
 
 URL = "https://api.openai.com/v1/chat/completions"
 
@@ -61,6 +68,8 @@ class OpenAIProvider:
         return body
 
     async def stream(self, request: LLMRequest) -> AsyncGenerator[StreamEvent, None]:
+        finish_reason: str | None = None
+        has_text = False
         try:
             async with self._client.stream(
                 "POST",
@@ -71,6 +80,12 @@ class OpenAIProvider:
                 await raise_for_status(self.name, r)
                 async for _event, data in iter_sse(r):
                     if data.strip() == "[DONE]":
+                        # finish_reason describes the choice; [DONE] closes the SSE stream.
+                        yield (
+                            StreamEvent(finish_reason=finish_reason)
+                            if finish_reason
+                            else unfinished_stream(self.name, has_text)
+                        )
                         return
                     obj = parse_json(self.name, data)
                     if "error" in obj:
@@ -82,7 +97,11 @@ class OpenAIProvider:
                     choice = (obj.get("choices") or [{}])[0]
                     delta = (choice.get("delta") or {}).get("content") or ""
                     finish = choice.get("finish_reason")
-                    if delta or usage or finish:
-                        yield StreamEvent(delta, usage, finish)
+                    if finish:
+                        finish_reason = finish
+                    has_text = has_text or bool(delta.strip())
+                    if delta or usage:
+                        yield StreamEvent(delta, usage)
+                yield unfinished_stream(self.name, has_text, finish_reason)
         except httpx.HTTPError as e:
             raise map_transport_error(self.name, e) from e

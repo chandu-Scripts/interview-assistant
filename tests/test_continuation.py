@@ -1,14 +1,14 @@
 import asyncio
 
 import pytest
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 
 from interview_assistant.agents.jev import Jev, JevConfig
 from interview_assistant.app.controller import AssistantController
 from interview_assistant.cost.tracker import Budget, CostTracker
 from interview_assistant.history.store import HistoryStore
 from interview_assistant.llm.continuation import ContinuationText
-from interview_assistant.llm.router import Route, Router, RouterConfig
+from interview_assistant.llm.router import Route, RouteEvent, Router, RouterConfig
 from interview_assistant.llm.types import ErrorKind, LLMError, StreamEvent, Usage
 from interview_assistant.ui.overlay import OverlayWindow
 
@@ -95,6 +95,135 @@ def test_output_limit_is_incomplete_in_ui_history_and_memory(app, qtbot, reason)
     assert "Output limit" in turns[0].error
     assert '"incomplete"' in history.export_all("json")
     assert turns[0].cost_usd > 0
+
+
+def test_clean_eof_is_incomplete_and_explicit_continuation_can_complete(app, qtbot):
+    prefix = "Check the query plan, then "
+    c, ui, provider, jev, history, tracker = app(
+        [(prefix, None), ("reduce the scanned rows.", "stop")]
+    )
+    ask_incomplete(qtbot, c, ui)
+    assert "Incomplete" in ui.origin_label.text()
+    assert "output limit" not in ui.origin_label.text().lower()
+    assert ui.answer_text == prefix and jev.history == []
+    turns = history.get_turns(history.list_sessions()[0].id)
+    assert turns[0].status == "incomplete"
+    assert "Stream ended before completion" in turns[0].error
+    assert turns[0].cost_usd > 0
+    assert len(tracker._records) == 1 and not tracker._records[0].ok
+    with qtbot.waitSignal(c.answer_finished):
+        ui.continue_btn.click()
+    qtbot.waitUntil(lambda: len(jev.history) == 1 and not ui._busy)
+    assert ui.answer_text == prefix + "reduce the scanned rows."
+    assert jev.history[0].answer == ui.answer_text
+    assert len(provider.requests) == 2
+    assert [record.ok for record in tracker._records] == [False, True]
+    assert not ui.continue_btn.isVisible()
+
+
+@pytest.mark.parametrize("operation", ["stop", "pause"])
+def test_stop_after_final_event_cannot_commit_conversation_memory(app, qtbot, operation):
+    c, ui, provider, jev, history, tracker = app([])
+
+    class FinalEventRouter:
+        async def stream(self, *args, **kwargs):
+            yield RouteEvent(
+                StreamEvent(delta="Completed text", finish_reason="stop"),
+                Route("openai", "gpt-4o-mini"),
+                0,
+            )
+
+    jev._router = FinalEventRouter()
+
+    # Reproduce Stop between the last yielded event and Jev's generator resuming,
+    # without depending on cross-thread signal scheduling or wall-clock sleeps.
+    def stop_at_final_delta(gen, text):
+        if operation == "stop":
+            c.stop()
+        else:
+            c.set_paused(True)
+
+    c.answer_delta.connect(stop_at_final_delta, Qt.ConnectionType.DirectConnection)
+    c.ask("How do you optimize SQL queries?")
+    qtbot.waitUntil(
+        lambda: (
+            bool(history.list_sessions())
+            and bool(history.get_turns(history.list_sessions()[0].id))
+            and not c._runs
+        )
+    )
+    assert jev.history == []
+    turns = history.get_turns(history.list_sessions()[0].id)
+    assert turns[0].status == ("stopped" if operation == "stop" else "interrupted")
+    assert turns[0].answer == "Completed text"
+    c.answer_delta.disconnect(stop_at_final_delta)
+    c.set_paused(False)
+    with qtbot.waitSignal(c.answer_finished):
+        c.ask("How do you optimize PySpark jobs?")
+    qtbot.waitUntil(lambda: len(jev.history) == 1)
+    assert jev.history[0].question == "How do you optimize PySpark jobs?"
+
+
+def test_stop_during_provider_close_cannot_commit_memory(app, qtbot):
+    import threading
+
+    c, ui, provider, jev, history, tracker = app([])
+    closing = threading.Event()
+    released = threading.Event()
+
+    class ClosingStream:
+        sent = False
+
+        async def __anext__(self):
+            if self.sent:
+                raise StopAsyncIteration
+            self.sent = True
+            return StreamEvent(delta="Completed text", finish_reason="stop")
+
+        async def aclose(self):
+            closing.set()
+            # Simulate an adapter cleanup that defers cancellation until it closes.
+            # The request must not acquire memory authority again when cleanup ends.
+            while not released.is_set():
+                try:
+                    await asyncio.sleep(0.001)
+                except asyncio.CancelledError:
+                    continue
+
+    provider.stream = lambda request: ClosingStream()
+    c.ask("How do you optimize SQL queries?")
+    try:
+        qtbot.waitUntil(closing.is_set)
+        c.stop()
+    finally:
+        released.set()
+    qtbot.waitUntil(lambda: not c._runs)
+    assert jev.history == []
+    turns = history.get_turns(history.list_sessions()[0].id)
+    assert turns[0].status == "stopped"
+    assert turns[0].answer == "Completed text"
+
+
+@pytest.mark.parametrize("kind", ["openai", "anthropic", "gemini"])
+def test_real_truncated_wire_response_reaches_ui_as_incomplete(app, qtbot, kind):
+    from tests.test_llm import client
+    from tests.test_stream_completion import KINDS, response
+
+    c, ui, provider, jev, history, tracker = app([])
+
+    async def wire_stream(request):
+        async with client(lambda req: response(kind)) as transport:
+            adapter = KINDS[kind]("fake", client=transport)
+            async for event in adapter.stream(request):
+                yield event
+
+    provider.stream = wire_stream
+    ask_incomplete(qtbot, c, ui)
+    assert ui.answer_text == "A partial answer"
+    assert jev.history == []
+    turns = history.get_turns(history.list_sessions()[0].id)
+    assert turns[0].status == "incomplete"
+    assert len(tracker._records) == 1 and not tracker._records[0].ok
 
 
 def test_continue_appends_without_repeating_and_keeps_one_memory_turn(app, qtbot):
@@ -246,12 +375,22 @@ def test_repeating_only_the_original_never_marks_it_complete(app, qtbot):
 
 
 def test_normal_and_blocked_finishes_do_not_offer_continuation(app, qtbot):
-    c, ui, _, _, _, _ = app([("Complete answer", "stop"), ("", "content_filter")])
+    c, ui, _, _, _, _ = app(
+        [
+            ("Complete answer", "stop"),
+            ("", "content_filter"),
+            ("Blocked partial", "incomplete_non_resumable"),
+        ]
+    )
     c.ask("Explain SQL indexes")
     qtbot.waitUntil(lambda: ui.answer_text == "Complete answer" and not ui._busy)
     assert not ui.continue_btn.isVisible()
     c.ask("Explain another thing")
     qtbot.waitUntil(lambda: ui.chip.text() == "error" and not ui._busy)
+    assert not ui.continue_btn.isVisible()
+    c.ask("Explain a third thing")
+    qtbot.waitUntil(lambda: ui.answer_text == "Blocked partial" and not ui._busy)
+    assert ui.chip.text() == "error"
     assert not ui.continue_btn.isVisible()
 
 

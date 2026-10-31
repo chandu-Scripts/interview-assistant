@@ -87,7 +87,7 @@ class Spy:
 
     async def stream(self, request):
         self.requests.append(request)
-        yield StreamEvent(delta="ok", usage=Usage(1, 1))
+        yield StreamEvent(delta="ok", usage=Usage(1, 1), finish_reason="stop")
 
 
 def make_jev(redact_on):

@@ -10,7 +10,14 @@ from interview_assistant.llm.sse import (
     parse_json,
     raise_for_status,
 )
-from interview_assistant.llm.types import ErrorKind, LLMError, LLMRequest, StreamEvent, Usage
+from interview_assistant.llm.types import (
+    ErrorKind,
+    LLMError,
+    LLMRequest,
+    StreamEvent,
+    Usage,
+    unfinished_stream,
+)
 
 BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
@@ -49,6 +56,8 @@ class GeminiProvider:
     async def stream(self, request: LLMRequest) -> AsyncGenerator[StreamEvent, None]:
         model = request.model or self.default_model
         url = f"{self._base}/{model}:streamGenerateContent?alt=sse"
+        finish_reason: str | None = None
+        has_text = False
         try:
             async with self._client.stream(
                 "POST", url, headers={"x-goog-api-key": self._key}, json=self.build_payload(request)
@@ -64,12 +73,21 @@ class GeminiProvider:
                     parts = (cand.get("content") or {}).get("parts") or []
                     delta = "".join(p.get("text", "") for p in parts)
                     finish = cand.get("finishReason")
+                    if finish and finish != "FINISH_REASON_UNSPECIFIED":
+                        finish_reason = finish
+                    has_text = has_text or bool(delta.strip())
                     usage = None
                     if u := obj.get("usageMetadata"):
                         # Thinking tokens are billed as output tokens.
                         out = u.get("candidatesTokenCount", 0) + u.get("thoughtsTokenCount", 0)
                         usage = Usage(u.get("promptTokenCount", 0), out)
-                    if delta or finish or usage:
-                        yield StreamEvent(delta, usage, finish)
+                    if delta or usage:
+                        yield StreamEvent(delta, usage)
+                # Gemini has no [DONE] sentinel: the candidate's finishReason is terminal.
+                yield (
+                    StreamEvent(finish_reason=finish_reason)
+                    if finish_reason
+                    else unfinished_stream(self.name, has_text)
+                )
         except httpx.HTTPError as e:
             raise map_transport_error(self.name, e) from e

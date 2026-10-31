@@ -10,7 +10,14 @@ from interview_assistant.llm.sse import (
     parse_json,
     raise_for_status,
 )
-from interview_assistant.llm.types import ErrorKind, LLMError, LLMRequest, StreamEvent, Usage
+from interview_assistant.llm.types import (
+    ErrorKind,
+    LLMError,
+    LLMRequest,
+    StreamEvent,
+    Usage,
+    unfinished_stream,
+)
 
 URL = "https://api.anthropic.com/v1/messages"
 
@@ -61,6 +68,9 @@ class AnthropicProvider:
 
     async def stream(self, request: LLMRequest) -> AsyncGenerator[StreamEvent, None]:
         input_tokens = 0
+        output_tokens = 0
+        finish_reason: str | None = None
+        has_text = False
         try:
             async with self._client.stream(
                 "POST",
@@ -78,11 +88,16 @@ class AnthropicProvider:
                     elif kind == "content_block_delta":
                         d = obj.get("delta", {})
                         if d.get("type") == "text_delta" and d.get("text"):
+                            has_text = has_text or bool(d["text"].strip())
                             yield StreamEvent(delta=d["text"])
                     elif kind == "message_delta":
-                        out = obj.get("usage", {}).get("output_tokens", 0)
                         stop = obj.get("delta", {}).get("stop_reason")
-                        yield StreamEvent(usage=Usage(input_tokens, out), finish_reason=stop)
+                        if stop:
+                            finish_reason = stop
+                        if u := obj.get("usage"):
+                            input_tokens = u.get("input_tokens", input_tokens)
+                            output_tokens = u.get("output_tokens", output_tokens)
+                            yield StreamEvent(usage=Usage(input_tokens, output_tokens))
                     elif kind == "error":
                         e = obj.get("error", {})
                         transient = e.get("type") in ("overloaded_error", "api_error")
@@ -92,6 +107,13 @@ class AnthropicProvider:
                             str(e.get("message", "stream error"))[:300],
                         )
                     elif kind == "message_stop":
+                        # message_delta alone can arrive before an interrupted connection.
+                        yield (
+                            StreamEvent(finish_reason=finish_reason)
+                            if finish_reason
+                            else unfinished_stream(self.name, has_text)
+                        )
                         return
+                yield unfinished_stream(self.name, has_text, finish_reason)
         except httpx.HTTPError as e:
             raise map_transport_error(self.name, e) from e
