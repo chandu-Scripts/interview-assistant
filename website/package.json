@@ -5,6 +5,15 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "preview": "node preview.mjs"
+    "preview": "node preview.mjs",
+    "build:admin": "node build-admin.mjs",
+    "test:admin": "node --test tests/session.test.js tests/build.test.js && node build-admin.mjs && playwright test"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.118.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "esbuild": "0.28.2"
   }
 }

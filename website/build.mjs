@@ -3,8 +3,10 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildAdmin, readAdminConfig } from './build-admin.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+await readAdminConfig();
 const output = path.join(root, 'dist');
 const versionSource = await readFile(path.join(root, '../src/interview_assistant/__init__.py'), 'utf8');
 const version = versionSource.match(/__version__\s*=\s*"([\d.]+)"/)?.[1];
@@ -26,7 +28,7 @@ const release = {
 };
 // A fresh file set prevents accidentally publishing a previous installer or unrelated files.
 const existing = await readdir(output).catch(() => []);
-if (existing.some(name => !['assets', 'downloads', 'index.html', 'styles.css', 'app.js', 'release.json', 'vercel.json', '.vercel', '.vercelignore', '.gitignore'].includes(name))) {
+if (existing.some(name => !['admin', 'assets', 'downloads', 'index.html', 'styles.css', 'app.js', 'release.json', 'vercel.json', '.vercel', '.vercelignore', '.gitignore'].includes(name))) {
   throw new Error('Unexpected files in website/dist; inspect them before deploying.');
 }
 await mkdir(path.join(output, 'downloads'), { recursive: true });
@@ -50,6 +52,6 @@ const html = source.replace(/\{\{([A-Z_0-9]+)\}\}/g, (_, key) => {
 await writeFile(path.join(output, 'index.html'), html);
 await writeFile(path.join(output, 'release.json'), JSON.stringify(release, null, 2));
 await writeFile(path.join(output, 'downloads/SHA256SUMS.txt'), `${sha256}  ${filename}\n`);
-await cp(path.join(root, 'vercel.json'), path.join(output, 'vercel.json'));
+await buildAdmin();
 await writeFile(path.join(output, '.vercelignore'), '.vercel\n.env*\n.git*\n');
 console.log(`Built website/dist with v${version}, ${(info.size / 1e6).toFixed(1)} MB installer and verified SHA-256.`);

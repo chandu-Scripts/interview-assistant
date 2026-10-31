@@ -1,8 +1,11 @@
 # Personal download website
 
 A static, responsive download hub inspired by LockedIn AI's navy/cyan palette, using our own
-branding and an actual desktop-app preview. No accounts, analytics, personal documents, API
-keys or browser-side secrets are included.
+branding and an actual desktop-app preview. The download homepage includes no accounts or
+analytics. A separate, undeployed `/admin/` foundation manages customer access through the
+server-owned Supabase RPC contract; see [customer admin documentation](../docs/customer-admin.md).
+Its public configuration is blank by default. No customer documents or server-side secrets
+are included.
 
 The live site still serves the previously verified v0.1.0 installer. Local website source has
 draft v0.1.1 glass-theme release content, but **do not deploy it yet**: Windows Application
@@ -15,11 +18,12 @@ previous v0.1.0 deployment payload.
 From the repository root:
 
 ```powershell
+npm --prefix website ci --ignore-scripts
 node website/build.mjs
 node website/preview.mjs
 ```
 
-Open `http://127.0.0.1:4173`. Node 20 or later is sufficient; there are no runtime dependencies.
+Open `http://127.0.0.1:4173`. Use Node 22 or later. The admin page bundles the pinned Supabase SDK.
 The build reads the app version, copies the matching installer from `dist/installer/`, and
 generates its size, date, release manifest and SHA-256 checksum. It fails if the installer is
 missing, rather than publishing a broken download link. `website/dist/` is generated and ignored.
