@@ -58,6 +58,13 @@ https://interview-assistant-relay.fly.dev
 (your actual `*.fly.dev` URL from `fly status`, or a custom domain if you set one up).
 
 ## Notes
+- Keep exactly one Fly machine attached to the durable SQLite volume. Multiple worker
+  connections on that machine share SQLite locking; separate machines with independent
+  volume copies do not share a budget ledger and must not serve this relay together.
+- Before deploying the reservation change, take a consistent SQLite backup of the existing
+  database. Schema 1 upgrades transactionally to schema 2, preserving friends and spend.
+  An older server refuses schema 2; rollback requires compatible code or a reviewed database
+  recovery that preserves every charge incurred after the backup. Do not erase the ledger.
 - `auto_stop_machines = "stop"` in `fly.toml` scales the app to zero when nobody's using it (free
   -tier friendly) - the first request after idle takes a few extra seconds to cold-start. Set
   `min_machines_running = 1` in `fly.toml` and `fly deploy` again if you'd rather avoid that at
@@ -65,5 +72,5 @@ https://interview-assistant-relay.fly.dev
 - To update after a code change: just `fly deploy` again from the repo root. `relay.db` on the
   volume is untouched by a redeploy.
 - `fly logs` tails the server's logs (useful if something doesn't work as expected). They go
-  through the same redaction-free FastAPI/uvicorn access logging - no prompts or answers are ever
-  in there (the relay never sees them), but avoid pasting full logs anywhere public regardless.
+  through FastAPI/uvicorn access logging. The relay processes prompts and answers in memory
+  but does not log them. Avoid pasting full logs anywhere public regardless.

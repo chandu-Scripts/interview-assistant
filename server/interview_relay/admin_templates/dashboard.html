@@ -56,7 +56,7 @@ only who was approved and how much of their budget they've used.</p>
 <h2>Friends ({{ friends|length }})</h2>
 {% if friends %}
 <table>
-  <tr><th>Name</th><th>Budget</th><th>Spent</th><th>Status</th><th></th></tr>
+  <tr><th>Name</th><th>Budget</th><th>Spent + reserved</th><th>Status</th><th></th></tr>
   {% for f in friends %}
   <tr class="{{ 'inactive' if not f.active else '' }}">
     <td>{{ f.name }}</td>
@@ -78,6 +78,24 @@ only who was approved and how much of their budget they've used.</p>
 </table>
 {% else %}
 <p class="empty">No approved friends yet.</p>
+{% endif %}
+{% if charges %}
+<h2>Reserved or estimated charges (latest 100)</h2>
+<p class="muted">Totals above include these charges. Estimated means final usage is unverified;
+the full reservation stays charged until trusted provider records are reconciled. Expired requests
+stop occupying a concurrency slot on the next admission. Expiry never refunds money.</p>
+<table>
+  <tr><th>Friend</th><th>Reservation ID</th><th>Model</th><th>Amount</th><th>State</th></tr>
+  {% for charge in charges %}
+  <tr>
+    <td>{{ friend_names.get(charge.friend_id, charge.friend_id) }}</td>
+    <td>{{ charge.id }}</td>
+    <td>{{ charge.model }}</td>
+    <td>${{ "%.6f"|format(charge.reserved_usd) }}</td>
+    <td>{{ "estimated (expired)" if charge.status == "active" and charge.expires_at <= now else charge.status }}</td>
+  </tr>
+  {% endfor %}
+</table>
 {% endif %}
 </body>
 </html>

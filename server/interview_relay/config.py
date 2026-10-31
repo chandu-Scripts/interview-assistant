@@ -20,6 +20,9 @@ class RelaySettings:
     max_tokens_ceiling: int = field(
         default_factory=lambda: int(os.environ.get("MAX_TOKENS_CEILING", "1600"))
     )
+    max_inflight_per_friend: int = field(
+        default_factory=lambda: int(os.environ.get("MAX_INFLIGHT_PER_FRIEND", "2"))
+    )
     default_budget_usd: float = field(
         default_factory=lambda: float(os.environ.get("DEFAULT_BUDGET_USD", "2.0"))
     )
