@@ -243,6 +243,11 @@ https://interview-assistant-relay.fly.dev. Full design, API, and redeploy steps:
 and `server/DEPLOY.md`.
 
 ## Customer account foundation (November 2026)
+- Commercial decision (2026-11-01): customers supply their own AI provider keys and
+  pay their providers directly. App access pricing is separate and remains undecided.
+  Do not fund customer inference with owner credentials or automatically enroll
+  customers in the existing friends relay. This decision does not remove that relay
+  from personal use. See `docs/decisions/003-customer-owned-api-keys.md`.
 - Design: `docs/decisions/001-account-login-architecture.md`; implementation and validation:
   `docs/account-login.md`. Customer login does not grant relay approval or paid entitlements.
 - Source development keeps the existing personal workspace unless `--customer` or
