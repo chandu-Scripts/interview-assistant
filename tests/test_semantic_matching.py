@@ -166,3 +166,21 @@ def test_real_model_selects_scope_and_keeps_generic_count_separate(local_matcher
         result = matcher.lookup(query)
         assert result.answer is not None, query
         assert result.answer.answer == expected
+
+
+def test_real_model_keeps_migration_directions_separate(local_matcher, tmp_path):
+    library = PracticeLibrary(tmp_path / "qa.json", lambda: True)
+    library.save(
+        None, "How did you migrate data from SQL Server to Snowflake?", "SQL Server to Snowflake"
+    )
+    matcher = PracticeMatcher(library, lambda: local_matcher._encoder)
+    assert matcher.lookup("How did you move data from Snowflake into SQL Server?").answer is None
+    assert (
+        matcher.lookup("How did you move data into Snowflake from SQL Server?").answer is not None
+    )
+    library.save(
+        None, "How did you migrate data from Snowflake to SQL Server?", "Snowflake to SQL Server"
+    )
+    result = matcher.lookup("How did you move data into SQL Server from Snowflake?")
+    assert result.answer is not None
+    assert result.answer.answer == "Snowflake to SQL Server"
