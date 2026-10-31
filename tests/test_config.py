@@ -177,7 +177,8 @@ def test_keyring_store_survives_backend_errors(monkeypatch):
     monkeypatch.setattr(keyring, "delete_password", boom)
     store = KeyringStore("x")
     assert store.get("openai") is None
-    store.delete("openai")  # no raise
+    with pytest.raises(RuntimeError, match="removal could not be verified"):
+        store.delete("openai")
     monkeypatch.setattr(keyring, "set_password", boom)
     with pytest.raises(RuntimeError):
         store.set("openai", "k")  # saving must fail loudly so the UI can tell the user

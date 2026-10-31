@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from interview_assistant.account.context import current_context
+from interview_assistant.config.credential_ops import delete_verified
 from interview_assistant.config.settings import Settings
 
 log = logging.getLogger(__name__)
@@ -53,12 +54,7 @@ class KeyringStore:
             self._delete(provider)
 
     def _delete(self, provider: str) -> None:
-        try:
-            import keyring
-
-            keyring.delete_password(self._service, provider)
-        except Exception:  # not stored: nothing to delete
-            log.debug("No stored %s key to delete", provider)
+        delete_verified(self._service, provider)
 
 
 class MemoryKeyStore:

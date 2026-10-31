@@ -15,6 +15,7 @@ from typing import Protocol
 import httpx
 
 from interview_assistant.account.context import current_context
+from interview_assistant.config.credential_ops import delete_verified
 
 log = logging.getLogger(__name__)
 
@@ -65,12 +66,7 @@ class KeyringRelayTokenStore:
             self._delete()
 
     def _delete(self) -> None:
-        try:
-            import keyring
-
-            keyring.delete_password(self._service, _TOKEN_KEY)
-        except Exception:  # not stored: nothing to delete
-            log.debug("No stored relay token to delete")
+        delete_verified(self._service, _TOKEN_KEY)
 
 
 class MemoryRelayTokenStore:

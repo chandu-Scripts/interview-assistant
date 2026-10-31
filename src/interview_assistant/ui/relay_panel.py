@@ -167,7 +167,13 @@ class RelayPanel(QWidget):
         self._runner(lambda: self._status_fn(url, pending), done)
 
     def forget_access(self) -> None:
-        self._tokens.delete()
+        try:
+            self._tokens.delete()
+            if self._tokens.get() is not None:
+                raise RuntimeError("Credential remains stored")
+        except Exception:
+            self.status.setText("Could not remove shared access from Windows Credential Manager.")
+            return
         self._store.update({"relay_pending_id": None})
         self.refresh()
         self.status.setText("Disconnected.")
