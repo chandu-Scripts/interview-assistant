@@ -60,6 +60,11 @@ class TranscriptPanel(QWidget):
         self._partials.clear()
         self.view.clear()
 
+    def discard_partials(self, source: str) -> None:
+        """A stopped capture cannot finish its preview; retain only completed speech."""
+        self._partials = {key: text for key, text in self._partials.items() if key[0] != source}
+        self._render()
+
     def _render(self) -> None:
         parts = [f"<p>{escape(t)}</p>" for t in self.final_texts]
         parts += [

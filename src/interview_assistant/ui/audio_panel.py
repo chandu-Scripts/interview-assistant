@@ -2,7 +2,7 @@ import logging
 from collections.abc import Callable
 
 import numpy as np
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -32,6 +32,7 @@ class AudioPanel(QWidget):
     speech_changed = Signal(bool)
     segment_ready = Signal(object)  # np.ndarray, 16 kHz mono int16
     partial_ready = Signal(object)  # audio of the ongoing utterance so far
+    _capture_event = Signal(int, str, object)
 
     def __init__(
         self,
@@ -52,6 +53,7 @@ class AudioPanel(QWidget):
         # Optional gate run before capture starts (e.g. the recording-consent notice).
         self.before_start: Callable[[], bool] | None = None
         self._capture: AudioCapture | None = None
+        self._capture_epoch = 0
         self._segments = 0
 
         self.device_combo = ChoiceComboBox()
@@ -91,6 +93,7 @@ class AudioPanel(QWidget):
         self.level_changed.connect(self._on_level)
         self.speech_changed.connect(self._on_speech)
         self.segment_ready.connect(self._on_segment)
+        self._capture_event.connect(self._deliver_capture_event, Qt.ConnectionType.QueuedConnection)
         self.refresh_devices(devices)
 
     @property
@@ -145,19 +148,23 @@ class AudioPanel(QWidget):
             self.start()
 
     def start(self) -> None:
+        if self.recording:
+            return
         device = self.device_combo.currentData()
         if device is None:
             return
         if self.before_start is not None and not self.before_start():
             self.error_label.setText("Capture not started.")
             return
-        # Callbacks run on the audio thread; signals marshal them onto the UI thread.
+        # Each callback retains its capture epoch even if it reaches Qt after a restart.
+        self._capture_epoch += 1
+        epoch = self._capture_epoch
         capture = self._factory(
             device,
-            on_level=self.level_changed.emit,
-            on_speech_state=self.speech_changed.emit,
-            on_segment=self.segment_ready.emit,
-            on_partial=self.partial_ready.emit,
+            on_level=lambda value: self._capture_event.emit(epoch, "level", value),
+            on_speech_state=lambda value: self._capture_event.emit(epoch, "speech", value),
+            on_segment=lambda value: self._capture_event.emit(epoch, "segment", value),
+            on_partial=lambda value: self._capture_event.emit(epoch, "partial", value),
             **({"vad_config": VadConfig(partial_interval_ms=120)} if self.realtime else {}),
         )
         try:
@@ -176,6 +183,7 @@ class AudioPanel(QWidget):
         self.recording_changed.emit(True)
 
     def stop(self) -> None:
+        self._capture_epoch += 1
         was_recording = self._capture is not None
         if self._capture is not None:
             self._capture.stop()
@@ -189,6 +197,19 @@ class AudioPanel(QWidget):
         self.speech_label.setText("Speech: no")
         if was_recording:
             self.recording_changed.emit(False)
+
+    @Slot(int, str, object)
+    def _deliver_capture_event(self, epoch: int, kind: str, value: object) -> None:
+        if epoch != self._capture_epoch or not self.recording:
+            return
+        if kind == "level":
+            self.level_changed.emit(value)
+        elif kind == "speech":
+            self.speech_changed.emit(value)
+        elif kind == "segment":
+            self.segment_ready.emit(value)
+        elif kind == "partial":
+            self.partial_ready.emit(value)
 
     def _on_level(self, level: float) -> None:
         # RMS of speech is small; scale so normal speech fills a good part of the bar.

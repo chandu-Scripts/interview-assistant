@@ -2,7 +2,7 @@ import threading
 from collections.abc import Callable
 from typing import cast
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QGridLayout,
@@ -23,7 +23,7 @@ from interview_assistant.cost.tracker import format_usd
 from interview_assistant.history.store import HistoryStore
 from interview_assistant.privacy.consent import ConsentGate
 from interview_assistant.privacy.state import PrivacyState
-from interview_assistant.stt.base import StreamingSTTProvider, STTProvider
+from interview_assistant.stt.base import StreamingSTTProvider, STTProvider, TranscriptEvent
 from interview_assistant.stt.realtime import RealtimeTranscriber
 from interview_assistant.stt.streaming import StreamingTranscriber
 from interview_assistant.ui.audio_panel import AudioPanel
@@ -43,6 +43,7 @@ class MainWindow(QMainWindow):
     # controller safely on the UI thread. TranscriptPanel keys by source and utterance ID,
     # so independent mic/system sequences can also share the transcript view safely.
     mic_transcript_received = Signal(object)
+    _transcription_received = Signal(object, int, object)
 
     def __init__(
         self,
@@ -74,6 +75,10 @@ class MainWindow(QMainWindow):
         self.mic_panel = mic_panel
         self._audio_source = audio_source
         self.transcript_panel = TranscriptPanel()
+        self._transcription_epochs: dict[AudioPanel, int] = {}
+        self._transcription_received.connect(
+            self._deliver_transcription, Qt.ConnectionType.QueuedConnection
+        )
         self.mic_transcript_received.connect(self.transcript_panel.apply)
         self.transcriber: StreamingTranscriber | RealtimeTranscriber | None = None
         self.mic_transcriber: StreamingTranscriber | RealtimeTranscriber | None = None
@@ -142,21 +147,13 @@ class MainWindow(QMainWindow):
                 controller.busy_changed.connect(self._refresh_history)
                 self.clear_button.clicked.connect(self._refresh_history)
             self.audio_panel.speech_changed.connect(
-                lambda on: (
-                    controller.on_speech_started(audio_source)
-                    if on
-                    else controller.on_speech_ended(audio_source)
-                )
+                lambda on: self._on_speech_state(self.audio_panel, audio_source, on)
             )
             self.transcript_panel.event_received.connect(controller.on_transcript_event)
             self.mic_transcript_received.connect(controller.on_transcript_event)
             if self.mic_panel is not None:
                 self.mic_panel.speech_changed.connect(
-                    lambda on: (
-                        controller.on_speech_started(DeviceKind.MIC.value)
-                        if on
-                        else controller.on_speech_ended(DeviceKind.MIC.value)
-                    )
+                    lambda on: self._on_speech_state(self.mic_panel, DeviceKind.MIC.value, on)
                 )
         if overlay is not None:
             if self.mic_panel is not None:
@@ -301,57 +298,59 @@ class MainWindow(QMainWindow):
             self.overlay.raise_()
 
     def _attach(self, provider: STTProvider) -> None:
-        panel = self.transcript_panel
+        emit = self._transcription_callback(self.audio_panel)
         if getattr(provider, "realtime", False):
             self.transcriber = self._attach_realtime(
                 self.audio_panel,
                 provider,
-                panel.event_received.emit,
+                emit,
                 DeviceKind(self._audio_source) if self._audio_source else None,
             )
             return
         transcriber = StreamingTranscriber(
             provider,
-            on_event=panel.event_received.emit,  # worker thread -> queued to UI thread
-            on_error=lambda e: panel.error_received.emit(str(e)),
+            on_event=emit,
+            on_error=emit,
             partials=self._partials,
             preview_provider=self._preview_provider,
             # None (the default, when audio_source == "") keeps a single-source install's
             # questions tagged plain "voice", exactly as before Step 19.
             source=DeviceKind(self._audio_source) if self._audio_source else None,
         )
-        # Audio signals arrive on the UI thread in order: state(True), partials..., segment.
-        ap = self.audio_panel
-        ap.speech_changed.connect(lambda on: transcriber.speech_started() if on else None)
-        ap.partial_ready.connect(transcriber.submit_partial)
-        ap.segment_ready.connect(transcriber.submit_final)
+        self._wire_transcriber(self.audio_panel, transcriber, self._audio_source)
         transcriber.start()
         self.transcriber = transcriber
         threading.Thread(target=provider.warmup, name="stt-warmup", daemon=True).start()
 
+    def _on_speech_state(self, panel: AudioPanel | None, source: str, active: bool) -> None:
+        if panel is None or not panel.recording or self.controller is None:
+            return
+        if active:
+            self.controller.on_speech_started(source)
+        else:
+            self.controller.on_speech_ended(source)
+
     def _attach_mic(self, provider: STTProvider) -> None:
         """The second source has independent capture but shares the source-aware transcript view."""
         assert self.mic_panel is not None
+        emit = self._transcription_callback(self.mic_panel)
         if getattr(provider, "realtime", False):
             self.mic_transcriber = self._attach_realtime(
                 self.mic_panel,
                 provider,
-                self.mic_transcript_received.emit,
+                emit,
                 DeviceKind.MIC,
             )
             return
         transcriber = StreamingTranscriber(
             provider,
-            on_event=self.mic_transcript_received.emit,  # worker thread -> queued to UI thread
-            on_error=lambda e: self.transcript_panel.error_received.emit(str(e)),
+            on_event=emit,
+            on_error=emit,
             partials=self._partials,
             preview_provider=self._mic_preview_provider,
             source=DeviceKind.MIC,
         )
-        ap = self.mic_panel
-        ap.speech_changed.connect(lambda on: transcriber.speech_started() if on else None)
-        ap.partial_ready.connect(transcriber.submit_partial)
-        ap.segment_ready.connect(transcriber.submit_final)
+        self._wire_transcriber(self.mic_panel, transcriber, DeviceKind.MIC.value)
         transcriber.start()
         self.mic_transcriber = transcriber
         threading.Thread(target=provider.warmup, name="stt-warmup-mic", daemon=True).start()
@@ -360,31 +359,74 @@ class MainWindow(QMainWindow):
         self,
         panel: AudioPanel,
         provider: STTProvider,
-        emit: Callable,
+        emit: Callable[[TranscriptEvent | Exception], None],
         source: DeviceKind | None,
     ) -> RealtimeTranscriber:
         transcriber = RealtimeTranscriber(
             cast(StreamingSTTProvider, provider),
             emit,
-            lambda e: self.transcript_panel.error_received.emit(str(e)),
+            emit,
             source,
         )
         panel.realtime = True
+        self._wire_transcriber(panel, transcriber, source.value if source else "")
+        transcriber.start()
+        return transcriber
+
+    def _transcription_callback(
+        self, panel: AudioPanel
+    ) -> Callable[[TranscriptEvent | Exception], None]:
+        self._transcription_epochs[panel] = 0
+
+        def emit(value: TranscriptEvent | Exception) -> None:
+            # Workers deliver under their cancellation lock. The epoch changes only after
+            # cancel returns, so an already queued Qt callback retains its old authority.
+            self._transcription_received.emit(panel, self._transcription_epochs[panel], value)
+
+        return emit
+
+    @Slot(object, int, object)
+    def _deliver_transcription(
+        self, panel: AudioPanel, epoch: int, value: TranscriptEvent | Exception
+    ) -> None:
+        if (
+            epoch != self._transcription_epochs.get(panel)
+            or not panel.recording
+            or not self.can_access()
+        ):
+            return
+        if isinstance(value, Exception):
+            self.transcript_panel.error_received.emit(str(value))
+        elif panel is self.mic_panel:
+            self.mic_transcript_received.emit(value)
+        else:
+            self.transcript_panel.event_received.emit(value)
+
+    def _wire_transcriber(
+        self,
+        panel: AudioPanel,
+        transcriber: StreamingTranscriber | RealtimeTranscriber,
+        source: str,
+    ) -> None:
         panel.speech_changed.connect(
             lambda on: transcriber.speech_started() if on and panel.recording else None
         )
-        panel.partial_ready.connect(transcriber.submit_partial)
-        panel.segment_ready.connect(transcriber.submit_final)
+        panel.partial_ready.connect(
+            lambda audio: transcriber.submit_partial(audio) if panel.recording else None
+        )
+        panel.segment_ready.connect(
+            lambda audio: transcriber.submit_final(audio) if panel.recording else None
+        )
 
         def recording_changed(on: bool) -> None:
             if not on:
                 transcriber.cancel()
+                self._transcription_epochs[panel] += 1
+                self.transcript_panel.discard_partials(source)
                 if self.controller is not None:
-                    self.controller.on_capture_stopped(source.value if source else "")
+                    self.controller.on_capture_stopped(source)
 
         panel.recording_changed.connect(recording_changed)
-        transcriber.start()
-        return transcriber
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         self.audio_panel.stop()

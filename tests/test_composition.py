@@ -545,7 +545,8 @@ def test_billed_speech_recognition_uses_local_previews(parts_factory):
 @pytest.mark.parametrize("source", ["mic", "loopback"])
 @pytest.mark.parametrize("mode", ["manual", "auto"])
 def test_live_cloud_preview_updates_overlay_without_answering(qtbot, parts_factory, source, mode):
-    from tests.test_audio import tone
+    from tests.test_audio import DEVS, tone
+    from tests.test_transcription_cancellation import FakeCapture
 
     class CloudFinal(BilledSTT):
         def __init__(self):
@@ -562,20 +563,24 @@ def test_live_cloud_preview_updates_overlay_without_answering(qtbot, parts_facto
     cloud = CloudFinal()
     p = parts_factory(stt=cloud, answer_mode=mode)
     transcriber = p.window.mic_transcriber if source == "mic" else p.window.transcriber
+    panel = p.window.mic_panel if source == "mic" else p.window.audio_panel
+    panel._factory = lambda _device, **callbacks: FakeCapture(**callbacks)
+    panel.refresh_devices(DEVS)
+    panel.start()
+    assert panel.recording
     transcriber._preview._provider = Preview()
     live, pending = [], []
     p.controller.live_text.connect(live.append)
     p.controller.question_pending.connect(lambda text, lag: pending.append(text))
-    p.controller.on_speech_started(source)
-    transcriber.speech_started()
-    transcriber.submit_partial(tone(1))
+    panel.speech_changed.emit(True)
+    panel.partial_ready.emit(tone(1))
     qtbot.waitUntil(lambda: "How do you" in live)
-    transcriber.submit_partial(tone(2))
+    panel.partial_ready.emit(tone(2))
     qtbot.waitUntil(lambda: "How do you optimise" in live)
     assert cloud.calls == 0 and p.history.counts()[1] == 0 and pending == []
     assert not p.overlay._busy
-    p.controller.on_speech_ended(source)
-    transcriber.submit_final(tone(3))
+    panel.speech_changed.emit(False)
+    panel.segment_ready.emit(tone(3))
     qtbot.waitUntil(lambda: "How do you optimise SQL queries?" in live)
     assert cloud.calls == 1
     if mode == "manual":

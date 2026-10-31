@@ -113,15 +113,15 @@ def test_error_reported_and_worker_survives():
     assert events[-1].text == "text2s"
 
 
-def test_stop_drains_finals():
+def test_stop_discards_queued_finals():
     events = []
-    t = StreamingTranscriber(FakeSTT(delay=0.1), events.append)
-    t.start()
+    provider = FakeSTT()
+    t = StreamingTranscriber(provider, events.append)
     for _ in range(3):
         t.speech_started()
         t.submit_final(tone(1))
     t.stop()
-    assert len([e for e in events if e.is_final]) == 3
+    assert events == [] and provider.calls == [] and t.idle()
 
 
 # ---- OpenAI provider (mock transport, no network) ----
