@@ -589,7 +589,8 @@ def test_relay_panel_approved_with_no_token_in_payload_does_not_crash(qtbot, cle
     )
     panel.check_btn.click()
     assert tokens.get() is None
-    assert "Connected" in panel.status.text()  # still reflects approval, just no local token yet
+    assert "did not include an access token" in panel.status.text()
+    assert panel.check_btn.isEnabled()
 
 
 def test_relay_panel_check_network_failure_reports_and_reenables(qtbot, clean_env):

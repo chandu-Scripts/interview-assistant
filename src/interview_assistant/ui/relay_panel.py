@@ -155,9 +155,23 @@ class RelayPanel(QWidget):
                 self.refresh()
                 self.status.setText("The request was denied.")
             elif res.status == "approved":
-                if res.token:
+                if not res.token:
+                    self.status.setText(
+                        "Approval did not include an access token. "
+                        "Ask the relay owner to reissue access, then check again."
+                    )
+                    return
+                try:
                     self._tokens.set(res.token)
-                self._store.update({"relay_pending_id": None})
+                    if self._tokens.get() != res.token:
+                        raise RuntimeError("Credential was not saved")
+                    self._store.update({"relay_pending_id": None})
+                except Exception:
+                    self.status.setText(
+                        "Could not finish saving shared access. "
+                        "The token may be stored; check again to finish setup."
+                    )
+                    return
                 self.refresh()
                 self.status.setText("✔ Connected. Restart the app for it to take effect.")
                 self.connected.emit()

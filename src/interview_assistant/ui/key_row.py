@@ -174,6 +174,7 @@ class KeyRow(QWidget):
         key = self.edit.text().strip()
         if not key:
             return
+        rollback_failed = False
         try:
             previous = self._store.get(self.provider)
             self._store.set(self.provider, key)
@@ -185,12 +186,23 @@ class KeyRow(QWidget):
                         self._preferences.update({"prefer_saved_keys": preferred})
                 except Exception:
                     # Do not leave a replacement active if selecting its source failed.
-                    if previous is None:
-                        self._store.delete(self.provider)
-                    else:
-                        self._store.set(self.provider, previous)
+                    try:
+                        if previous is None:
+                            self._store.delete(self.provider)
+                        else:
+                            self._store.set(self.provider, previous)
+                    except Exception:
+                        rollback_failed = True
                     raise
         except Exception as e:
+            if rollback_failed:
+                self.result.setText(
+                    "Could not finish saving the key or restore its previous value. "
+                    "The new key may remain in Windows Credential Manager. "
+                    "Retry Save or Remove before restarting."
+                )
+                self.refresh()
+                return
             self.result.setText(
                 f"✖ Could not save the key and its source preference ({type(e).__name__})."
             )

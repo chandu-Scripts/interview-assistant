@@ -12,3 +12,10 @@ credential namespaces and logout mutation fences remain in place.
 
 Regression tests inject the entire keyring backend; no personal credentials are read
 or changed. Rollback needs only the code revert, with no data migration.
+# Follow-up independent review
+
+Purge now performs strict deletion for every provider before removing the local
+inventory and includes the legacy relay token. A tolerant runtime read cannot
+silently skip vault cleanup. The UI also preserves an approved relay request if
+its token is missing or cannot be saved, and reports a failed key-save rollback
+explicitly. Synthetic tests cover these failures without accessing real credentials.

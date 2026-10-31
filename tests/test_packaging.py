@@ -147,6 +147,7 @@ def test_purge_switch_uses_data_dir_env_and_injected_stores(tmp_path, monkeypatc
     monkeypatch.setenv("DATA_DIR", str(data))
     store = MemoryKeyStore({"anthropic": "ant-key"})
     monkeypatch.setattr("interview_assistant.config.keys.KeyringStore", lambda *a, **k: store)
+    monkeypatch.setattr(purge_mod, "_delete_account_credential", lambda *a: None)
     monkeypatch.setattr(purge_mod, "QSettings", lambda *a, **k: ini(tmp_path, "purge-test"))
     out = tmp_path / "out.txt"
     assert cli.handle(["app", "--purge-data", "--out", str(out)]) == 0
