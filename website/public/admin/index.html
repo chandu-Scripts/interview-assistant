@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Customer access | Chandoo</title>
+  <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/admin/admin.css">
+  <script type="module" src="/admin/admin.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="shell topbar">
+    <a class="brand" href="/" aria-label="Chandoo home"><img src="/assets/mark.svg" width="34" height="34" alt=""> CHANDOO <span>Admin</span></a>
+    <button id="logout" hidden>Sign out</button>
+  </header>
+  <main id="main" class="shell">
+    <div class="heading"><p class="eyebrow">WORKSPACE CONTROL</p><h1>Customer access</h1><p class="muted">Manage account access and review administrative activity.</p></div>
+    <p id="notice" class="notice" role="status" aria-live="polite">Loading configuration...</p>
+    <section id="login-panel" class="glass login">
+      <h2>Administrator sign in</h2><p class="muted">This session stays in this tab. Sign in again after 15 minutes.</p>
+      <form id="login-form" method="post">
+        <fieldset id="login-fields" disabled>
+          <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required maxlength="254">
+          <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">
+          <button class="primary" type="submit">Sign in</button>
+        </fieldset>
+      </form>
+    </section>
+    <div id="workspace" hidden>
+      <div class="tabs" role="group" aria-label="Admin views"><button id="users-tab" aria-pressed="true">Customers</button><button id="audit-tab" aria-pressed="false">Activity</button></div>
+      <section id="users-panel" class="glass">
+        <div class="section-head"><div><h2>Customers</h2><p class="muted">Identify the exact account by its user ID.</p></div><button id="refresh-users">Refresh</button></div>
+        <form id="search-form" class="search"><label for="search">User ID (UUID)</label><div class="row"><input id="search" placeholder="Exact user ID" autocomplete="off" maxlength="36"><button type="submit">Find</button><button id="clear-search" type="button">Clear</button></div></form>
+        <div class="table-scroll"><table><caption class="sr-only">Customer account status and access grants</caption><thead><tr><th>User ID</th><th>Status</th><th>Access</th><th>Last seen</th><th>Actions</th></tr></thead><tbody id="users"></tbody></table></div>
+        <div class="pagination"><button id="previous-users">Previous</button><span id="users-page">Page 1</span><button id="next-users">Next</button></div>
+      </section>
+      <section id="audit-panel" class="glass" hidden>
+        <div class="section-head"><div><h2>Activity</h2><p class="muted">Administrative metadata only. Oldest events appear first.</p></div><button id="refresh-audit">Refresh</button></div>
+        <div class="table-scroll"><table><caption class="sr-only">Administrative activity</caption><thead><tr><th>Time / event</th><th>Actor</th><th>Customer</th><th>Action</th><th>Reason</th></tr></thead><tbody id="audit"></tbody></table></div>
+        <div class="pagination"><button id="previous-audit">Previous</button><span id="audit-page">Page 1</span><button id="next-audit">Next</button></div>
+      </section>
+    </div>
+    <p class="footer muted">Customer documents, transcripts and AI credentials are not available here.</p>
+  </main>
+  <dialog id="action-dialog" class="glass">
+    <form id="action-form">
+      <h2 id="action-title">Change access</h2>
+      <p class="muted">Customer</p><p id="action-target" class="uuid"></p>
+      <p id="action-summary"></p>
+      <div id="expiry-field"><label for="expiry">Access expiry (your local time)</label><input id="expiry" type="datetime-local" required></div>
+      <label for="reason">Reason</label><select id="reason" required><option value="">Choose a reason</option><option value="support">Support</option><option value="policy">Policy</option><option value="owner_request">Owner request</option><option value="trial">Trial</option><option value="manual">Manual approval</option><option value="correction">Correction</option></select>
+      <label for="confirm-target">Type the exact user ID to confirm</label><input id="confirm-target" autocomplete="off" required maxlength="36">
+      <p id="action-error" role="alert"></p>
+      <div class="dialog-actions"><button id="cancel-action" type="button">Cancel</button><button id="confirm-action" class="primary" type="submit">Confirm change</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
