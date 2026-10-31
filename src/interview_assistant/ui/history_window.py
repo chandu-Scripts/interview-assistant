@@ -177,6 +177,29 @@ class HistoryWindow(QWidget):
         item = self.sessions.currentItem()
         return item.data(Qt.ItemDataRole.UserRole).id if item else None
 
+    def _target_session(self) -> SessionInfo | None:
+        if self.search.text().strip():
+            turn = self._current_turn()
+            sid = turn.session_id if turn is not None else None
+        else:
+            sid = self._current_session_id()
+        for row in range(self.sessions.count()):
+            session: SessionInfo = self.sessions.item(row).data(Qt.ItemDataRole.UserRole)
+            if session.id == sid:
+                return session
+        return None
+
+    def _sync_search_session(self, turn: StoredTurn) -> None:
+        # A global search owns selection; selecting its session must not replace the hits.
+        previous = self.sessions.blockSignals(True)
+        try:
+            for row in range(self.sessions.count()):
+                if self.sessions.item(row).data(Qt.ItemDataRole.UserRole).id == turn.session_id:
+                    self.sessions.setCurrentRow(row)
+                    break
+        finally:
+            self.sessions.blockSignals(previous)
+
     def select_interview_session(self, interview_session_id: int) -> None:
         """Open the newest saved transcript linked to a dashboard interview session."""
         self.search.clear()
@@ -196,6 +219,7 @@ class HistoryWindow(QWidget):
 
     def _load_turns(self) -> None:
         if self.search.text().strip():
+            self._show_turn()
             return  # search results own the turn list while a query is active
         self.turns.blockSignals(True)
         self.turns.clear()
@@ -223,6 +247,7 @@ class HistoryWindow(QWidget):
         self.turns.addItem(item)
 
     def _run_search(self) -> None:
+        self._debounce.stop()
         text = self.search.text().strip()
         if not text:
             self._load_turns()
@@ -249,6 +274,8 @@ class HistoryWindow(QWidget):
             self.detail.clear()
             self._update_buttons()
             return
+        if self.search.text().strip():
+            self._sync_search_session(t)
         meta = " · ".join(
             x
             for x in (
@@ -269,7 +296,7 @@ class HistoryWindow(QWidget):
 
     def _update_buttons(self) -> None:
         self.del_turn_btn.setEnabled(self._current_turn() is not None)
-        has_session = self._current_session_id() is not None
+        has_session = self._target_session() is not None
         self.view_transcript_btn.setEnabled(has_session)
         self.export_btn.setEnabled(has_session)
         self.del_session_btn.setEnabled(has_session)
@@ -301,14 +328,16 @@ class HistoryWindow(QWidget):
     def view_transcript(self) -> None:
         """The whole session's Q&A, rendered inline (reuses export_session's own Markdown
         rendering) rather than only as a file-export action."""
-        sid = self._current_session_id()
-        if sid is not None:
-            self.detail.setMarkdown(self._store.export_session(sid, "md"))
+        session = self._target_session()
+        if session is not None:
+            self.detail.setMarkdown(self._store.export_session(session.id, "md"))
 
     def export_session(self) -> None:
-        sid = self._current_session_id()
-        if sid is not None:
-            self._export(lambda fmt: self._store.export_session(sid, fmt), f"interview-{sid}")
+        session = self._target_session()
+        if session is not None:
+            self._export(
+                lambda fmt: self._store.export_session(session.id, fmt), f"interview-{session.id}"
+            )
 
     def export_all(self) -> None:
         self._export(self._store.export_all, "interview-history")
@@ -331,11 +360,14 @@ class HistoryWindow(QWidget):
             self._after_delete()
 
     def delete_session(self) -> None:
-        item = self.sessions.currentItem()
-        if item is None:
+        s = self._target_session()
+        if s is None:
             return
-        s: SessionInfo = item.data(Qt.ItemDataRole.UserRole)
-        if self._confirm(f"Delete this whole session ({s.turns} questions)?"):
+        title = s.company or s.title or "Untitled"
+        if self._confirm(
+            f"Delete this whole session ({s.turns} questions)?\n\n"
+            f"{title}\n{_stamp(s.started_at)}\nThis cannot be undone."
+        ):
             self._store.delete_session(s.id)
             self._after_delete()
 
