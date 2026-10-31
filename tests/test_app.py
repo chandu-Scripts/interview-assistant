@@ -203,6 +203,7 @@ class FakeJev:
             yield RouteEvent(StreamEvent(delta=c), Route("p", "m"), 0)
             if self.hold:
                 await asyncio.sleep(self.hold)
+        yield RouteEvent(StreamEvent(finish_reason="stop"), Route("p", "m"), 0)
 
     def manual_decision(self, category):
         return decision(cat=category, source="user")

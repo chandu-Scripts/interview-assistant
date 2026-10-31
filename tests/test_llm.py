@@ -247,7 +247,11 @@ async def test_image_is_sent_over_the_wire_by_each_provider():
 
     def h(req):
         seen[str(req.url)] = json.loads(req.content)
-        return httpx.Response(200, content=b"", headers={"content-type": "text/event-stream"})
+        if "anthropic" in req.url.host:
+            return anthropic_ok(req)
+        if "googleapis" in req.url.host:
+            return gemini_ok(req)
+        return openai_ok(req)
 
     for provider in (
         OpenAIProvider("k", client=client(h)),

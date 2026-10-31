@@ -579,7 +579,7 @@ class OverlayWindow(QWidget):
             return
         self.on_finished(gen, route, first_token_s, total_s)
         self._incomplete = True
-        self._live_origin = "AI-generated · Incomplete — output limit reached"
+        self._live_origin = "AI-generated · Incomplete"
         self.origin_label.setText(self._live_origin)
         self._answer_origins[-1] = self._live_origin
         self.continue_btn.setVisible(True)

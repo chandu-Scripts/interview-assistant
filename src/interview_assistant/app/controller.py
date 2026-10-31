@@ -18,7 +18,11 @@ from interview_assistant.app.practice_matcher import PracticeMatcher
 from interview_assistant.cost.tracker import CostTracker, format_usd
 from interview_assistant.history.store import HistoryStore, Status, TurnRecord
 from interview_assistant.llm.router import AllRoutesFailed, NoRoutesAvailable, RouteEvent
-from interview_assistant.llm.types import completion_is_normal, output_limit_reached
+from interview_assistant.llm.types import (
+    completion_is_incomplete,
+    completion_is_normal,
+    output_limit_reached,
+)
 from interview_assistant.stt.base import NO_WORDS_MESSAGE, TranscriptEvent
 
 log = logging.getLogger(__name__)
@@ -660,14 +664,20 @@ class AssistantController(QObject):
                 route = str(ev.route)
             if self._paused or gen < self._invalid_before:
                 raise asyncio.CancelledError
-            if not completion_is_normal(finish_reason) and not output_limit_reached(finish_reason):
+            if not completion_is_normal(finish_reason) and not completion_is_incomplete(
+                finish_reason
+            ):
                 raise RuntimeError("The AI ended the response without completing the answer.")
             if self._tracker is not None:
                 self.answer_cost.emit(gen, self._request_cost())
             answer_text = "".join(parts)
-            if output_limit_reached(finish_reason):
+            if completion_is_incomplete(finish_reason):
                 status = "incomplete"
-                error = "Output limit reached; answer is incomplete."
+                error = (
+                    "Output limit reached; answer is incomplete."
+                    if output_limit_reached(finish_reason)
+                    else "Stream ended before completion; answer is incomplete."
+                )
                 if gen == self._visible_gen:
                     self._continuation = _Continuation(
                         gen, text, source, decision, answer_text, image
@@ -710,7 +720,11 @@ class AssistantController(QObject):
                 prefix
                 and gen == self._visible_gen
                 and gen >= self._invalid_before
-                and (completion_is_normal(finish_reason) or output_limit_reached(finish_reason))
+                and (
+                    finish_reason is None
+                    or completion_is_normal(finish_reason)
+                    or completion_is_incomplete(finish_reason)
+                )
             ):
                 self._continuation = _Continuation(
                     gen,

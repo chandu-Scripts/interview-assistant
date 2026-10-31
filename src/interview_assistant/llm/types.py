@@ -22,7 +22,11 @@ def output_limit_reached(reason: str | None) -> bool:
 
 
 def completion_is_normal(reason: str | None) -> bool:
-    return reason is None or reason.casefold() in {"stop", "end_turn", "stop_sequence"}
+    return (reason or "").casefold() in {"stop", "end_turn", "stop_sequence"}
+
+
+def completion_is_incomplete(reason: str | None) -> bool:
+    return reason == "incomplete" or output_limit_reached(reason)
 
 
 class LLMError(RuntimeError):
@@ -66,6 +70,20 @@ class StreamEvent:
     delta: str = ""
     usage: Usage | None = None
     finish_reason: str | None = None
+
+
+def unfinished_stream(
+    provider: str, has_text: bool, pending_reason: str | None = None
+) -> StreamEvent:
+    """A clean EOF is not proof of completion. Preserve partial text for explicit retry."""
+    if pending_reason and not (
+        completion_is_normal(pending_reason) or output_limit_reached(pending_reason)
+    ):
+        # A dropped sentinel must not make filtered/tool/unknown finishes resumable.
+        return StreamEvent(finish_reason="incomplete_non_resumable")
+    if not has_text:
+        raise LLMError(provider, ErrorKind.NETWORK, "Stream ended without an answer.")
+    return StreamEvent(finish_reason="incomplete")
 
 
 @dataclass

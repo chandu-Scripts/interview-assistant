@@ -1,7 +1,7 @@
 from collections.abc import AsyncGenerator
 from typing import Protocol
 
-from interview_assistant.llm.types import LLMRequest, LLMResult, StreamEvent
+from interview_assistant.llm.types import LLMRequest, LLMResult, StreamEvent, unfinished_stream
 
 
 class LLMProvider(Protocol):
@@ -9,7 +9,11 @@ class LLMProvider(Protocol):
     default_model: str
 
     def stream(self, request: LLMRequest) -> AsyncGenerator[StreamEvent, None]:
-        """Stream a completion. Raises LLMError; cancelling the consumer closes the connection."""
+        """Emit an explicit finish_reason only after the provider's terminal signal.
+
+        A clean EOF without that signal emits 'incomplete' if text exists, otherwise
+        raises LLMError. Cancellation closes the connection; transport errors raise LLMError.
+        """
         ...
 
 
@@ -24,4 +28,8 @@ async def collect(provider: LLMProvider, request: LLMRequest) -> LLMResult:
         if ev.finish_reason:
             result.finish_reason = ev.finish_reason
     result.text = "".join(parts)
+    if result.finish_reason is None:
+        result.finish_reason = unfinished_stream(
+            provider.name, bool(result.text.strip())
+        ).finish_reason
     return result

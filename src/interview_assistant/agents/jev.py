@@ -71,7 +71,10 @@ class Jev:
         )
 
     async def _complete(self, request: LLMRequest, tier: str) -> RoutedResult:
-        return await collect_routed(self._router, self._outbound(request), tier, tag="classify")
+        result = await collect_routed(self._router, self._outbound(request), tier, tag="classify")
+        if not completion_is_normal(result.finish_reason):
+            raise RuntimeError("Classification did not complete.")
+        return result
 
     def clear_history(self) -> None:
         self.history.clear()
