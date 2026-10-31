@@ -1,5 +1,6 @@
 """FastAPI wiring: friend-facing request/status/proxy endpoints + the owner-only admin dashboard."""
 
+import json
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -18,6 +19,7 @@ from interview_relay import proxy
 from interview_relay.auth import check_admin
 from interview_relay.config import RelaySettings, load_settings
 from interview_relay.db import AccessRequest, RelayDB
+from interview_relay.input_limits import MAX_BODY_BYTES
 
 TEMPLATES_DIR = Path(__file__).parent / "admin_templates"
 
@@ -84,11 +86,18 @@ def create_app(
         request: Request, authorization: Annotated[str | None, Header()] = None
     ) -> StreamingResponse:
         friend = proxy.authenticate(db, authorization)
-        body = await request.json()
-        stream = await proxy.handle_chat_completions(
+        raw = bytearray()
+        async for chunk in request.stream():
+            if len(raw) + len(chunk) > MAX_BODY_BYTES:
+                raise HTTPException(413, "Request body is too large")
+            raw.extend(chunk)
+        try:
+            body = json.loads(raw)
+        except (ValueError, UnicodeError, RecursionError):
+            raise HTTPException(400, "Invalid JSON body") from None
+        return await proxy.handle_chat_completions(
             db, settings, app.state.http_client, friend, body
         )
-        return StreamingResponse(stream, media_type="text/event-stream")
 
     # ---- friend-facing ----
     @app.post("/requests", response_model=RequestOut)
@@ -123,6 +132,9 @@ def create_app(
         html = templates.get_template("dashboard.html").render(
             pending=pending,
             friends=friends,
+            charges=db.unsettled_reservations(),
+            friend_names={friend.id: friend.name for friend in friends},
+            now=time.time(),
             flash=flash,
             default_budget=settings.default_budget_usd,
         )
@@ -132,7 +144,7 @@ def create_app(
     def admin_approve(
         request_id: int,
         _admin: Annotated[None, Depends(require_admin)],
-        budget_usd: Annotated[float, Form()] = settings.default_budget_usd,
+        budget_usd: Annotated[float, Form(ge=0, allow_inf_nan=False)] = settings.default_budget_usd,
     ) -> RedirectResponse:
         result = db.approve_request(request_id, budget_usd, settings.default_budget_scope)
         flash = (

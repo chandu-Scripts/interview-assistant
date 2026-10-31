@@ -5,7 +5,8 @@ request access from their copy of the app, you approve them from `/admin`, and t
 proxied through this server using your key - which never reaches their PC. See
 `..\.claude\plans\zippy-wandering-penguin.md` for the full design.
 
-**Status: deployed and live** at **https://interview-assistant-relay.fly.dev**. Requests, admin
+**Existing deployment:** **https://interview-assistant-relay.fly.dev**. The budget-reservation
+changes documented below have only been tested locally and are not yet deployed. Requests, admin
 approve/deny, token issuance/revocation, the `/v1/chat/completions` proxy with per-friend day/month
 budget enforcement and real-usage billing, and the desktop app's "Shared access" settings tab are
 all built, tested, and verified end-to-end against the real public deployment and real OpenAI. The
@@ -26,12 +27,13 @@ Visit `http://127.0.0.1:8000/admin` (username `admin`, password = your `ADMIN_TO
 ```
 pytest
 ```
-49 tests: full request -> approve/deny -> token -> revoke/reissue lifecycle (`tests/test_db.py`,
+111 tests: full request -> approve/deny -> token -> revoke/reissue lifecycle (`tests/test_db.py`,
 `tests/test_app.py`), plus the proxy (`tests/test_proxy.py`) against a mocked upstream
 (`httpx.MockTransport`, same pattern as the main project's `tests/test_llm.py`) - auth rejection,
 budget rejection (402, before any upstream call), tier/model validation, `max_tokens` clamping, and
 a successful proxied stream with cost recorded exactly matching `PriceBook.llm_cost`. All against
-an in-memory database, no network calls.
+synthetic databases and fake HTTP transports, no network calls. Reservation tests also use
+separate SQLite connections against a temporary file to verify concurrency and migration.
 
 ## API (friend-facing)
 - `POST /requests {"name": str, "note"?: str}` -> `{"public_id": str}`
@@ -43,19 +45,32 @@ an in-memory database, no network calls.
   SSE stream. `model` must be the literal tier name (never a real model id); the server maps it to
   the configured `MODEL_FAST`/`MODEL_SMART` and clamps `max_completion_tokens` to
   `MAX_TOKENS_CEILING`. Returns `401` (bad/revoked token), `400` (bad tier or empty messages),
-  `402` (budget reached for the current day/month), or `502`/`503` (upstream/relay trouble).
+  `402` (insufficient budget for the maximum request reservation), `413` (body over 8 MiB),
+  `429` (per-friend concurrency cap), or `502`/`503` (upstream/relay trouble).
 
 ## Admin (`/admin`, HTTP Basic auth, username `admin`)
 Approve/deny pending requests (sets each friend's budget on approval), see spend-so-far per
 friend, revoke access, reissue a lost token.
 
 ## Design notes
-- Metadata only: this server never sees or stores a prompt or an answer - only who was approved
-  and how much of their budget they've used (same rule as the desktop app's own usage log).
+- Metadata-only persistence: the relay processes prompts and answers in memory while proxying
+  them, but does not store them in its database or log them.
 - Tokens are stored as a SHA-256 hash, never in a form recoverable after their one-time delivery.
 - A friend's real OpenAI model and `max_tokens` are decided here, not by their app - a modified
   client can't request a different model or an unbounded answer (`interview_relay/proxy.py`).
-- Budget is enforced from a `spends` log (not a single counter), so "day"/"month" scopes reset
-  correctly - the same logic as the desktop app's `cost.tracker._start_of()`. Billing uses OpenAI's
-  own reported token usage; if a stream dies before that arrives, a short char-count estimate is
-  billed instead (never $0) so an interrupted request still counts against budget.
+- Admission atomically books a maximum-cost reservation with `BEGIN IMMEDIATE`, including
+  existing spend and other reservations. UTC day/month periods follow request start. The check
+  re-reads budget, revocation and credential version; rotating a token invalidates an old auth
+  snapshot. `MAX_INFLIGHT_PER_FRIEND` defaults to 2 (supported range 1 to 8).
+- Valid provider usage reconciles that reservation exactly once. Missing or malformed usage,
+  ambiguous network failure and crashes retain the entire reservation as an estimated quota
+  charge, not a claimed provider invoice. A proven unsent connection or explicit API 4xx may
+  release it. HTTP 5xx does not. Actual reported overages are recorded without clamping.
+- Requests have a 120-second deadline and 180-second durable concurrency lease. Expired leases
+  become estimated on the next admission, freeing slots without refunding money. The owner
+  dashboard shows unresolved reservations; trusted provider records can reconcile them later.
+- The bounded input contract accepts text and inline PNG images, preserving image detail and
+  bytes. It rejects remote images, tools, multiple completions and unpriced request options.
+  Supported model aliases are `gpt-4o-mini`, `gpt-4o`, and `gpt-5.4-mini`; other model strings
+  fail closed until their pricing/input contract is added. See
+  [the B5 report](../docs/bugfixes/B5-relay-budget.md) for bounds, tests and operational limits.
