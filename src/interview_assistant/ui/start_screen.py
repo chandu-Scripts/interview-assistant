@@ -97,6 +97,7 @@ class StartScreen(QWidget):
         on_audio: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
+        self.can_access: Callable[[], bool] = lambda: True
         self._store = store
         self._library = library
         self._model_choices = model_choices or []
@@ -147,6 +148,12 @@ class StartScreen(QWidget):
         self.notice.setStyleSheet("color: #ffd29b; padding: 4px 16px;")
         self.notice.hide()
         layout.addWidget(self.notice)
+        self.account_notice = QLabel()
+        self.account_notice.setWordWrap(True)
+        self.account_notice.setTextFormat(Qt.TextFormat.PlainText)
+        self.account_notice.setStyleSheet("color: #ffd29b; padding: 4px 16px;")
+        self.account_notice.hide()
+        layout.addWidget(self.account_notice)
         content = QHBoxLayout()
         content.setSpacing(0)
         content.addWidget(self._sidebar(on_settings, on_privacy))
@@ -210,7 +217,15 @@ class StartScreen(QWidget):
         local = QLabel("Your workspace\nSaved on this device")
         local.setObjectName("muted")
         layout.addWidget(local)
+        self.logout_button = QPushButton("Sign out")
+        self.logout_button.setObjectName("nav")
+        self.logout_button.hide()
+        layout.addWidget(self.logout_button)
         return sidebar
+
+    def set_account_notice(self, message: str) -> None:
+        self.account_notice.setText(message)
+        self.account_notice.setVisible(bool(message))
 
     def add_workspace_page(self, key: str, title: str, widget: QWidget) -> None:
         """Host an existing screen in the shell, with scrolling for smaller laptops."""
@@ -455,6 +470,8 @@ class StartScreen(QWidget):
         self.start_btn.setEnabled(saved is not None and saved.ended_at is None)
 
     def refresh(self) -> None:
+        if not self.can_access():
+            return
         keep = self._selected()
         all_sessions = self._store.list_interview_sessions()
         query = self.search.text().strip().casefold()
@@ -557,6 +574,9 @@ class StartScreen(QWidget):
         return -1
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
+        if not self.can_access():
+            self.hide()
+            return
         if self.pages.currentIndex() == 0:
             self.refresh()
         super().showEvent(event)

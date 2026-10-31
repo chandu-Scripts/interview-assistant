@@ -2,11 +2,14 @@ import json
 import logging
 import os
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
+
+from interview_assistant.account.context import current_context
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +57,10 @@ EDITABLE = frozenset(
 
 
 def default_data_dir() -> Path:
+    context = current_context()
+    if context is not None:
+        context.require_active()
+        return context.account_dir
     env = os.environ.get("DATA_DIR")
     if env:
         return Path(env)
@@ -68,9 +75,20 @@ class UserSettingsStore:
     """The user's saved settings (JSON). Tolerant of a missing or corrupt file."""
 
     def __init__(self, path: Path | None = None) -> None:
+        self._context = current_context()
         self.path = path or settings_path()
+        if self._context is not None:
+            self._context.require_active()
+            self._context.validate_path(self.path)
 
     def load(self) -> dict[str, Any]:
+        with self._context.mutation() if self._context else nullcontext():
+            return self._load()
+
+    def _load(self) -> dict[str, Any]:
+        if self._context is not None:
+            self._context.require_active()
+            self._context.validate_path(self.path)
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -85,20 +103,27 @@ class UserSettingsStore:
         return {k: v for k, v in raw.items() if k in EDITABLE}
 
     def _quarantine(self) -> None:
-        try:  # keep the bad file for inspection instead of silently overwriting it
-            self.path.replace(self.path.with_suffix(".json.bad"))
-        except OSError:
-            pass
+        with self._context.mutation() if self._context else nullcontext():
+            try:  # keep the bad file for inspection instead of silently overwriting it
+                self.path.replace(self.path.with_suffix(".json.bad"))
+            except OSError:
+                pass
 
     def save(self, values: dict[str, Any]) -> None:
         """Replace the saved settings. None removes a key (back to the default).
 
         Raises ValueError if the values do not validate as app settings."""
+        with self._context.mutation() if self._context else nullcontext():
+            self._save(values)
+
+    def _save(self, values: dict[str, Any]) -> None:
+        if self._context is not None:
+            self._context.validate_path(self.path)
         clean = {k: v for k, v in values.items() if k in EDITABLE and v is not None}
         from interview_assistant.config.settings import Settings
 
         try:
-            Settings.model_validate(clean)  # init values only need to be well-typed
+            Settings.validate_saved_values(clean)
         except Exception as e:
             raise ValueError(f"invalid settings: {e}") from e
         self.path.parent.mkdir(parents=True, exist_ok=True)

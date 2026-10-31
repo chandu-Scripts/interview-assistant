@@ -21,6 +21,7 @@ dependencies = [
     "pypdf>=4.0",
     "python-docx>=1.1",
     "keyring>=25",
+    "supabase-auth==2.33.0",
 ]
 
 [project.optional-dependencies]
@@ -33,7 +34,7 @@ interview-assistant = "interview_assistant.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-interview_assistant = ["assets/semantic/*"]
+interview_assistant = ["assets/semantic/*", "assets/auth.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

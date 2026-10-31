@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Interview Assistant")
         self.navigate: Callable[[str], None] | None = None
+        self.can_access: Callable[[], bool] = lambda: True
         self.resize(640, 480)
         self.label = QLabel(f"Interview Assistant v{__version__} — ready")
         self.label.setObjectName("status_label")
@@ -224,6 +225,8 @@ class MainWindow(QMainWindow):
         self.settings_button.clicked.connect(self.show_settings)
 
     def show_settings(self) -> None:
+        if not self.can_access():
+            return
         if self.settings_dialog is not None:
             self.settings_dialog.load()
             if self.navigate is not None:
@@ -233,6 +236,8 @@ class MainWindow(QMainWindow):
             self.settings_dialog.raise_()
 
     def show_privacy(self) -> None:
+        if not self.can_access():
+            return
         if self.privacy_dialog is not None:
             self.privacy_dialog.refresh()
             if self.navigate is not None:
@@ -264,6 +269,8 @@ class MainWindow(QMainWindow):
         )
 
     def show_history(self) -> None:
+        if not self.can_access():
+            return
         if self.history_window is not None:
             self.history_window.refresh()
             if self.navigate is not None:
@@ -273,16 +280,22 @@ class MainWindow(QMainWindow):
             self.history_window.raise_()
 
     def show_controls(self) -> None:
+        if not self.can_access():
+            return
         if self.navigate is not None:
             self.navigate("controls")
         else:
             self.show()
 
     def _refresh_history(self, *_args: object) -> None:
+        if not self.can_access():
+            return
         if self.history_window is not None and self.history_window.isVisible():
             self.history_window.refresh()
 
     def show_overlay(self) -> None:
+        if not self.can_access():
+            return
         if self.overlay is not None:
             self.overlay.show()
             self.overlay.raise_()

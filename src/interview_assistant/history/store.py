@@ -203,7 +203,14 @@ class HistoryStore:
         self.enabled = enabled  # the user's saving preference
         self.suspended = False  # temporary override (incognito): nothing is written
         self._clock = clock
-        self._lock = threading.RLock()
+        from interview_assistant.account.context import current_context
+
+        self._account = current_context()
+        if self._account is not None:
+            self._account.require_active()
+            if self.path != ":memory:":
+                self._account.validate_path(Path(self.path))
+        self._lock = self._account.persistence_lock if self._account else threading.RLock()
         self.recovered_from: Path | None = None  # set when a damaged database was set aside
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
@@ -375,7 +382,9 @@ class HistoryStore:
     # ---- writing ----
     @property
     def writable(self) -> bool:
-        return self.enabled and not self.suspended
+        return (
+            self.enabled and not self.suspended and (self._account is None or self._account.active)
+        )
 
     @property
     def current_session(self) -> int | None:

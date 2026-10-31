@@ -1,7 +1,9 @@
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from interview_assistant.account.context import current_context
 from interview_assistant.config.settings import Settings
 
 log = logging.getLogger(__name__)
@@ -21,10 +23,17 @@ class KeyStore(Protocol):
 class KeyringStore:
     """API keys in the Windows Credential Manager (encrypted for the current Windows user)."""
 
-    def __init__(self, service: str = SERVICE) -> None:
-        self._service = service
+    def __init__(self, service: str | None = None) -> None:
+        self._context = current_context()
+        self._service = service or (
+            f"{SERVICE}:{self._context.credential_namespace}" if self._context else SERVICE
+        )
 
     def get(self, provider: str) -> str | None:
+        with self._context.mutation() if self._context else nullcontext():
+            return self._get(provider)
+
+    def _get(self, provider: str) -> str | None:
         try:
             import keyring
 
@@ -36,9 +45,14 @@ class KeyringStore:
     def set(self, provider: str, key: str) -> None:
         import keyring
 
-        keyring.set_password(self._service, provider, key)
+        with self._context.mutation() if self._context else nullcontext():
+            keyring.set_password(self._service, provider, key)
 
     def delete(self, provider: str) -> None:
+        with self._context.mutation() if self._context else nullcontext():
+            self._delete(provider)
+
+    def _delete(self, provider: str) -> None:
         try:
             import keyring
 

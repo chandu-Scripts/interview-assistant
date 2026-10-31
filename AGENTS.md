@@ -10,6 +10,37 @@ Act as senior architect and implementation engineer. Work autonomously within th
 - Within a step: implement → run → test (use browser/computer tools when relevant) → debug → retest → stop when acceptance criteria pass.
 - End each step with a short report: what was built, how it was tested, results, known gaps.
 
+## Decision-first collaboration (agreed November 2026)
+- Before implementing an app feature or bug fix, Codex and Claude discuss the approach.
+  Establish scope, constraints and observable acceptance criteria first. Keep small-fix reviews
+  short; review authentication, privacy, storage, billing and architectural changes in depth.
+- Codex and Claude prepare independent initial proposals before reading each other's proposal.
+  Challenge assumptions and compare alternatives using repository evidence, current official
+  documentation where relevant, and tests. Do not manufacture disagreement or treat agreement
+  between agents as proof of correctness.
+- Usually use one or two review rounds. If an important technical uncertainty remains, use a
+  small isolated experiment within the authorized scope. Bring unresolved material product
+  choices to the user with a recommendation and trade-offs; do not silently assume approval.
+- Before implementation, report the chosen approach, reasons, rejected alternative, limitations,
+  validation plan and rollback plan. Record substantial decisions under docs/decisions/.
+  A request to discuss only does not authorize implementation. Otherwise continue within the
+  existing authorized scope without repeatedly asking for the same permission.
+- Use one feature branch for a cohesive feature. Agree shared interfaces and file ownership
+  before parallel work. Agents must not edit the same files concurrently. Codex owns shared
+  integration points; Claude can handle assigned browser work and independent review.
+  Use separate worktrees for independent changes when isolation is useful.
+- Give reviewers concrete artifacts and test evidence, not only the author's summary.
+  Verify delegated results and combined behavior independently where feasible. Include negative
+  cases such as invalid credentials, network failures, cancellation, logout and account changes
+  when relevant. Report what was tested and any unverified behavior explicitly.
+- Share only necessary context with agents; never put credentials or private user records in
+  handoff files, prompts or logs. Prefer synthetic data for tests and review examples.
+- Bound review time and tool/model spending to the task. Stop expanding scope when acceptance
+  criteria pass and material findings are resolved. Avoid unrelated refactors or extra services.
+- Before merging, report actual test results and conflict status and recommend whether to merge.
+  Wait for the user's go-ahead. After merging and verification, recommend whether to push and
+  wait for that go-ahead. Never promise conflict-free integration before checking it.
+
 ## Project goal
 Production Windows desktop AI interview assistant with:
 - Real-time audio capture and streaming transcription
@@ -210,6 +241,35 @@ friends' `fast`/`smart` tiers route through the relay's budget-enforced `/v1/cha
 instead of needing their own API keys. Deployed and verified end-to-end at
 https://interview-assistant-relay.fly.dev. Full design, API, and redeploy steps: `server/README.md`
 and `server/DEPLOY.md`.
+
+## Customer account foundation (November 2026)
+- Design: `docs/decisions/001-account-login-architecture.md`; implementation and validation:
+  `docs/account-login.md`. Customer login does not grant relay approval or paid entitlements.
+- Source development keeps the existing personal workspace unless `--customer` or
+  `CHANDOO_MODE=customer` is explicitly selected. Frozen customer builds always require login
+  and use bundled public `assets/auth.json`; environment cannot redirect their auth project.
+  Never bundle server secrets. The current public config targets the development project.
+- Customer bootstrap must not construct legacy Settings, history, retention cleanup or provider
+  credentials before server validation. The account context is activated once per process.
+  Account changes require a complete restart. Existing local data stays unassigned and untouched.
+- Scope settings, provider/relay credentials, consent, QSettings, resumes, practice Q&A,
+  usage and history by immutable issuer namespace and user UUID. Customer settings ignore
+  environment/.env provider credentials. Account directories are not encryption or OS isolation.
+- Email/password login uses the pinned async auth-only SDK. Signup confirmation uses email OTP;
+  recovery authority cannot open the workspace. New Free projects need custom SMTP to customize
+  OTP templates. Do not claim hosted signup/recovery works until email delivery is tested.
+- Remember-me is opt-in. Store refresh credentials only in Credential Manager, access tokens
+  only in memory. Incognito fences remembering synchronously. A nonsecret inactive marker
+  prevents restore after failed credential deletion; a corrupt marker requires fresh sign-in.
+- One serialized refresh owner, with atomic session-generation commits. Retain rotated tokens
+  before subsequent validation so an outage cannot reuse a spent refresh token. Startup requires
+  online validation; active sessions retry transient errors until token expiry, with monotonic
+  expiry bounds. No auth network call per answer and no instant remote-block guarantee.
+- Logout revokes callback/persistence authority, stops capture/answers, closes stores and
+  unregisters UI entry points before restart. Guard tray, presentation, navigation, background
+  completions and nested onboarding loops. Never automatically bypass auth on any failure.
+- New auth tests must inject keyring, QSettings, environment and network as well as DATA_DIR.
+  A native smoke test with synthetic providers is distinct from a hosted email acceptance test.
 
 ## Hardening decisions (Step 13)
 - Live transcript previews are emitted during speech at a 750 ms audio cadence. Cloud STT

@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Protocol
 
 from PySide6.QtCore import QObject, Signal
@@ -36,6 +36,8 @@ class PresentationMode(QObject):
         main_window: QWidget | None,
         audio: Stoppable | Sequence[Stoppable] | None = None,
         controller: object | None = None,
+        *,
+        allowed: Callable[[], bool] = lambda: True,
     ) -> None:
         super().__init__()
         self._hide = hide
@@ -46,6 +48,7 @@ class PresentationMode(QObject):
             [] if audio is None else audio if isinstance(audio, Sequence) else [audio]
         )
         self._controller = controller
+        self._allowed = allowed
         self._active = False
         self._was_visible: list[QWidget] = []
         self._main_was_visible = False
@@ -61,7 +64,7 @@ class PresentationMode(QObject):
             self.activate()
 
     def activate(self) -> None:
-        if self._active:
+        if not self._allowed() or self._active:
             return
         self._active = True
         # Stop everything that could produce content first, then hide.
@@ -85,7 +88,7 @@ class PresentationMode(QObject):
         self.changed.emit(True)
 
     def deactivate(self) -> None:
-        if not self._active:
+        if not self._allowed() or not self._active:
             return
         self._active = False
         for w in self._was_visible:

@@ -13,6 +13,9 @@ VERSION_FILE = ROOT / "packaging" / "version_info.txt"
 ICON = ROOT / "packaging" / "app.ico"
 
 datas = collect_data_files("faster_whisper") + collect_data_files("certifi")
+auth_config = ROOT / "src" / "interview_assistant" / "assets" / "auth.json"
+if auth_config.is_file():
+    datas += [(str(auth_config), "interview_assistant/assets")]
 semantic_dir = ROOT / "src" / "interview_assistant" / "assets" / "semantic"
 if not (semantic_dir / "model.onnx").is_file():
     raise SystemExit("Run python scripts/download_semantic_model.py before packaging")

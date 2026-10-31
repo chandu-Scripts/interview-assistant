@@ -1,4 +1,5 @@
-from typing import Literal
+from contextvars import ContextVar
+from typing import Any, Literal
 
 from pydantic import SecretStr
 from pydantic_settings import (
@@ -7,7 +8,10 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
+from interview_assistant.account.context import current_context
 from interview_assistant.config.user_settings import JsonUserSource
+
+_validation_only: ContextVar[bool] = ContextVar("settings_validation_only", default=False)
 
 DEFAULT_VOCABULARY = (
     "Software engineering interview. Terms: API, REST, GraphQL, SQL, NoSQL, Kubernetes, "
@@ -23,6 +27,25 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    def __init__(self, **values: Any) -> None:
+        context = current_context()
+        if context is not None or _validation_only.get():
+            values["_env_file"] = None
+            values["_secrets_dir"] = None
+        if context is not None:
+            context.require_active()
+            values["data_dir"] = str(context.account_dir)
+        super().__init__(**values)
+
+    @classmethod
+    def validate_saved_values(cls, values: dict[str, Any]) -> None:
+        """Validate only supplied values, without loading/quarantining another settings file."""
+        token = _validation_only.set(True)
+        try:
+            cls(**values)
+        finally:
+            _validation_only.reset(token)
+
     @classmethod
     def settings_customise_sources(
         cls,
@@ -32,6 +55,10 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
+        if _validation_only.get():
+            return (init_settings,)
+        if current_context() is not None:
+            return (init_settings, JsonUserSource(settings_cls))
         return (
             init_settings,
             env_settings,

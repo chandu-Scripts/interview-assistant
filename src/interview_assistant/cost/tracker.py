@@ -5,6 +5,7 @@ import time
 import uuid
 from collections import defaultdict
 from collections.abc import Callable
+from contextlib import nullcontext
 from contextvars import ContextVar, Token
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
@@ -86,6 +87,12 @@ class UsageStore:
     """Append-only JSONL usage log so day/month totals survive restarts."""
 
     def __init__(self, path: Path) -> None:
+        from interview_assistant.account.context import current_context
+
+        self._account = current_context()
+        if self._account is not None:
+            self._account.require_active()
+            self._account.validate_path(path)
         self.path = path
 
     def clear(self) -> None:
@@ -96,9 +103,12 @@ class UsageStore:
 
     def append(self, rec: UsageRecord) -> None:
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(asdict(rec)) + "\n")
+            with self._account.persistence_lock if self._account else nullcontext():
+                if self._account is not None and not self._account.active:
+                    return
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                with self.path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(asdict(rec)) + "\n")
         except OSError:
             log.exception("Could not write usage log")
 

@@ -990,9 +990,16 @@ class OverlayWindow(QWidget):
             self.move(area.right() - self.width() - 24, area.top() + 24)
 
     def closeEvent(self, event) -> None:  # noqa: N802
-        self._settings.setValue("geometry", self.saveGeometry())
+        self._save_geometry()
         super().closeEvent(event)
 
     def hideEvent(self, event) -> None:  # noqa: N802
-        self._settings.setValue("geometry", self.saveGeometry())
+        self._save_geometry()
         super().hideEvent(event)
+
+    def _save_geometry(self) -> None:
+        from interview_assistant.account.context import current_context
+
+        context = current_context()
+        if context is None or context.active:
+            self._settings.setValue("geometry", self.saveGeometry())

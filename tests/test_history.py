@@ -756,6 +756,7 @@ def test_window_create_session_opens_dialog_and_activates_on_created(qtbot, stor
     w.open_create_session()
     dialog = w._session_dialog
     assert dialog is not None
+    qtbot.addWidget(dialog)
     dialog.company.setText("Google")
     dialog.next_btn.click()  # Details -> Preferences
     with qtbot.waitSignal(dialog.created):

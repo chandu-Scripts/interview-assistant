@@ -26,6 +26,8 @@ def relaunch() -> None:
         if getattr(sys, "frozen", False)
         else [sys.executable, "-m", "interview_assistant"]
     )
+    if "--customer" in sys.argv:
+        cmd.append("--customer")
     subprocess.Popen(  # noqa: S603 - our own executable
         cmd,
         creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),

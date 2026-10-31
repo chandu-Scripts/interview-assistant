@@ -8,10 +8,13 @@ small panel, not a 4th row in the provider-key list.
 """
 
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
+
+from interview_assistant.account.context import current_context
 
 log = logging.getLogger(__name__)
 
@@ -30,10 +33,19 @@ class KeyringRelayTokenStore:
     """The relay token in the Windows Credential Manager, under its own service name (so it
     never gets mixed in with the 3 provider keys in config/keys.py)."""
 
-    def __init__(self, service: str = RELAY_SERVICE) -> None:
-        self._service = service
+    def __init__(self, service: str | None = None) -> None:
+        self._context = current_context()
+        self._service = service or (
+            f"{RELAY_SERVICE}:{self._context.credential_namespace}"
+            if self._context
+            else RELAY_SERVICE
+        )
 
     def get(self) -> str | None:
+        with self._context.mutation() if self._context else nullcontext():
+            return self._get()
+
+    def _get(self) -> str | None:
         try:
             import keyring
 
@@ -45,9 +57,14 @@ class KeyringRelayTokenStore:
     def set(self, token: str) -> None:
         import keyring
 
-        keyring.set_password(self._service, _TOKEN_KEY, token)
+        with self._context.mutation() if self._context else nullcontext():
+            keyring.set_password(self._service, _TOKEN_KEY, token)
 
     def delete(self) -> None:
+        with self._context.mutation() if self._context else nullcontext():
+            self._delete()
+
+    def _delete(self) -> None:
         try:
             import keyring
 

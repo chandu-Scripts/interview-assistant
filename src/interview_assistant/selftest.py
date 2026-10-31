@@ -132,6 +132,12 @@ def _modules() -> str:
     import importlib
 
     names = [
+        "interview_assistant.account.provider",
+        "interview_assistant.account.runtime",
+        "supabase_auth",
+        "jwt",
+        "cryptography",
+        "h2",
         "interview_assistant.agents.jev",
         "interview_assistant.app.controller",
         "interview_assistant.app.hotkeys",

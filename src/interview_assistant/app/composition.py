@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QWidget
 
+from interview_assistant.account.context import current_context
 from interview_assistant.agents.jev import Jev, JevConfig
 from interview_assistant.app.async_runner import AsyncRunner
 from interview_assistant.app.controller import AssistantController
@@ -74,6 +75,7 @@ class AppParts:
     toggle_overlay: Callable[[], None]
     open_main: Callable[[], None]
     on_second_launch: Callable[[], None]
+    shutdown: Callable[[], None]
 
 
 def build_app(
@@ -86,6 +88,14 @@ def build_app(
     user_settings: UserSettingsStore | None = None,
 ) -> AppParts:
     """Create every component and connect them. Nothing is shown or started here."""
+    context = current_context()
+    closed = False
+    if context is not None:
+        context.require_active()
+
+    def active() -> bool:
+        return not closed and (context is None or context.active)
+
     tracker = build_tracker(settings)
     providers = build_providers(settings)
     router = build_router(settings, providers, on_attempt=tracker.record_attempt)
@@ -110,7 +120,7 @@ def build_app(
     )
     review_controller = PostCallController(router, runner, tracker)
     tracker.on_change = controller.notify_cost_changed
-    overlay = OverlayWindow(controller)
+    overlay = OverlayWindow(controller, settings=context.qsettings("Overlay") if context else None)
 
     stt = build_provider(settings)
     billed = getattr(stt, "metered", False) and not getattr(stt, "realtime", False)
@@ -144,6 +154,7 @@ def build_app(
         mic_panel=mic_panel,
         mic_provider=mic_provider,
     )
+    window.can_access = active
 
     # ---- privacy: incognito, redaction, presentation mode, consent ----
     privacy = PrivacyState(
@@ -166,6 +177,8 @@ def build_app(
     interview_sessions.on_change = apply_session_options
 
     def connect_session() -> None:
+        if not active():
+            return
         if not window.audio_panel.recording:
             window.audio_panel.start()
         if window.mic_panel is not None and not window.mic_panel.recording:
@@ -195,7 +208,10 @@ def build_app(
 
     start_screen = StartScreen(
         history,
-        ResumeLibrary(data_dir(settings) / "resumes.json", can_write=lambda: not privacy.incognito),
+        ResumeLibrary(
+            data_dir(settings) / "resumes.json",
+            can_write=lambda: active() and not privacy.incognito,
+        ),
         interview_sessions.activate,
         connect_session,
         window.show_history,
@@ -207,9 +223,12 @@ def build_app(
         review_controller=review_controller,
         on_audio=window.show_controls,
     )
+    start_screen.can_access = active
     hidden: list[QWidget] = [overlay, window]
     audio_stoppables = [window.audio_panel] + ([window.mic_panel] if window.mic_panel else [])
-    presentation = PresentationMode(hidden, start_screen, audio_stoppables, controller)
+    presentation = PresentationMode(
+        hidden, start_screen, audio_stoppables, controller, allowed=active
+    )
     presentation.changed.connect(review_controller.set_paused)
 
     def flows() -> list[DataFlow]:
@@ -248,13 +267,17 @@ def build_app(
         key=SCREENSHOT_KEY,
     )
     window.attach_privacy(privacy, presentation, privacy_dialog, consent, screenshot_consent)
+    window.audio_panel.before_start = lambda: active() and consent.ensure()
+    if window.mic_panel is not None:
+        window.mic_panel.before_start = lambda: active() and consent.ensure()
+    overlay.before_screenshot = lambda: active() and screenshot_consent.ensure()
 
     # ---- settings dialog: most changes need a restart, which the app offers to do ----
     catalog = ProviderCatalog(
         Settings,
         keys,
         data_dir(settings) / "provider_models.json",
-        can_write=lambda: not privacy.incognito,
+        can_write=lambda: active() and not privacy.incognito,
     )
     settings_dialog = SettingsDialog(user_settings or UserSettingsStore(), keys, catalog=catalog)
     selectors = start_screen.create_page.model_selectors
@@ -286,13 +309,14 @@ def build_app(
         start_screen.add_workspace_page("controls", "Audio & live transcript", controls)
 
     def navigate(key: str) -> None:
-        if not presentation.active:
+        if active() and not presentation.active:
             start_screen.open_workspace_page(key)
 
     window.navigate = navigate
     practice_page = PracticePage(
         PracticeLibrary(
-            data_dir(settings) / "practice_qa.json", can_write=lambda: not privacy.incognito
+            data_dir(settings) / "practice_qa.json",
+            can_write=lambda: active() and not privacy.incognito,
         )
     )
     start_screen.add_workspace_page("practice", "Fictional / Realistic Q&A", practice_page)
@@ -333,12 +357,12 @@ def build_app(
 
     # ---- window helpers shared by the tray, hotkeys and second launches ----
     def toggle_overlay() -> None:
-        if presentation.active:
+        if not active() or presentation.active:
             return  # the overlay stays hidden until presentation mode is ended
         overlay.setVisible(not overlay.isVisible())
 
     def open_main() -> None:
-        if presentation.active:
+        if not active() or presentation.active:
             return
         if start_screen.isMinimized():
             start_screen.showNormal()
@@ -348,14 +372,14 @@ def build_app(
         start_screen.activateWindow()
 
     def on_second_launch() -> None:
-        if presentation.active:
+        if not active() or presentation.active:
             return  # never pop the assistant up while the user is presenting
         open_main()
 
     tray = TrayController(
         toggle_overlay,
-        presentation.toggle,
-        lambda: privacy.set_incognito(not privacy.incognito),
+        lambda: presentation.toggle() if active() else None,
+        lambda: privacy.set_incognito(not privacy.incognito) if active() else None,
         open_main,
         qapp.quit,
     )
@@ -366,6 +390,30 @@ def build_app(
     presentation.changed.connect(sync_tray)
     privacy.changed.connect(sync_tray)
     sync_tray()
+
+    def shutdown() -> None:
+        nonlocal closed
+        if closed:
+            return
+        closed = True
+        # Invalidate persistence before cancellation can emit late usage/history results.
+        history.suspended = True
+        tracker.persist = False
+        review_controller.set_paused(True)
+        controller.set_paused(True)
+        window.navigate = lambda _key: None
+        tray.hide()
+        settings_dialog.close_provider_popups()
+        for selector in selectors:
+            if selector.picker is not None:
+                selector.picker.reject()
+        start_screen.setEnabled(False)
+        window.close()
+        if start_screen.resume_page is not None:
+            start_screen.resume_page.close()
+        start_screen.create_page.close()
+        start_screen.hide()
+        history.close()
 
     return AppParts(
         start_screen=start_screen,
@@ -387,4 +435,5 @@ def build_app(
         toggle_overlay=toggle_overlay,
         open_main=open_main,
         on_second_launch=on_second_launch,
+        shutdown=shutdown,
     )
