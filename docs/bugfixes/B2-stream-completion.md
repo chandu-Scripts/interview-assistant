@@ -65,6 +65,26 @@ all partially received answers, and globally changing transport-error fallback s
 
 ## Limits and rollback
 
+### Cancellation review follow-up
+
+Claude's combined review identified a final-event race: Stop could invalidate an answer
+after Jev yielded its terminal event but before Jev committed conversation memory. The
+controller's next cancellation check happened too late. A deterministic regression failed
+with a stopped history record and an unwanted completed Jev turn before this fix.
+
+The controller now binds an acceptance callback to each request with a task-local context.
+Jev uses it only at its final memory commit. The callback checks cancellation and generation
+under the same short lock used by Stop and presentation invalidation, then commits under
+that lock. This makes the check and append atomic without holding a lock across provider
+I/O. Standalone Jev calls keep their existing behavior. Concurrent audio requests have
+independent context, and Stop does not erase previously accepted conversation turns.
+Shutdown also invalidates outstanding requests before stopping the runner.
+
+Regression coverage includes Stop and presentation after the last event, Stop during
+provider close, and successful answers after cancellation. The controller/Jev/continuation/
+privacy/history suite passed **339 tests**; Ruff, mypy on both changed source modules, and
+`git diff --check` passed. Tests use synthetic events and local Qt; no live services were used.
+
 No live API calls were made. Protocol tests use deterministic `httpx.MockTransport` streams.
 OpenAI-compatible endpoints that omit the documented end sentinel are conservatively treated
 as incomplete. A normal terminal signal establishes that the provider finished generating;

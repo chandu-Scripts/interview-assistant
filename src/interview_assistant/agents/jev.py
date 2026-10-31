@@ -1,5 +1,7 @@
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 
 from interview_assistant.agents.classifier import Classifier
@@ -14,6 +16,21 @@ from interview_assistant.privacy.redact import redact_text
 log = logging.getLogger(__name__)
 
 JevEvent = Decision | RouteEvent
+
+MemoryCommitGuard = Callable[[Callable[[], None]], None]
+_memory_commit_guard: ContextVar[MemoryCommitGuard | None] = ContextVar(
+    "answer_memory_commit_guard", default=None
+)
+
+
+@contextmanager
+def guard_memory_commit(guard: MemoryCommitGuard) -> Iterator[None]:
+    """Bind the caller's atomic acceptance gate to this task, including stream cleanup."""
+    token = _memory_commit_guard.set(guard)
+    try:
+        yield
+    finally:
+        _memory_commit_guard.reset(token)
 
 
 @dataclass
@@ -180,9 +197,12 @@ class Jev:
         if continuation and not "".join(parts).strip():
             raise RuntimeError("The continuation returned no new text. Please try again.")
         if completion_is_normal(finish_reason):
-            self._remember(
-                Turn(question, (continuation + "".join(parts)).strip(), decision.category)
-            )
+            turn = Turn(question, (continuation + "".join(parts)).strip(), decision.category)
+            guard = _memory_commit_guard.get()
+            if guard is None:
+                self._remember(turn)
+            else:
+                guard(lambda: self._remember(turn))
 
     def _messages(self, question: str) -> list[Message]:
         turns: list[Turn] = []

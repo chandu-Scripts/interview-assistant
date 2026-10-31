@@ -1,14 +1,14 @@
 import asyncio
 
 import pytest
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 
 from interview_assistant.agents.jev import Jev, JevConfig
 from interview_assistant.app.controller import AssistantController
 from interview_assistant.cost.tracker import Budget, CostTracker
 from interview_assistant.history.store import HistoryStore
 from interview_assistant.llm.continuation import ContinuationText
-from interview_assistant.llm.router import Route, Router, RouterConfig
+from interview_assistant.llm.router import Route, RouteEvent, Router, RouterConfig
 from interview_assistant.llm.types import ErrorKind, LLMError, StreamEvent, Usage
 from interview_assistant.ui.overlay import OverlayWindow
 
@@ -119,6 +119,89 @@ def test_clean_eof_is_incomplete_and_explicit_continuation_can_complete(app, qtb
     assert len(provider.requests) == 2
     assert [record.ok for record in tracker._records] == [False, True]
     assert not ui.continue_btn.isVisible()
+
+
+@pytest.mark.parametrize("operation", ["stop", "pause"])
+def test_stop_after_final_event_cannot_commit_conversation_memory(app, qtbot, operation):
+    c, ui, provider, jev, history, tracker = app([])
+
+    class FinalEventRouter:
+        async def stream(self, *args, **kwargs):
+            yield RouteEvent(
+                StreamEvent(delta="Completed text", finish_reason="stop"),
+                Route("openai", "gpt-4o-mini"),
+                0,
+            )
+
+    jev._router = FinalEventRouter()
+
+    # Reproduce Stop between the last yielded event and Jev's generator resuming,
+    # without depending on cross-thread signal scheduling or wall-clock sleeps.
+    def stop_at_final_delta(gen, text):
+        if operation == "stop":
+            c.stop()
+        else:
+            c.set_paused(True)
+
+    c.answer_delta.connect(stop_at_final_delta, Qt.ConnectionType.DirectConnection)
+    c.ask("How do you optimize SQL queries?")
+    qtbot.waitUntil(
+        lambda: (
+            bool(history.list_sessions())
+            and bool(history.get_turns(history.list_sessions()[0].id))
+            and not c._runs
+        )
+    )
+    assert jev.history == []
+    turns = history.get_turns(history.list_sessions()[0].id)
+    assert turns[0].status == ("stopped" if operation == "stop" else "interrupted")
+    assert turns[0].answer == "Completed text"
+    c.answer_delta.disconnect(stop_at_final_delta)
+    c.set_paused(False)
+    with qtbot.waitSignal(c.answer_finished):
+        c.ask("How do you optimize PySpark jobs?")
+    qtbot.waitUntil(lambda: len(jev.history) == 1)
+    assert jev.history[0].question == "How do you optimize PySpark jobs?"
+
+
+def test_stop_during_provider_close_cannot_commit_memory(app, qtbot):
+    import threading
+
+    c, ui, provider, jev, history, tracker = app([])
+    closing = threading.Event()
+    released = threading.Event()
+
+    class ClosingStream:
+        sent = False
+
+        async def __anext__(self):
+            if self.sent:
+                raise StopAsyncIteration
+            self.sent = True
+            return StreamEvent(delta="Completed text", finish_reason="stop")
+
+        async def aclose(self):
+            closing.set()
+            # Simulate an adapter cleanup that defers cancellation until it closes.
+            # The request must not acquire memory authority again when cleanup ends.
+            while not released.is_set():
+                try:
+                    await asyncio.sleep(0.001)
+                except asyncio.CancelledError:
+                    continue
+
+    provider.stream = lambda request: ClosingStream()
+    c.ask("How do you optimize SQL queries?")
+    try:
+        qtbot.waitUntil(closing.is_set)
+        c.stop()
+    finally:
+        released.set()
+    qtbot.waitUntil(lambda: not c._runs)
+    assert jev.history == []
+    turns = history.get_turns(history.list_sessions()[0].id)
+    assert turns[0].status == "stopped"
+    assert turns[0].answer == "Completed text"
 
 
 @pytest.mark.parametrize("kind", ["openai", "anthropic", "gemini"])
