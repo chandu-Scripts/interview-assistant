@@ -8,6 +8,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QDialog
 
+from interview_assistant.account.access import AccessAuthorization, AccessLease, AccessProvider
 from interview_assistant.account.models import AuthCode, AuthError, AuthSession
 from interview_assistant.account.session import SessionService
 from interview_assistant.app.async_runner import AsyncRunner
@@ -26,12 +27,16 @@ class AccountRuntime(QObject):
         clock: Callable[[], float] = time.time,
         monotonic: Callable[[], float] = time.monotonic,
         runner: AsyncRunner | None = None,
+        access: AccessProvider | None = None,
     ) -> None:
         super().__init__()
         self.service = service
         self.runner = runner or AsyncRunner()
         self.clock = clock
         self.monotonic = monotonic
+        self.access = access
+        self.access_lease = AccessLease(lambda: self.monotonic())
+        self._access_pending: Future[Any] | None = None
         self._observed_session: AuthSession | None = None
         self._deadline = 0.0
         self.screen: AccountScreen | None = None
@@ -68,7 +73,11 @@ class AccountRuntime(QObject):
 
     def _submit(self, action: str, work: Coroutine[Any, Any, Any]) -> None:
         generation = self._generation
-        self._pending = self.runner.submit(work)
+        future = self.runner.submit(work)
+        if action == "access":
+            self._access_pending = future
+        else:
+            self._pending = future
 
         def done(future: Future[Any]) -> None:
             try:
@@ -80,7 +89,19 @@ class AccountRuntime(QObject):
             if not self._closed:
                 self.completed.emit(generation, action, result)
 
-        self._pending.add_done_callback(done)
+        future.add_done_callback(done)
+
+    async def _access_check(self, session: AuthSession) -> AccessAuthorization:
+        assert self.access is not None
+        started = self.monotonic()
+        snapshot = await self.access.snapshot(session)
+        return AccessAuthorization(session, snapshot, started)
+
+    async def _authorize(self, work: Coroutine[Any, Any, Any]) -> Any:
+        session = await work
+        if self.access is not None and isinstance(session, AuthSession):
+            return await self._access_check(session)
+        return session
 
     def _submit_form(self, action: str, payload: dict[str, Any]) -> None:
         if self._pending is not None and not self._pending.done():
@@ -110,6 +131,8 @@ class AccountRuntime(QObject):
         else:
             return
         self.screen.set_busy(True)
+        if action in {"login", "verify_signup", "restore"}:
+            work = self._authorize(work)
         self._submit(action, work)
 
     async def _reset_password(self, recovery: AuthSession, password: str) -> None:
@@ -121,6 +144,26 @@ class AccountRuntime(QObject):
         if action == "forget":
             if isinstance(result, AuthError):
                 self._lock("Could not clear remembered login for Incognito. Restart and retry.")
+            return
+        if action == "access":
+            self._access_pending = None
+            if not self.access_lease.valid:
+                self._lock("Account access expired. Reconnect and sign in again.")
+                return
+            if isinstance(result, AccessAuthorization):
+                try:
+                    self.access_lease.adopt(result, self.service.session)
+                except AuthError as exc:
+                    result = exc
+                else:
+                    self.notice.emit("")
+            if isinstance(result, AuthError):
+                if result.code == AuthCode.NETWORK:
+                    self.access_lease.refresh_at = self.monotonic() + 2.0
+                    self.notice.emit("Access connection interrupted. Reconnecting...")
+                else:
+                    self._lock(str(result))
+            self.check_session()
             return
         self._pending = None
         if action == "refresh":
@@ -141,7 +184,17 @@ class AccountRuntime(QObject):
         if screen is None:
             return
         screen.set_busy(False)
+        if isinstance(result, AccessAuthorization):
+            try:
+                if not self.access_lease.adopt(result, self.service.session):
+                    return
+                result = result.session
+            except AuthError as exc:
+                result = exc
         if isinstance(result, AuthError):
+            if self.access is not None and action in {"login", "verify_signup", "restore"}:
+                self.service.revoke()
+                self.access_lease.clear()
             screen.show_message(str(result), error=True)
             return
         if action in ("login", "verify_signup", "restore"):
@@ -178,6 +231,12 @@ class AccountRuntime(QObject):
         if session is None or remaining <= 0:
             self._lock("Your session has expired. Reconnect and sign in again.")
             return
+        if self.access is not None:
+            if not self.access_lease.valid:
+                self._lock("Account access expired. Reconnect and sign in again.")
+                return
+            if self._access_pending is None and self.monotonic() >= self.access_lease.refresh_at:
+                self._submit("access", self._access_check(session))
         if remaining > 60 or self.monotonic() < self._next_retry:
             return
         if self._pending is None:
@@ -216,10 +275,14 @@ class AccountRuntime(QObject):
         self.timer.stop()
         self._generation += 1
         self.service.revoke()
+        self.access_lease.clear()
         self._recovery = None
         if self._pending is not None:
             self._pending.cancel()
             self._pending = None
+        if self._access_pending is not None:
+            self._access_pending.cancel()
+            self._access_pending = None
 
     def shutdown(self, *, logout: bool = False) -> str | None:
         self.timer.stop()
@@ -227,6 +290,9 @@ class AccountRuntime(QObject):
         self._closed = True
         if self._pending is not None:
             self._pending.cancel()
+        if self._access_pending is not None:
+            self._access_pending.cancel()
+        self.access_lease.clear()
         error = None
         try:
             if logout:
@@ -239,5 +305,10 @@ class AccountRuntime(QObject):
                 self.runner.submit(self.service.close()).result(timeout=3)
             except Exception:
                 pass
+            if self.access is not None:
+                try:
+                    self.runner.submit(self.access.close()).result(timeout=3)
+                except Exception:
+                    pass
             self.runner.stop()
         return error
