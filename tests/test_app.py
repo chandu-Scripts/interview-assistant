@@ -893,6 +893,34 @@ def test_overlay_reset_and_error(qtbot, overlay):
     assert "All AI providers failed" in overlay.answer.toPlainText()
 
 
+@pytest.mark.parametrize("previous_answer_finished", [False, True])
+def test_overlay_pending_stream_render_preserves_error(qtbot, overlay, previous_answer_finished):
+    overlay._render_timer.setInterval(0)  # Deliver the queued refresh on the next event-loop turn.
+    overlay.on_question(1, "First question", "typed")
+    overlay.on_delta(1, "Partial answer")
+    generation = 1
+    if previous_answer_finished:
+        overlay.on_finished(1, "openai:gpt-4o", 0.01, 0.02)
+        generation = 2
+        overlay.on_question(generation, "Next question", "typed")
+    overlay.on_failed(generation, "Budget reached")
+    assert "Budget reached" in overlay.answer.toPlainText()
+
+    qtbot.wait(50)
+
+    assert "Budget reached" in overlay.answer.toPlainText()
+    if not previous_answer_finished:
+        assert "Partial answer" in overlay.answer.toPlainText()
+
+
+def test_overlay_stale_error_does_not_interrupt_new_answer_render(qtbot, overlay):
+    overlay.on_question(2, "Current question", "typed")
+    overlay.on_delta(2, "Current answer")
+    overlay.on_failed(1, "Old error")
+    qtbot.waitUntil(lambda: "Current answer" in overlay.answer.toPlainText(), timeout=2000)
+    assert "Old error" not in overlay.answer.toPlainText()
+
+
 def test_overlay_question_pending_enables_answer_button(overlay):
     assert not overlay.answer_btn.isEnabled()
     overlay.on_question_pending("What is a mutex?", None)
