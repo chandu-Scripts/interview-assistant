@@ -56,3 +56,20 @@ when the call returns. No extra inference calls or rewrite requests were added.
 
 Revert this branch's commit to restore prior behavior. There are no data
 migrations or hosted configuration changes. Merge and push remain separate approvals.
+
+## Review follow-up: failed preview warmup after cancellation
+
+Independent review found a health-state gap: cancelling correctly suppressed the old
+warmup error, but a later warmup failure stopped the preview worker without notifying
+its parent. New captures kept submitting to a dead worker. Warmup failure now retains
+a non-sensitive health flag independently of capture callbacks. New active speech,
+partials or a final detect that flag and report the existing final-transcription-only
+notice once per capture generation. Old callbacks remain suppressed, and permanent
+stop remains silent. The final provider continues normally; no additional inference
+or model restart is introduced.
+
+Five new synthetic regressions block warmup, cancel, fail, then resume before/after
+failure for mic and loopback, plus permanent shutdown. They verify no stale output,
+no private error detail, one notice per capture, and working final transcription.
+Validation: cancellation/STT/Speechmatics 82 passed; live-transcript regressions
+12 passed; Ruff and mypy passed. No microphone, provider key or network was used.

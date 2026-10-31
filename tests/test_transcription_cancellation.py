@@ -34,6 +34,79 @@ class HeldProvider(FakeSTT):
         return "new question"
 
 
+class FailedWarmup(FakeSTT):
+    def __init__(self):
+        super().__init__()
+        self.entered, self.release = threading.Event(), threading.Event()
+
+    def warmup(self):
+        self.entered.set()
+        assert self.release.wait(5)
+        raise RuntimeError("Synthetic private warmup detail")
+
+
+@pytest.mark.parametrize("resume_before_failure", [False, True])
+@pytest.mark.parametrize("source", [DeviceKind.MIC, DeviceKind.LOOPBACK])
+def test_cancelled_warmup_failure_notifies_only_the_new_capture(source, resume_before_failure):
+    preview, events, errors = FailedWarmup(), [], []
+    transcriber = StreamingTranscriber(
+        FakeSTT(), events.append, errors.append, preview_provider=preview, source=source
+    )
+    transcriber.start()
+    try:
+        assert preview.entered.wait(2)
+        transcriber.speech_started()
+        transcriber.submit_partial(tone(1))
+        transcriber.cancel()
+        if resume_before_failure:
+            transcriber.speech_started()
+        preview.release.set()
+        transcriber._preview._thread.join(2)
+        assert not transcriber._preview._thread.is_alive()
+        assert events == [] and errors == []
+        if not resume_before_failure:
+            transcriber.speech_started()
+        transcriber.submit_partial(tone(2))
+        transcriber.submit_partial(tone(2))
+        assert transcriber._preview_failed
+        assert len(errors) == 1
+        assert str(errors[0]) == (
+            "Live transcript preview unavailable; final transcription still works."
+        )
+        transcriber.submit_final(tone(2))
+        wait_idle(transcriber)
+        assert len(events) == 1 and events[0].is_final and events[0].source == source
+        assert preview.calls == []
+        transcriber.speech_started()
+        assert len(errors) == 1  # No repeated notice for each utterance in one capture.
+        transcriber.cancel()
+        transcriber.speech_started()
+        assert len(errors) == 2  # A fresh capture still explains the degraded preview.
+    finally:
+        preview.release.set()
+        transcriber.stop()
+
+
+def test_permanent_stop_keeps_failed_preview_warmup_silent():
+    preview, events, errors = FailedWarmup(), [], []
+    transcriber = StreamingTranscriber(
+        FakeSTT(), events.append, errors.append, preview_provider=preview
+    )
+    transcriber.start()
+    try:
+        assert preview.entered.wait(2)
+        transcriber.stop(timeout=0)
+        preview.release.set()
+        transcriber._preview._thread.join(2)
+        transcriber.speech_started()
+        transcriber.submit_partial(tone(1))
+        transcriber.submit_final(tone(1))
+        assert not errors and not events
+    finally:
+        preview.release.set()
+        transcriber.stop()
+
+
 @pytest.mark.parametrize("fail", [False, True])
 @pytest.mark.parametrize("preview", [False, True])
 def test_cancel_fences_running_and_queued_work_and_allows_new_speech(fail, preview):

@@ -53,6 +53,7 @@ class StreamingTranscriber:
         self._busy = False
         self._warned = False
         self._warmup = False
+        self._warmup_failed = False
         self._thread = threading.Thread(target=self._run, name="stt-worker", daemon=True)
         self._preview = (
             StreamingTranscriber(
@@ -66,6 +67,7 @@ class StreamingTranscriber:
             else None
         )
         self._preview_failed = False
+        self._preview_notice_generation: int | None = None
 
     def _on_preview(self, event: TranscriptEvent) -> None:
         # Serialize delivery with final submission so late previews never replace final text.
@@ -77,15 +79,31 @@ class StreamingTranscriber:
             ):
                 self._on_event(event)
 
-    def _preview_error(self, error: Exception) -> None:
-        if not self._preview_failed:
+    def _preview_error(self, error: Exception | None = None) -> None:
+        with self._cv:
             self._preview_failed = True
-            if self._on_error and not self._stop:
+            if (
+                self._on_error
+                and not self._stop
+                and self._preview_notice_generation != self._generation
+            ):
+                # A startup notice may be dropped by an inactive UI. The first actual
+                # utterance still needs a notice, once for each active capture generation.
+                if self._utt:
+                    self._preview_notice_generation = self._generation
                 self._on_error(
                     RuntimeError(
                         "Live transcript preview unavailable; final transcription still works."
                     )
                 )
+
+    def _preview_ready(self) -> bool:
+        # Health outlives cancellation, unlike the old capture's error callback. This
+        # also catches warmup finishing after a new capture has already begun.
+        if self._preview_failed or (self._preview is not None and self._preview._warmup_failed):
+            self._preview_error()
+            return False
+        return True
 
     def start(self, warmup: bool = False) -> None:
         self._warmup = warmup
@@ -121,7 +139,7 @@ class StreamingTranscriber:
             if self._stop:
                 return
             self._utt += 1
-            if self._preview is not None:
+            if self._preview is not None and self._preview_ready():
                 self._preview.speech_started()
 
     def submit_partial(self, audio: np.ndarray) -> None:
@@ -131,7 +149,7 @@ class StreamingTranscriber:
             if self._stop or self._utt in self._finalized:
                 return
             if self._preview is not None:
-                if not self._preview_failed:
+                if self._preview_ready():
                     self._preview.submit_partial(audio)
                 return
             self._partial = (self._utt, audio)
@@ -146,6 +164,7 @@ class StreamingTranscriber:
                 self._partial = None  # superseded by the final
             self._finalized.add(utt)
             if self._preview is not None:
+                self._preview_ready()
                 self._preview.discard_preview(utt)
             if len(self._finalized) > 500:  # only recent utterances can still get stale partials
                 self._finalized = {u for u in self._finalized if u > utt - 200}
@@ -211,6 +230,7 @@ class StreamingTranscriber:
                 self._provider.warmup()
             except Exception as e:
                 with self._cv:
+                    self._warmup_failed = True
                     self._partial = None
                     self._finals.clear()
                     if not self._stop and generation == self._generation and self._on_error:
