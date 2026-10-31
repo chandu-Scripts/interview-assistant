@@ -74,9 +74,44 @@ open. Browser automation stopped; the owner was asked to run the complete read-o
 SELECT in the original screenshot's tab and share the Results area. CLI credentials
 are not available; no private browser storage or credentials were extracted.
 
-After browser access is resolved, verify existing schema before applying the
-reviewed migration, provision only dedicated synthetic fixtures, and run the
-hosted Auth/RPC tests plus visible desktop/admin acceptance. Verify fresh login,
+The owner supplied the manual result: database `postgres`, private customer schema
+absent, public snapshot absent, migration ledger absent, and `auth.sessions.not_after`
+present. This confirms the first prerequisite only. The remaining wrapper names,
+managed Auth dependencies and applying-role privileges are checked by the read-only
+`supabase/tests/hosted-preflight.sql` before any migration.
+
+To avoid further browser-automation retries and a manually maintained migration
+ledger, a local Claude MCP connection named `supabase-dev` was configured for the
+exact dev project with only database/debugging/docs feature groups. OAuth sign-in
+was completed by the owner and a real MCP preflight confirmed the authenticated
+connection. The MCP server's organization consent can be broader
+than its project-bound endpoint, and must be reviewed by the owner. No PAT, database
+password or service-role key was requested in chat. Hosted migration application
+must use the supported migration tool and verify its resulting version; if that
+version differs from the prepared filename, align the local migration before any
+later CLI push. Never invent migration history rows to make a check pass.
+
+The expanded MCP preflight passed: all six wrapper names available, customer schema
+absent, migration list empty, required managed Auth columns/functions/roles present,
+and the applying `postgres` role had required read permissions. The reviewed migration
+was applied once with `apply_migration`; Supabase recorded version `20261031235520`.
+The local filename was aligned to that version with an unchanged SHA256 file hash.
+The read-only postflight returned the expected four tables, eight private functions,
+six public wrappers and one sequence. Complete metadata JSON and all 14 function-body
+fingerprints matched the independently generated local baseline. The postflight
+query also passed 21 local engine assertions, including privilege/configuration
+tampering and changed-body detection. No managed Auth rows were created or changed.
+
+Hosted advisors returned no performance findings. Security WARN findings concern
+the pre-existing `public.rls_auto_enable()` function being executable by anon and
+authenticated roles; this migration does not define it. Four INFO findings concern
+the deliberately private RLS tables with no direct-client policies. No automatic
+advisor fixes were applied. Evidence is in ignored root `tmp/claude-customer-mcp-apply.json`,
+`tmp/customer-postflight-comparison.json` and `tmp/customer-postflight-expected.json`.
+
+Provision only dedicated synthetic fixtures, then run the hosted Auth/RPC tests plus
+visible desktop/admin acceptance. A masked local provisioning helper is being prepared
+and reviewed; no privileged Auth secret has been supplied or fixture created. Verify fresh login,
 blocking and unblock, logout, ordinary-user denial and isolation. Clean up fixture
 grants, sessions and temporary admin membership and check hosted advisors.
 The runner's Auth/RPC/lease coverage does not prove Qt timer-driven visible lock

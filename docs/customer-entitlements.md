@@ -1,6 +1,6 @@
 # Customer access foundation (F2)
 
-This is an undeployed foundation for server-owned customer access. It does not take payments,
+This is a development-deployed foundation for server-owned customer access. It does not take payments,
 choose pricing, fund AI usage, or grant a paid subscription automatically. The current bundled
 development Auth project remains auth-only. Existing personal source mode is preserved.
 
@@ -41,8 +41,10 @@ integration record in `docs/decisions/004-customer-access-integration.md`.
 
 ## Database and RPC contract
 
-Migration: `supabase/migrations/20261031220303_customer_entitlements.sql` (created by
-Supabase CLI 2.122.0, not applied to a hosted project).
+Migration: `supabase/migrations/20261031235520_customer_entitlements.sql`. Originally
+created with Supabase CLI 2.122.0; applied once through the project-bound Supabase MCP
+to `chandoo-assistant-dev` on November 1, 2026. The local filename now matches the
+hosted migration version; the SQL contents are unchanged. No manual ledger rows were added.
 
 Private tables store account block/version/last-seen metadata, administrator membership,
 time-limited capability grants, and admin action audit metadata. All enable RLS, with no client
@@ -120,9 +122,14 @@ resume/Q&A mutation serialization is included in the customer integration as a n
 extraction of F5's guards, without its legacy-transfer feature. Existing practice JSON
 imports are guarded too, and privacy is rechecked before each atomic file replacement.
 
-No hosted migrations, deployment, payments, cloud uploads, real users or keys were used.
-Hosted advisors, managed-role permissions and real JWT/PostgREST integration still require
-an isolated Supabase staging acceptance run. Audit retention/export policy remains a release
+The original foundation tests used no hosted project. During integration, the development
+migration, managed-role prerequisites and read-only catalog postflight passed. All 14
+function fingerprints and the complete catalog result matched the local baseline.
+Advisors reported two WARN findings on the existing `public.rls_auto_enable()` function,
+plus expected INFO findings for the four private RLS tables without direct client policies.
+No performance findings were returned. Live Auth/JWT/PostgREST and visible UI acceptance
+remain pending dedicated synthetic fixtures. No production release, payments or cloud uploads
+are included. Audit retention/export policy remains a release
 decision. Migration rollback must preserve account/grant/audit data; do not drop these tables
 to troubleshoot access. Code rollback is branch reversion before any deployment.
 

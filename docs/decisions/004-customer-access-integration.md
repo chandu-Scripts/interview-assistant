@@ -91,6 +91,40 @@ complete SELECT had not been run; Enable Explorer was only an optional feature c
 One bounded follow-up reported browser keyboard-input and screenshot timeouts before
 Run, with no permission denial. Browser automation stopped and a manual result from
 the original, complete read-only query was requested. Dependent hosted operations
-remain pending that result. Local regressions and the opt-in runner are complete. See
+were pending that result. Local regressions and the opt-in runner are complete. See
 `docs/customer-access-acceptance.md` for the restricted fixture contract and
 `docs/steps/customer-access-integration-2026-11-01.md` for the recorded results.
+
+## Hosted database and fixture provisioning follow-up
+
+The owner returned the manual preflight and completed OAuth for the project-bound
+Claude `supabase-dev` MCP connection. The expanded read-only preflight passed, then
+the existing migration was applied once using the supported migration tool. Version
+`20261031235520` is recorded remotely and is now the local filename. Catalog structure,
+permissions and all 14 function-body fingerprints exactly match the local baseline.
+No manual migration-history changes or managed Auth row changes were made.
+
+Claude and Codex independently proposed synthetic-fixture provisioning, then challenged
+failure handling in a second review. The chosen helper lives in `scripts/`, outside
+packaged application inputs, and uses the existing PySide6 dependency for a masked
+local secret prompt. Dashboard entry remains an alternative if no secret is supplied.
+Direct managed-Auth SQL was rejected. No secret travels through chat, browser, shell
+arguments, environment, fixture JSON or logs; modern keys use the `apikey` header.
+
+The opt-in helper targets only the fixed development host, reserves a new ignored
+output path before network work, creates three confirmed synthetic identities through
+the supported Auth Admin API, and saves the existing runner's fixture contract.
+Administrator membership is a separate operation limited to the returned new test
+admin UUID. No existing identity is promoted or edited. Random passwords and fixture
+files remain local; they never enter review prompts or source control.
+
+Controlled failures roll back only proven new identities from that invocation and
+verify each deletion with exact-ID Auth `user_not_found`. An ambiguous request can
+leave an unknown creation; report it explicitly, never guess an ID or claim cleanup.
+A password-free ID journal supports manual reconciliation after process termination.
+Python cannot guarantee wiping immutable strings from memory. Offline transport tests
+cover request bounds, invalid input, cancellation, partial failure and cleanup proof;
+they do not substitute for the pending live acceptance.
+
+References: [API keys](https://supabase.com/docs/guides/getting-started/api-keys) and
+[supported user creation](https://supabase.com/docs/reference/javascript/auth-admin-createuser).
