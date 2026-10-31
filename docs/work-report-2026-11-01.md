@@ -97,3 +97,43 @@ subsequent approval is being applied to the six tested bug fixes and their requi
 login foundation. The remaining production features stay on their branches. Payments
 contains planning only; the later customer-owned-key decision supersedes its open
 billing-model question. GitHub push still requires separate approval.
+
+## Approved local merge completed
+
+The owner approved the tested bug-fix merge and selected customer-owned API keys.
+Main now contains the account-login prerequisite, all six bug-fix branches, the
+work reports and the customer-owned-key decision. Admin, entitlements, local import,
+cloud backup, hosted email, release preparation and payments feature branches were
+not merged. Their results above describe prepared branch code, not current main.
+
+All approved merges completed without conflicts. The previous main is retained at
+`backup/before-bug-merge-20261101` (`5d111fc`). No branches were deleted. GitHub push,
+hosted migrations/deployments and installed-app/website updates were not performed.
+
+The first desktop run on the narrower merged tree found one real UI timing issue:
+1,309 tests passed and a budget-warning display test failed. A pending answer
+refresh erased the already displayed warning, although the budget correctly blocked
+the request. Two deterministic UI cases reproduced it. Codex and the installed
+Claude CLI independently reviewed the cause; `fix/overlay-error-render` (`ea38aa8`)
+added two timer stops and three regression cases, then merged into main. Details:
+`docs/bugfixes/B7-overlay-error-render.md`. The existing budget test was unchanged.
+
+Final code validation at merge commit `e35f8c0`:
+
+- Desktop: **1,313 passed, 2 skipped, 2 deselected** in 214.54 seconds. Skips were
+  optional live audio/Gemini; real Credential Manager and loopback tests were
+  deliberately deselected. The count differs from the earlier 1,468-test combined
+  run because production-feature tests are not part of this approved merge.
+- Relay: **111 passed** on the merged relay code; one dependency deprecation warning.
+  No relay code changed after that run.
+- Focused app/cost/continuation/stream suite: **203 passed** after the timer fix.
+  Native Windows Qt regressions: **5 passed** (overlapping tests).
+- Ruff passed for desktop/tools and relay; mypy passed for all 48 changed Python
+  source/tool modules, with overlay checked again after the final correction.
+- Whitespace checks passed. All seven approved feature heads were verified as main
+  ancestors, and all seven deferred production-feature heads remained excluded.
+
+Logs are local ignored files under `tmp/merge-*.log`. All tests used isolated data
+and synthetic providers. The final report commit changes documentation only.
+Customer key ownership is recorded in AGENTS.md and decision 003; pricing and the
+remaining commercial-release implementation/acceptance work are still pending.
