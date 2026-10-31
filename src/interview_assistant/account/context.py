@@ -1,6 +1,6 @@
 """Immutable account scope and revocable authority for local persistence."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from hashlib import sha256
@@ -17,6 +17,7 @@ class AccountContext:
     root: Path
     issuer: str
     user_id: str
+    access_valid: Callable[[], bool] | None = field(default=None, repr=False, compare=False)
     _revoked: Event = field(default_factory=Event, init=False, repr=False, compare=False)
     _lock: RLock = field(default_factory=RLock, init=False, repr=False, compare=False)
 
@@ -52,7 +53,18 @@ class AccountContext:
 
     @property
     def active(self) -> bool:
-        return not self._revoked.is_set()
+        if self._revoked.is_set():
+            return False
+        if self.access_valid is not None:
+            # Pure local predicate: no network, Qt calls or context/mutation lock acquisition.
+            try:
+                allowed = self.access_valid()
+            except Exception:
+                allowed = False
+            if not allowed:
+                self._revoked.set()
+                return False
+        return True
 
     @property
     def persistence_lock(self) -> RLock:

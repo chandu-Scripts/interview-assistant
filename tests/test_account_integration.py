@@ -512,7 +512,7 @@ def test_startup_uses_valid_vault_namespace_and_only_activates_verified_account(
     class Runtime(QObject):
         locked = Signal(str)
 
-        def __init__(self, service):
+        def __init__(self, service, **kwargs):
             super().__init__()
             self.service = SimpleNamespace(session=session() if accepted else None)
             self.closed = False
@@ -546,7 +546,7 @@ def test_lock_during_onboarding_revokes_context_before_workspace_receiver_exists
     monkeypatch.setattr(startup, "AccountScreen", lambda: screen)
     monkeypatch.setattr(startup, "SupabaseAuthProvider", lambda *args: Provider())
     monkeypatch.setattr(startup, "RefreshVault", lambda *args: vault)
-    monkeypatch.setattr(startup, "AccountRuntime", lambda _: manager)
+    monkeypatch.setattr(startup, "AccountRuntime", lambda _, **kwargs: manager)
     monkeypatch.setattr(manager, "authenticate", lambda _: True)
     activated = []
     monkeypatch.setattr(startup, "activate_context", activated.append)

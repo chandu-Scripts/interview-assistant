@@ -14,6 +14,8 @@ class Bootstrap:
     customer: bool
     url: str = ""
     publishable_key: str = ""
+    environment: str = "development"
+    enforce_access: bool = False
 
     @classmethod
     def load(cls) -> "Bootstrap":
@@ -24,12 +26,18 @@ class Bootstrap:
         customer = bool(getattr(sys, "frozen", False)) or "--customer" in sys.argv
         customer = customer or os.environ.get("CHANDOO_MODE") == "customer"
         public: dict[str, str] = {}
+        environment = "development"
+        enforce_access = False
         config = Path(__file__).parents[1] / "assets" / "auth.json"
         if config.is_file():
             try:
                 raw = json.loads(config.read_text(encoding="utf-8"))
                 if isinstance(raw, dict):
                     public = {k: v for k, v in raw.items() if isinstance(v, str)}
+                    environment = raw.get("environment", "development")
+                    enforce_access = raw.get("enforce_access", False)
+                    if not isinstance(environment, str) or type(enforce_access) is not bool:
+                        environment, enforce_access = "invalid", False
             except (OSError, ValueError):
                 pass  # Invalid configuration stays locked; it never enables development mode.
         # A packaged customer binary always uses its bundled project. Environment
@@ -48,6 +56,8 @@ class Bootstrap:
                 if frozen
                 else os.environ.get("SUPABASE_PUBLISHABLE_KEY", public.get("publishable_key", ""))
             ),
+            environment=environment,
+            enforce_access=enforce_access,
         )
 
     def validate(self) -> None:
@@ -63,5 +73,8 @@ class Bootstrap:
             or parsed.path not in ("", "/")
             or parsed.port not in (None, 443)
             or not self.publishable_key.startswith("sb_publishable_")
+            or self.environment not in {"development", "production"}
+            or type(self.enforce_access) is not bool
+            or (self.environment == "production" and not self.enforce_access)
         ):
             raise ValueError("Account service is not configured. Contact the app owner.")
