@@ -664,7 +664,73 @@ def test_window_search_and_clear(qtbot, store):
     )
     assert "I mediated" in w.detail.toPlainText() and "1 match" in w.status.text()
     w.search.clear()
-    qtbot.waitUntil(lambda: "URL shortener" in w.detail.toPlainText(), timeout=2000)
+    qtbot.waitUntil(lambda: w.turns.count() == 2, timeout=2000)
+    assert "I mediated" in w.detail.toPlainText()
+
+
+def test_search_session_actions_follow_result_and_identify_delete_target(qtbot, store, tmp_path):
+    path = tmp_path / "matched.md"
+    w, prompts = make_window(qtbot, filled(store), path=str(path), answer=False)
+    newer, older = store.list_sessions()
+    assert w._current_session_id() == newer.id
+    w.search.setText("conflict")
+    w._run_search()
+    assert w._current_session_id() == older.id
+    w.view_transcript()
+    assert "I mediated" in w.detail.toPlainText()
+    assert "A lock" in w.detail.toPlainText()
+    assert "Use a hash" not in w.detail.toPlainText()
+    w.export_session()
+    assert "I mediated" in path.read_text(encoding="utf-8")
+    assert "Use a hash" not in path.read_text(encoding="utf-8")
+    w.delete_session()
+    assert older.title in prompts.asked[-1]
+    assert "cannot be undone" in prompts.asked[-1]
+    assert store.counts() == (2, 3)
+    prompts.answer = True
+    w.delete_session()
+    assert [s.id for s in store.list_sessions()] == [newer.id]
+    assert w.turns.count() == 0
+    assert not w.del_session_btn.isEnabled()
+
+
+def test_search_with_no_selected_hit_disables_session_actions(qtbot, store, tmp_path):
+    path = tmp_path / "must-not-exist.md"
+    w, prompts = make_window(qtbot, filled(store), path=str(path))
+    w.search.setText("nonexistentword")
+    w._run_search()
+    assert not w.view_transcript_btn.isEnabled()
+    assert not w.export_btn.isEnabled()
+    assert not w.del_session_btn.isEnabled()
+    w.view_transcript()
+    w.export_session()
+    w.delete_session()
+    assert not path.exists() and not prompts.asked
+    assert store.counts() == (2, 3)
+    w.search.clear()
+    w._run_search()
+    assert w.del_session_btn.isEnabled()
+
+
+def test_switching_global_hits_and_left_session_keeps_target_consistent(qtbot, store):
+    store.add_turn(turn("Question alpha", "Alpha answer"))
+    store.end_session()
+    store.add_turn(turn("Question beta", "Beta answer"))
+    w, _ = make_window(qtbot, store)
+    w.search.setText("Question")
+    w._run_search()
+    assert w.turns.count() == 2
+    for row in range(2):
+        w.turns.setCurrentRow(row)
+        expected = w._current_turn()
+        assert w._current_session_id() == expected.session_id
+        # A left-list click cannot silently retarget the visible search result.
+        w.sessions.setCurrentRow(1 - w.sessions.currentRow())
+        assert w._current_session_id() == expected.session_id
+        w.view_transcript()
+        assert expected.answer in w.detail.toPlainText()
+    w.turns.setCurrentRow(-1)
+    assert not w.export_btn.isEnabled()
 
 
 def test_window_delete_flow_respects_confirmation(qtbot, store):
