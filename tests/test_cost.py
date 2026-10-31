@@ -322,6 +322,8 @@ def test_metered_stt_reports_seconds_even_on_failure():
 
 
 def test_partials_disabled_for_billed_stt():
+    from tests.test_stt import wait_idle
+
     stt = FakeSTT()
     events = []
     tr = StreamingTranscriber(stt, events.append, partials=False)
@@ -329,6 +331,7 @@ def test_partials_disabled_for_billed_stt():
     tr.speech_started()
     tr.submit_partial(np.zeros(16000, dtype=np.int16))
     tr.submit_final(np.zeros(16000, dtype=np.int16))
+    wait_idle(tr)
     tr.stop()
     assert stt.calls == 1 and [e.is_final for e in events] == [True]
 
