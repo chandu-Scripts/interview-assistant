@@ -45,8 +45,8 @@ Access roles and entitlements must be server-owned, never user metadata. Monitor
 is operational metadata only. Backup remains opt-in and incognito prohibits mutation.
 Original personal data must not be adopted, uploaded, moved or deleted automatically.
 
-The user has been asked whether customers bring their own provider keys or the owner
-funds AI usage through the server. This is a material commercial decision. A desktop
+The user chose customer-owned provider keys on 2026-11-01; see
+`003-customer-owned-api-keys.md`. App access pricing remains undecided. A desktop
 access check cannot enforce paid provider usage against a modified BYOK client.
 Do not claim such enforcement, activate checkout, invent prices or add a funded plan
 without that decision and a configured provider. Provider-neutral contracts can be
@@ -64,5 +64,5 @@ local tests do not publish or activate any feature.
 Completion record for this work round: `docs/work-report-2026-11-01.md`. Six bug
 branches and the feasible customer foundations are locally committed. Thirteen
 branch merge simulations are conflict-free and exactly match the combined test
-tree. Main remains unchanged. Billing, hosted email/Storage acceptance and signed
+tree. Main was unchanged at the end of that work round. Billing, hosted email/Storage acceptance and signed
 production delivery still require the explicit inputs documented in that report.

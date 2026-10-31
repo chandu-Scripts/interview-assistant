@@ -1,9 +1,9 @@
 # Feature branch work report, 1 November 2026
 
 Work was performed in separate local Git worktrees with three delegated agents and
-independent reviews through the installed Claude CLI. Main remains at `5d111fc`.
-No branch was merged into main or pushed; no live service, installed app, customer
-record, personal credential or domain setting was changed.
+independent reviews through the installed Claude CLI. At the end of that work round,
+main remained at `5d111fc` and no branch had been merged or pushed. No live service,
+installed app, customer record, personal credential or domain setting was changed.
 
 The existing customer-login foundation was preserved as `683efd1` on
 `feature/account-login`. The branches below depend on it. Their commits are local.
@@ -73,8 +73,9 @@ checked against source, fixed and retested. Reviews are not a substitute for tes
 
 ## Required before production
 
-1. Choose the billing model: customer-owned AI keys or owner-funded AI usage. Then
-   choose a merchant service, currency, prices and limits. No paid plan was invented.
+1. Customer-owned AI keys were selected on 2026-11-01; customers pay providers
+   directly. Choose a merchant service, currency, prices and terms for app access.
+   No paid plan was invented. See `decisions/003-customer-owned-api-keys.md`.
 2. Set up a production Supabase project, owner UUID/admin provisioning, SMTP sender
    and the deferred domain. Apply reviewed migrations in staging and verify real
    JWT/PostgREST/Storage behavior with two dedicated test accounts.
@@ -90,6 +91,9 @@ end-to-end encrypted. Modified customer-owned-key clients cannot be fully contro
 through a desktop license gate. Live audio/provider latency, actual removable-drive
 hardware and power-loss recovery were not tested in this round.
 
-Merge recommendation after review: account-login foundation, six bug branches,
-entitlements, local import, admin, cloud, release/email preparation. Payments currently
-contains planning only. Confirm merge separately, then confirm push as requested.
+The original review recommended the account-login foundation, six bug branches,
+entitlements, local import, admin, cloud and release/email preparation. The owner's
+subsequent approval is being applied to the six tested bug fixes and their required
+login foundation. The remaining production features stay on their branches. Payments
+contains planning only; the later customer-owned-key decision supersedes its open
+billing-model question. GitHub push still requires separate approval.
