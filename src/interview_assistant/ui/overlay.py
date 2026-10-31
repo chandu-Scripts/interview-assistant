@@ -481,6 +481,7 @@ class OverlayWindow(QWidget):
         )
 
     def on_question(self, gen: int, text: str, source: str) -> None:
+        self._render_timer.stop()
         self._incomplete = False
         self.continue_btn.hide()
         self._locally_formatted = False
@@ -569,6 +570,7 @@ class OverlayWindow(QWidget):
 
     def on_failed(self, gen: int, message: str) -> None:
         if gen == self._gen:
+            self._render_timer.stop()  # A queued text refresh must not erase the error below.
             self._render()
             self.chip.setText("error")
             self.answer.append(f"\n⚠ {message}")
