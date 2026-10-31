@@ -320,7 +320,7 @@ def test_bootstrap_enforcement_is_explicit_and_fail_closed(tmp_path, environment
             boot.validate()
 
 
-def test_bundled_production_access_cannot_be_disabled_from_environment(
+def test_unsupported_environment_flag_cannot_bypass_bundled_access_config(
     clean_bootstrap, monkeypatch
 ):
     import sys
@@ -343,6 +343,32 @@ def test_bundled_production_access_cannot_be_disabled_from_environment(
     boot = Bootstrap.load()
     boot.validate()
     assert boot.enforce_access and boot.environment == "production"
+
+
+@pytest.mark.parametrize("flag", [False, "true", None, 1])
+def test_bundled_production_file_rejects_disabled_or_malformed_access_flag(
+    clean_bootstrap, monkeypatch, flag
+):
+    import sys
+
+    assets = clean_bootstrap / "src" / "assets"
+    assets.mkdir(parents=True)
+    (assets / "auth.json").write_text(
+        json.dumps(
+            {
+                "url": URL,
+                "publishable_key": PUBLIC_KEY,
+                "environment": "production",
+                "enforce_access": flag,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sys, "frozen", True)
+    boot = Bootstrap.load()
+    assert boot.customer
+    with pytest.raises(ValueError):
+        boot.validate()
 
 
 def test_enforced_startup_cannot_activate_context_without_access_lease(

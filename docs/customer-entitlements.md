@@ -101,6 +101,21 @@ Other tests cover A/B isolation, fabricated admin metadata, ordinary-user writes
 revoked/expired grants, malformed responses, stale versions, expired/mismatched/deleted sessions,
 network outage, clock rollback, slow responses, logout and late callbacks.
 
+Claude's independent source review found no confirmed security blocker. Its narrow expiry
+finding is corrected: a JWT/session bound that expires between identity validation and snapshot
+computation produces `expired` with a zero lease, rather than an invalid `allowed`/zero pair.
+The engine uses a transaction-scoped failpoint after the real identity check to exercise this
+boundary deterministically, then rolls the fixture changes back. The post-review engine run
+passed **48 assertions**; access/integration tests passed **72 tests**, including the engine-to-Qt
+flow. Tests now distinguish unsupported environment variables from actual malformed/disabled
+flags loaded from the bundled production config. Ruff and `git diff --check` pass.
+
+Remember-me remains explicitly opted in: denied access revokes local runtime authority but
+does not erase that opted-in remembered sign-in. Every restore rechecks current server access.
+Clearing remembered login remains an explicit logout/Incognito action. Atomic revocation keeps
+the existing persistence lock; slow admitted storage operations can delay Qt teardown. Local
+resume/Q&A mutation serialization is handled by the separate F5 account-storage change.
+
 No hosted migrations, deployment, payments, cloud uploads, real users or keys were used.
 Hosted advisors, managed-role permissions and real JWT/PostgREST integration still require
 an isolated Supabase staging acceptance run. Audit retention/export policy remains a release
