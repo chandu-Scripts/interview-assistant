@@ -1,7 +1,7 @@
 # Customer access, admin and customer-owned keys
 
 Status: implementation and hosted API, native Qt, and admin-browser acceptance completed
-on `feature/customer-access-integration`. Final synthetic-fixture role cleanup is pending.
+on `feature/customer-access-integration`. Final synthetic-fixture cleanup is verified.
 Main and origin/main remain at `2418dbb`.
 
 ## Scope delivered
@@ -166,30 +166,22 @@ the third run pass. There was no app-code change for that harness race. Results 
 ignored `tmp/customer-admin-hosted-{first-attempt,second-attempt,final-attempt}.json`; successful
 screenshots are under `tmp/output/playwright/customer-admin-live-*`.
 
-Final temporary-role cleanup is still pending. The exact prepared cleanup script checks
-fixture sessions/grants/block state and removes only the new test-admin membership. Supabase
-requested server confirmation, which the noninteractive Claude client cancelled immediately;
-the tool explicitly reported "Nothing was run." After the owner renewed expired MCP OAuth,
-independent read-only verification confirmed all three fixtures have zero sessions and enabled
-grants and are unblocked; only the synthetic administrator still has membership. Audit counts
-remain A: 30, B: 2, admin: 0.
+Final temporary-role cleanup passed after normal interactive Supabase confirmation. The
+successful Claude session executed exactly the prepared inspect, guarded cleanup and inspect
+queries, with one cleanup execution and no retries. The only mutation removed the temporary
+synthetic administrator membership. The query sequence was checked against the prepared files.
 
-An interactive confirmation subsequently expired before execution. At the owner's instruction,
-a fresh visible Claude helper first repeated the read-only checks and submitted the exact
-cleanup once through normal Supabase confirmation. That confirmation also expired before
-execution; the helper stopped without retrying. Role removal remains pending. No
-confirmation bypass or alternate mutation path was used. The prepared ignored script is
-`tmp/customer-final-cleanup.sql` in the root checkout. Synthetic identities and audit metadata
-are intentionally retained; this cleanup does not delete Auth users or user data.
+An independent read-only check confirmed no admin membership, zero sessions, zero enabled
+grants and no blocked account for all three fixture IDs. Audit counts remained A: 30, B: 2,
+admin: 0. The cleanup did not delete Auth users or user data. Evidence is retained in ignored
+root `tmp/customer-cleanup-interactive-success.json` and
+`tmp/claude-customer-cleanup-verify.json`.
 
-A further owner-coordinated attempt used Claude auto mode with normal server confirmation.
-It returned no cleanup result; the exact pending helper was stopped before switching to a
-manual SQL Editor handoff. The subsequent independent read-only check again confirmed zero
-sessions/enabled grants, unblocked fixtures, unchanged audit counts, and the temporary admin
-membership still present. Evidence: ignored `tmp/claude-customer-cleanup-verify.json`.
-Auto mode was separately smoke-tested successfully; it does not supply Supabase confirmation.
-No cleanup mutation is claimed. The owner can run the prepared guarded script in the
-development SQL Editor, after which a fresh read-only check must verify role removal.
+Earlier canceled or expired confirmations executed nothing. A further unconfirmed attempt
+was stopped, then independently checked: the role still existed before the successful run.
+That earlier read is retained in `tmp/claude-customer-cleanup-verify-before-removal.json`.
+Claude auto mode was separately smoke-tested successfully; normal Supabase confirmation
+was preserved throughout, with no confirmation bypass or alternate mutation path.
 
 Latest advisors reported no performance findings. The pre-existing `public.rls_auto_enable()`
 WARN findings remain; Auth also reports leaked-password protection disabled. Four INFO
