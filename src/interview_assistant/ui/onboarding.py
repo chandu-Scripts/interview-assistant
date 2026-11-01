@@ -5,11 +5,16 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
+    QFrame,
     QLabel,
+    QLayout,
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
+    QWidget,
     QWizard,
     QWizardPage,
 )
@@ -31,6 +36,7 @@ from interview_assistant.ui.bg import Runner, run_in_thread
 from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.key_row import Checker, KeyRow
 from interview_assistant.ui.settings_dialog import WHISPER_CHOICES
+from interview_assistant.ui.theme import ONBOARDING_STYLE, STYLE, center_window
 
 DONE_KEY = "onboarding/done_v1"
 WarmupFn = Callable[[str], None]
@@ -85,6 +91,17 @@ class ProvidersPage(QWizardPage):
             "Manager. Use Test to check a key (it is free), then Save."
         )
         lay = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        body = QWidget()
+        rows_layout = QVBoxLayout(body)
+        # Keep key fields usable on short screens; scroll rows instead of squeezing them.
+        rows_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        rows_layout.setContentsMargins(0, 0, 8, 0)
+        scroll.setWidget(body)
+        lay.addWidget(scroll, 1)
         self.rows: dict[str, KeyRow] = {}
         self._store, self._raw = store, raw_settings
         for p in PROVIDERS:
@@ -99,7 +116,8 @@ class ProvidersPage(QWizardPage):
             )
             row.changed.connect(lambda: self.completeChanged.emit())
             self.rows[p] = row
-            lay.addWidget(row)
+            rows_layout.addWidget(row)
+        rows_layout.addStretch()
         self.skip = QCheckBox("Skip for now (answers will not work until a key is added)")
         self.skip.toggled.connect(lambda _c: self.completeChanged.emit())
         lay.addWidget(self.skip)
@@ -222,12 +240,18 @@ class OnboardingWizard(QWizard):
     ) -> None:
         super().__init__()
         self.setWindowTitle("Interview Assistant - setup")
+        # Windows Aero paints white native page surfaces despite the dark app palette.
+        self.setWizardStyle(QWizard.WizardStyle.ClassicStyle)
+        center_window(self, 840, 660)
+        self.button(QWizard.WizardButton.NextButton).setObjectName("connect")
+        self.button(QWizard.WizardButton.FinishButton).setObjectName("create")
         self.welcome = WelcomePage()
         self.providers = ProvidersPage(keys, raw_settings, checker, runner)
         self.speech = SpeechPage(self.providers.has_openai_key, warmup or _default_warmup, runner)
         self.profile = ProfilePage()
         for page in (self.welcome, self.providers, self.speech, self.profile):
             self.addPage(page)
+        self.setStyleSheet(STYLE + ONBOARDING_STYLE)
 
     def collect(self) -> dict[str, Any]:
         sp, pr = self.speech, self.profile

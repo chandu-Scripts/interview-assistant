@@ -66,6 +66,12 @@ QToolTip { color: #e6f3ff; background: #162b42; border: 1px solid #44637e; paddi
 """
 
 
+ONBOARDING_STYLE = """
+QWizardPage { background: #101c30; }
+QRadioButton:disabled, QCheckBox:disabled, QLabel:disabled { color: #8da3bc; }
+"""
+
+
 def apply_theme(app: QApplication) -> None:
     app.setStyle("Fusion")
     palette = QPalette()

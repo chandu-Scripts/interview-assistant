@@ -137,6 +137,10 @@ with the safety boundaries below), and the file:line references each step builds
   with compact session cards. Never maximize automatically at launch.
 - Shared navy/cyan styling lives in `ui/theme.py`; floating surfaces use painted translucent
   glass gradients. Preserve contrast and explicit recording/presentation indicators.
+- First-run setup explicitly uses Qt's Classic wizard style and the shared navy/cyan theme.
+  Windows Aero wizard surfaces paint white behind the app's light text. Keep setup centered
+  at 840 x 660 logical pixels, reduced for smaller work areas. Provider rows scroll on short
+  screens; Skip and navigation stay reachable. Preserve consent and key-management behavior.
 - All dropdowns use `ui/controls.py`'s ChoiceComboBox: wheel input over a closed field
   scrolls the surrounding page without changing its value, even with focus. Open popup
   lists retain scrolling and explicit selection; keyboard navigation remains available.
