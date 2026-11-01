@@ -1,7 +1,8 @@
 # Customer access, admin and customer-owned keys
 
-Status: local implementation integrated on `feature/customer-access-integration`;
-hosted acceptance is pending. Main and origin/main remain at `2418dbb`.
+Status: implementation and hosted API, native Qt, and admin-browser acceptance completed
+on `feature/customer-access-integration`. Final synthetic-fixture role cleanup is pending.
+Main and origin/main remain at `2418dbb`.
 
 ## Scope delivered
 
@@ -15,8 +16,8 @@ hosted acceptance is pending. Main and origin/main remain at `2418dbb`.
   against account revocation. Queued writes cannot run after revocation. Already
   admitted writes finish before revocation returns. Incognito is checked again
   immediately before atomic file replacement.
-- Prepared a restricted, opt-in hosted acceptance runner using the actual app
-  Auth/Access providers and synthetic fixtures. It has not been executed live.
+- Implemented and exercised a restricted, opt-in hosted acceptance runner using the actual
+  app Auth/Access providers and synthetic fixtures.
 
 The installed Claude CLI reviewed the approach independently, challenged it and
 reviewed the final BYOK/library code. Its final source review found no confirmed
@@ -168,15 +169,27 @@ screenshots are under `tmp/output/playwright/customer-admin-live-*`.
 Final temporary-role cleanup is still pending. The exact prepared cleanup script checks
 fixture sessions/grants/block state and removes only the new test-admin membership. Supabase
 requested server confirmation, which the noninteractive Claude client cancelled immediately;
-the tool explicitly reported "Nothing was run." No retry, confirmation bypass or alternate
-mutation was attempted. The prepared ignored script is `tmp/customer-final-cleanup.sql` in
-the root checkout. An interactive MCP confirmation or a manual run in the development SQL
-Editor is required, followed by a read-only verification. Synthetic identities and audit
-metadata are intentionally retained; this cleanup does not delete Auth users or user data.
-The subsequent independent read-only inspection could not authenticate because the MCP OAuth
-session had expired and refresh failed. Accordingly, only the successful harness cleanup
-proofs are recorded; no final database inspection or role removal is claimed. A manual SQL
-Editor run can complete cleanup without requesting another privileged key in chat.
+the tool explicitly reported "Nothing was run." After the owner renewed expired MCP OAuth,
+independent read-only verification confirmed all three fixtures have zero sessions and enabled
+grants and are unblocked; only the synthetic administrator still has membership. Audit counts
+remain A: 30, B: 2, admin: 0.
+
+An interactive confirmation subsequently expired before execution. At the owner's instruction,
+a fresh visible Claude helper first repeated the read-only checks and submitted the exact
+cleanup once through normal Supabase confirmation. That confirmation also expired before
+execution; the helper stopped without retrying. Role removal remains pending. No
+confirmation bypass or alternate mutation path was used. The prepared ignored script is
+`tmp/customer-final-cleanup.sql` in the root checkout. Synthetic identities and audit metadata
+are intentionally retained; this cleanup does not delete Auth users or user data.
+
+A further owner-coordinated attempt used Claude auto mode with normal server confirmation.
+It returned no cleanup result; the exact pending helper was stopped before switching to a
+manual SQL Editor handoff. The subsequent independent read-only check again confirmed zero
+sessions/enabled grants, unblocked fixtures, unchanged audit counts, and the temporary admin
+membership still present. Evidence: ignored `tmp/claude-customer-cleanup-verify.json`.
+Auto mode was separately smoke-tested successfully; it does not supply Supabase confirmation.
+No cleanup mutation is claimed. The owner can run the prepared guarded script in the
+development SQL Editor, after which a fresh read-only check must verify role removal.
 
 Latest advisors reported no performance findings. The pre-existing `public.rls_auto_enable()`
 WARN findings remain; Auth also reports leaked-password protection disabled. Four INFO
