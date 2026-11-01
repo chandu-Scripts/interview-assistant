@@ -372,28 +372,33 @@ class Acceptance:
                 return cursor
         raise Refused("audit_scan_limit")
 
+    async def sign_in(self, label: str, identity: Identity) -> AuthSession:
+        require(label not in self.sessions, "session_label_already_used")
+        session = await self.auth.login(identity.email, identity.password)
+        self.sessions[label] = session  # Sign out even a mismatched returned session.
+        require(session.user_id == identity.user_id, "authenticated_identity_mismatch")
+        await self.auth.validate(session)
+        response = await self.client.get(
+            f"{DEV_URL}/auth/v1/user",
+            headers={
+                "apikey": self.fixtures.publishable_key,
+                "Authorization": f"Bearer {session.access_token}",
+            },
+        )
+        require(response.status_code == 200, "fixture_identity_unverified")
+        data = response.json()
+        require(
+            isinstance(data, dict) and data.get("email") == identity.email,
+            "authenticated_email_mismatch",
+        )
+        require(session.expires_at > time.time() + 120, "fixture_session_too_short")
+        return session
+
     async def preflight(self) -> None:
         for label, identity in zip(
             ("admin", "A", "B"), (self.fixtures.admin, *self.fixtures.customers), strict=True
         ):
-            session = await self.auth.login(identity.email, identity.password)
-            self.sessions[label] = session  # Sign out even a mismatched returned session.
-            require(session.user_id == identity.user_id, "authenticated_identity_mismatch")
-            await self.auth.validate(session)
-            response = await self.client.get(
-                f"{DEV_URL}/auth/v1/user",
-                headers={
-                    "apikey": self.fixtures.publishable_key,
-                    "Authorization": f"Bearer {session.access_token}",
-                },
-            )
-            require(response.status_code == 200, "fixture_identity_unverified")
-            data = response.json()
-            require(
-                isinstance(data, dict) and data.get("email") == identity.email,
-                "authenticated_email_mismatch",
-            )
-            require(session.expires_at > time.time() + 120, "fixture_session_too_short")
+            await self.sign_in(label, identity)
         admin = await self.row(self.fixtures.admin.user_id)
         require(admin["is_admin"] and not admin["blocked"], "fixture_admin_role_missing")
         snapshot = await self.rpc(self.sessions["A"], "customer_access_snapshot", {})
@@ -487,6 +492,20 @@ class Acceptance:
         self.report.checks.append(
             "block_denies_protected_access_and_clears_lease_unblock_preserves_grant"
         )
+        fresh = await self.sign_in("A_fresh", self.fixtures.customers[0])
+        require(fresh.access_token != a.access_token, "fresh_signin_reused_session")
+        started = time.monotonic()
+        allowed = await self.access.snapshot(fresh)
+        require(allowed.allowed, "fresh_signin_grant_missing")
+        self.lease.adopt(AccessAuthorization(fresh, allowed, started), fresh)
+        require(self.lease.valid, "fresh_signin_lease_unusable")
+        for cap in CAPABILITIES:
+            require(
+                await self.rpc(fresh, "customer_require_access", {"capability": cap}) is True,
+                "fresh_signin_protected_access_missing",
+            )
+        self.report.checks.append("unblock_fresh_signin_and_lease")
+        a = fresh
         await self.mutate(a.user_id, capability="desktop_access", enabled=False, expiry=expiry)
         require((await self.access.snapshot(a)).reason == "no_grant", "revoke_not_denied")
         require(
@@ -505,7 +524,7 @@ class Acceptance:
         self.require_logout_validity(a)
         await self.auth.signout(a)
         await self.denied(a, "customer_require_access", {"capability": "desktop_access"})
-        await self.confirm_signed_out("A", a)
+        await self.confirm_signed_out("A_fresh", a)
         require(not (await self.access.snapshot(b)).allowed, "customer_B_changed")
         untouched = await self.row(b.user_id)
         require(

@@ -61,7 +61,7 @@ Local logs are ignored under the root `tmp/customer-access-*` and the worktree's
 The Chrome bridge confirmed the signed-in `chandoo-assistant-dev` project,
 `lctuyznspcufmzzxbjzv`, was healthy and its SQL Editor accessible. The later read-only
 SQL preflight timed out without returning a result; completion is unknown. There
-is no confirmed hosted migration, test-account creation, role promotion or grant
+was then no confirmed hosted migration, test-account creation, role promotion or grant
 change. The owner subsequently supplied a screenshot showing the complete SELECT
 in the original editor with "Click Run to execute your query". Enable Explorer is
 an optional feature card, not a browser permission prompt.
@@ -111,7 +111,12 @@ advisor fixes were applied. Evidence is in ignored root `tmp/claude-customer-mcp
 
 Provision only dedicated synthetic fixtures, then run the hosted Auth/RPC tests plus
 visible desktop/admin acceptance. A masked local provisioning helper is being prepared
-and reviewed; no privileged Auth secret has been supplied or fixture created. Verify fresh login,
+and reviewed. Its 27 mocked tests passed again in the root review. The runner now checks a
+fresh sign-in after unblock and tracks both original and new sessions through verified logout;
+33 runner tests passed. The combined final root run passed all 60 tests, Ruff and mypy on the
+four source/test modules. No new dependency was introduced; package-input checks exclude
+the provisioning helper, without claiming a full package build. A masked native prompt is
+waiting for the owner's development key; fixture creation is not yet confirmed. Verify fresh login,
 blocking and unblock, logout, ordinary-user denial and isolation. Clean up fixture
 grants, sessions and temporary admin membership and check hosted advisors.
 The runner's Auth/RPC/lease coverage does not prove Qt timer-driven visible lock

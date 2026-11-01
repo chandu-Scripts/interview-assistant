@@ -85,8 +85,8 @@ session remains valid. Token-expiry checks must also prevent natural expiration
 from being mistaken for successful logout.
 
 The Chrome bridge's read-only SQL preflight timed out without a result. Its
-completion is unknown. No schema migration, fixture provisioning, role assignment
-or hosted access acceptance is confirmed. The owner's later screenshot showed the
+completion was unknown. At that point no schema migration, fixture provisioning, role
+assignment or hosted access acceptance was confirmed. The owner's later screenshot showed the
 complete SELECT had not been run; Enable Explorer was only an optional feature card.
 One bounded follow-up reported browser keyboard-input and screenshot timeouts before
 Run, with no permission denial. Browser automation stopped and a manual result from

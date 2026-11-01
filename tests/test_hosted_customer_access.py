@@ -63,11 +63,18 @@ class Backend:
         }
         self.revoked: set[str] = set()
         self.signouts: list[str] = []
+        self.session_users: dict[str, str] = {}
+        self.login_counts: dict[str, int] = {}
+        self.fresh_token: str | None = None
+        self.original_alive_after_fresh_logout = False
         self.events: list[dict[str, Any]] = []
         self.writes: list[dict[str, Any]] = []
         self.login_as: str | None = None
         self.failure = ""
         self.failed = False
+
+    def tokens_for(self, uid: str) -> list[str]:
+        return [token for token, user_id in self.session_users.items() if user_id == uid]
 
     def user(self, uid: str) -> dict[str, Any]:
         return {
@@ -104,34 +111,55 @@ class Backend:
                 item for item in self.identities.values() if item.email == payload["email"]
             )
             assert payload["password"] == identity.password
+            count = self.login_counts.get(identity.user_id, 0) + 1
+            self.login_counts[identity.user_id] = count
+            fresh = identity.user_id == A and count > 1
             uid = self.login_as or identity.user_id
+            if fresh and self.failure == "fresh_identity":
+                uid = B
+            token = f"private-access-{uid}-{len(self.session_users) + 1}"
+            if fresh and self.failure == "fresh_reused_token":
+                token = self.tokens_for(A)[0]
+            self.session_users[token] = uid
+            if fresh:
+                self.fresh_token = token
             return httpx.Response(
                 200,
                 json={
-                    "access_token": "private-access-" + uid,
-                    "refresh_token": "private-refresh-" + uid,
+                    "access_token": token,
+                    "refresh_token": f"private-refresh-{uid}-{count}",
                     "expires_in": 3600,
                     "expires_at": int(time.time()) + 3600,
                     "token_type": "bearer",
                     "user": self.user(uid),
                 },
             )
-        uid = request.headers["authorization"].removeprefix("Bearer private-access-")
-        assert uid in self.identities
+        token = request.headers["authorization"].removeprefix("Bearer ")
+        uid = self.session_users[token]
         if path == "/auth/v1/user":
-            return httpx.Response(200, json=self.user(uid))
+            if token == self.fresh_token and self.failure == "fresh_cancel" and not self.failed:
+                self.failed = True
+                raise asyncio.CancelledError
+            user = self.user(uid)
+            if token == self.fresh_token and self.failure == "fresh_email":
+                user["email"] = "chandoo-access-test-wrong@example.test"
+            return httpx.Response(200, json=user)
         if path == "/auth/v1/logout":
             assert request.url.params["scope"] == "local"
-            self.signouts.append(uid)
+            self.signouts.append(token)
             if self.failure == "logout":
                 return self.deny("unavailable", 500)
             if self.failure == "logout_network":
                 raise httpx.ReadTimeout("SECRET logout transport diagnostic", request=request)
             if self.failure == "logout_noop":
                 return httpx.Response(204)
-            self.revoked.add(uid)
+            if self.failure == "original_logout_noop" and token == self.tokens_for(A)[0]:
+                return httpx.Response(204)
+            self.revoked.add(token)
+            if token == self.fresh_token:
+                self.original_alive_after_fresh_logout = self.tokens_for(A)[0] not in self.revoked
             return httpx.Response(204)
-        if uid in self.revoked:
+        if token in self.revoked:
             return self.deny()
         name = path.rsplit("/", 1)[-1]
         negative_bug = self.failure == "ordinary_write" and name == "customer_admin_set_block"
@@ -173,6 +201,8 @@ class Backend:
                     else "expired"
                 )
             )
+            if token == self.fresh_token and self.failure == "fresh_denied":
+                reason = "no_grant"
             return httpx.Response(
                 200,
                 json={
@@ -248,8 +278,12 @@ async def test_complete_runner_uses_real_sdk_providers_and_cleans_only_fixture_c
     backend = Backend()
     runner, report = await backend.run()
     assert report["passed"] is True, report
-    assert len(report["checks"]) == 8
-    assert backend.revoked == {ADMIN, A, B}
+    assert len(report["checks"]) == 9
+    assert "unblock_fresh_signin_and_lease" in report["checks"]
+    assert len(backend.tokens_for(A)) == 2
+    assert backend.original_alive_after_fresh_logout
+    assert backend.revoked == set(backend.session_users)
+    assert runner.signed_out == {"admin", "A", "B", "A_fresh"}
     assert not runner.sessions and not runner.lease.valid
     assert all(write["target_user_id"] == A for write in backend.writes)
     assert not backend.rows[A]["blocked"]
@@ -345,7 +379,7 @@ async def test_failure_cleans_committed_and_uncertain_grants_without_leaking_err
     assert all(not g["enabled"] for g in backend.rows[A]["grants"])
     assert not backend.rows[A]["blocked"] and not runner.sessions
     assert "SECRET" not in json.dumps(report)
-    assert backend.revoked == {ADMIN, A, B}
+    assert backend.revoked == set(backend.session_users)
 
 
 @pytest.mark.parametrize("failure", ["cleanup", "logout", "logout_network"])
@@ -362,14 +396,56 @@ async def test_successful_noop_logout_is_retried_and_cannot_claim_cleanup_succes
     backend.failure = "logout_noop"
     runner, report = await backend.run()
     assert not report["passed"] and not report["cleanup_ok"], report
-    assert backend.signouts.count(A) == 2
-    assert backend.signouts.count(B) == backend.signouts.count(ADMIN) == 1
+    original, fresh = backend.tokens_for(A)
+    assert backend.signouts.count(fresh) == 2
+    assert backend.signouts.count(original) == 1
+    assert backend.signouts.count(backend.tokens_for(B)[0]) == 1
+    assert backend.signouts.count(backend.tokens_for(ADMIN)[0]) == 1
     assert set(report["cleanup_failures"]) == {
-        f"session_{label}_revocation_unconfirmed" for label in ("admin", "A", "B")
+        f"session_{label}_revocation_unconfirmed" for label in ("admin", "A", "B", "A_fresh")
     }
     assert backend.rows[B]["grants"] == []  # No grant must not be mistaken for logout.
     assert not backend.revoked and not runner.signed_out and not runner.sessions
     assert not runner.lease.valid and "SECRET" not in json.dumps(report)
+
+
+@pytest.mark.parametrize(
+    "failure,label",
+    [
+        ("fresh_identity", "authenticated_identity_mismatch"),
+        ("fresh_email", "authenticated_email_mismatch"),
+        ("fresh_reused_token", "fresh_signin_reused_session"),
+        ("fresh_denied", "fresh_signin_grant_missing"),
+        ("fresh_cancel", "acceptance_cancelled"),
+    ],
+)
+async def test_failed_fresh_signin_keeps_every_returned_session_tracked_for_cleanup(
+    failure: str, label: str
+) -> None:
+    backend = Backend()
+    backend.failure = failure
+    runner, report = await backend.run()
+    assert not report["passed"] and report["cleanup_ok"], report
+    assert label in report["failures"]
+    assert backend.login_counts[A] == 2
+    assert backend.revoked == set(backend.session_users)
+    assert runner.signed_out == {"admin", "A", "B", "A_fresh"}
+    assert not runner.sessions and not runner.lease.valid
+    assert all(not grant["enabled"] for grant in backend.rows[A]["grants"])
+    assert "private-" not in json.dumps(report) and "SECRET" not in json.dumps(report)
+
+
+async def test_fresh_logout_does_not_hide_a_still_live_original_session() -> None:
+    backend = Backend()
+    backend.failure = "original_logout_noop"
+    runner, report = await backend.run()
+    assert not report["passed"] and not report["cleanup_ok"], report
+    assert report["cleanup_failures"] == ["session_A_revocation_unconfirmed"]
+    original, fresh = backend.tokens_for(A)
+    assert original not in backend.revoked and fresh in backend.revoked
+    assert backend.signouts.count(original) == backend.signouts.count(fresh) == 1
+    assert "A_fresh" in runner.signed_out and "A" not in runner.signed_out
+    assert not runner.sessions and not runner.lease.valid
 
 
 @pytest.mark.parametrize("stage", ["before", "after"])

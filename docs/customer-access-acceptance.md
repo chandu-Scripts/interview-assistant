@@ -54,7 +54,7 @@ From the integration worktree, after explicit approval for hosted fixture mutati
 
 ```powershell
 $env:PYTHONPATH = "$PWD/src;$PWD"
-& C:/Users/tcs91/Desktop/KCPD/.venv/Scripts/python.exe scripts/verify_customer_access.py --live --fixtures C:/Users/tcs91/Desktop/KCPD/tmp/customer-access-fixtures.json
+& C:/Users/tcs91/Desktop/KCPD/.venv/Scripts/python.exe -m scripts.verify_customer_access --live --fixtures C:/Users/tcs91/Desktop/KCPD/tmp/customer-access-fixtures.json
 ```
 
 Without `--live`, the command refuses before reading credentials or connecting. It never reads
@@ -62,6 +62,32 @@ provider credentials, `.env` or default account storage. HTTP redirects and envi
 inheritance are disabled. Its only network destinations are the approved project's Auth and
 allowlisted RPC endpoints. The JSON result contains fixed check/failure labels; no credentials,
 session tokens, emails, raw provider errors or audit rows are printed.
+
+### Optional local fixture provisioning
+
+`scripts/provision_customer_access_fixtures.py` prepares the three new synthetic identities
+through the supported Auth Admin API. It is development tooling, outside the packaged app.
+It reads only the bundled public Auth configuration and accepts the exact development host.
+
+```powershell
+$env:PYTHONPATH = "$PWD/src;$PWD"
+$env:QT_QPA_PLATFORM = 'windows'
+& C:/Users/tcs91/Desktop/KCPD/.venv/Scripts/python.exe -m scripts.provision_customer_access_fixtures --live --fixtures C:/Users/tcs91/Desktop/KCPD/tmp/customer-access-fixtures.json
+```
+
+The JSON and adjacent `customer-access-fixtures.created-ids.jsonl` must not already exist;
+both must be git-ignored. A masked native dialog accepts the development `sb_secret_` key
+in memory only. Never paste that key into chat, command arguments, environment, the fixture
+JSON or either application. No existing Auth account is edited and no email is sent.
+No admin membership or grant is assigned; that separate step targets only the newly returned
+test administrator UUID. The fixture file is verified through the runner's existing loader.
+
+On controlled failure, only proven newly created IDs are rolled back. Exact-ID Auth
+`user_not_found` confirms removal; an ambiguous creation or unsuccessful deletion stays
+explicitly unresolved. The flushed journal contains UUIDs only and is never automatically
+read for deletion. Process termination can prevent cleanup; it requires manual reconciliation.
+The helper cannot guarantee secure erasure of immutable Python strings from memory.
+No terminal-input fallback is provided when the native prompt is unavailable.
 
 ## Covered sequence
 
@@ -74,6 +100,9 @@ session tokens, emails, raw provider errors or audit rows are printed.
    `AccessLease`; B remains denied. Both grants survive, and both protected capability checks pass.
 4. A stale version fails without changing the account. Blocking A rejects protected operations
    and its next snapshot clears the existing lease. Unblocking preserves the valid grant.
+   A fresh password sign-in then validates UUID/email, a distinct session token, allowed
+   access snapshot, a new usable lease and both protected capabilities. The original and
+   fresh sessions are tracked separately until each logout is confirmed.
 5. Revoking Desktop leaves Cloud backup intact. A new short Desktop grant expires using server
    time and a six-second wait; snapshot and protected access must deny it.
 6. Regrant Desktop, prove access, sign out A's own Auth session, then require the old JWT's
@@ -83,7 +112,7 @@ session tokens, emails, raw provider errors or audit rows are printed.
 
 This verifies the real app providers and lease adoption/clearing. It does not launch the Qt
 workspace, measure its timer-driven visible lock, or replace the separate UI/desktop acceptance.
-Unblock is checked using A's existing session; a fresh sign-in after unblock is not exercised.
+Unblock is checked using both A's existing session and a fresh password sign-in.
 Audit pagination is bounded to 2,000 entries per scan; a larger existing audit requires a more
 targeted fixture setup. No unrelated account metadata is retained in the result.
 
