@@ -109,18 +109,79 @@ the deliberately private RLS tables with no direct-client policies. No automatic
 advisor fixes were applied. Evidence is in ignored root `tmp/claude-customer-mcp-apply.json`,
 `tmp/customer-postflight-comparison.json` and `tmp/customer-postflight-expected.json`.
 
-Provision only dedicated synthetic fixtures, then run the hosted Auth/RPC tests plus
-visible desktop/admin acceptance. A masked local provisioning helper is being prepared
-and reviewed. Its 27 mocked tests passed again in the root review. The runner now checks a
-fresh sign-in after unblock and tracks both original and new sessions through verified logout;
-33 runner tests passed. The combined final root run passed all 60 tests, Ruff and mypy on the
-four source/test modules. No new dependency was introduced; package-input checks exclude
-the provisioning helper, without claiming a full package build. A masked native prompt is
-waiting for the owner's development key; fixture creation is not yet confirmed. Verify fresh login,
-blocking and unblock, logout, ordinary-user denial and isolation. Clean up fixture
-grants, sessions and temporary admin membership and check hosted advisors.
-The runner's Auth/RPC/lease coverage does not prove Qt timer-driven visible lock
-or hosted browser behavior.
+The owner supplied the development key through the masked native prompt. The supported
+Auth Admin API created three new confirmed synthetic identities, with credentials saved
+only in an ignored fixture file. A separate exact-ID operation assigned the new test
+administrator role. No real customer identity was edited; the privileged key was not saved.
+The provisioning helper's 27 mocked tests passed. It uses existing dependencies and is
+excluded from package inputs; this does not claim a new installer build.
+
+The first hosted runner passed login, ordinary-user denial, grants and account isolation,
+then failed at a stale-version block request. It correctly reported an unconfirmed mutation
+despite cleaning known state. A read-only inspection proved fixture sessions were gone,
+grants disabled, A unblocked, B unchanged, and no matching backend remained.
+
+The deterministic version checks incorrectly used `40001`, which Supabase documents as
+causing unlimited retries on affected PostgREST versions. The exact original exception
+and hosted version were not captured, so this is a strongly matching documented cause,
+not a measured version diagnosis. After independent Claude/Codex proposals and challenge,
+the CLI-generated forward migration changed only those two errors to `PT409`.
+It was applied once as `20261101003703_customer_conflict_response.sql`; the local filename
+matches the hosted ledger. Atomic assertions preserve all other function attributes.
+All 14 postflight hashes match the independently generated baseline, and catalog checks
+pass. Original migration contents remain unchanged.
+
+Regression results after the correction: **74 runner tests + 27 provisioning tests = 101
+passed** in the root combined run; **89 PGlite assertions**; **16 mocked Edge tests + 6 Node
+unit/build tests**; **15 native-harness cleanup tests**. Ruff, mypy and syntax checks passed.
+An initial attempt to combine tracked and root/tmp tests selected the wrong pytest root
+and failed collection; separate explicit-config runs above passed without a product change.
+
+The second real Auth/RPC run passed all **10 acceptance checks**, including exact HTTP
+409/PT409 for stale block and grant, no state/audit change, block/unblock, fresh sign-in,
+actual grant expiry, old-session rejection and metadata audit. `cleanup_ok` is true.
+The original failed result remains preserved. These API checks do not substitute for
+the separate native-timer and live-browser evidence below.
+
+Native Windows acceptance passed all five checks using real hosted Auth/RPC and the unchanged
+one-second Qt timer in three fresh processes: A blocked during use, B isolated, then A signed
+in after unblock and locked at actual grant expiry. A's resume, Q&A and history stayed intact;
+B saw none of A's records and did not change A's files. The workspace stayed 960 x 680 logical
+pixels. Screenshots of the blocked and expired notices were visually inspected. Audio/LLM
+providers and Credential Manager were replaced by isolated stand-ins; no capture or paid model
+call occurred. All worker and coordinator sessions were revoked and cleanup passed.
+Evidence: ignored `tmp/customer-native-2zdyzoqj/result.json` and its widget captures.
+
+The isolated live Edge admin run passed all four checks: real admin login/exact fixture search,
+Grant/Block/Unblock/Revoke, ordinary-user rejection, and UI logout that clears browser state and
+rejects the old JWT. The generated local site used only development public configuration and
+the generated CSP; the user's Chrome profile was untouched. Desktop/mobile screenshots were
+inspected. No hosted website deployment was made.
+
+The first two browser attempts stopped at the saved-notice assertion and both confirmed cleanup.
+Safe diagnostics on the second showed HTTP 200 for the grant: the harness read the prior notice
+before the asynchronous list refresh completed. Correcting response/render synchronization made
+the third run pass. There was no app-code change for that harness race. Results are retained in
+ignored `tmp/customer-admin-hosted-{first-attempt,second-attempt,final-attempt}.json`; successful
+screenshots are under `tmp/output/playwright/customer-admin-live-*`.
+
+Final temporary-role cleanup is still pending. The exact prepared cleanup script checks
+fixture sessions/grants/block state and removes only the new test-admin membership. Supabase
+requested server confirmation, which the noninteractive Claude client cancelled immediately;
+the tool explicitly reported "Nothing was run." No retry, confirmation bypass or alternate
+mutation was attempted. The prepared ignored script is `tmp/customer-final-cleanup.sql` in
+the root checkout. An interactive MCP confirmation or a manual run in the development SQL
+Editor is required, followed by a read-only verification. Synthetic identities and audit
+metadata are intentionally retained; this cleanup does not delete Auth users or user data.
+The subsequent independent read-only inspection could not authenticate because the MCP OAuth
+session had expired and refresh failed. Accordingly, only the successful harness cleanup
+proofs are recorded; no final database inspection or role removal is claimed. A manual SQL
+Editor run can complete cleanup without requesting another privileged key in chat.
+
+Latest advisors reported no performance findings. The pre-existing `public.rls_auto_enable()`
+WARN findings remain; Auth also reports leaked-password protection disabled. Four INFO
+findings concern intentionally private RLS tables. No settings or unrelated functions
+were changed to suppress findings. These remain review items before commercial release.
 
 The normal bundled development configuration remains auth-only. Access enforcement
 must be explicitly enabled in an isolated acceptance bootstrap and in the eventual

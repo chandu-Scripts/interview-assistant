@@ -258,6 +258,10 @@ and `server/DEPLOY.md`.
   is added. Blocking denies protected access and future leases; it does not globally
   delete Auth sessions. Main's default development config remains auth-only until
   deliberately configured. See `docs/customer-entitlements.md`.
+- Customer admin optimistic-version conflicts use HTTP 409 / SQLSTATE `PT409`.
+  Never raise `40001` for a deterministic version mismatch: affected PostgREST versions
+  retry it indefinitely. Deployed migrations stay immutable; corrections are forward
+  migrations that preserve authorization and catalog permissions.
 - Resume and practice-library mutations, including existing JSON Q&A import, acquire
   the account mutation lock before reading and recheck privacy before atomic replace.
   Already-admitted writes may finish before revocation returns; later writes fail.

@@ -16,11 +16,12 @@ from scripts.verify_customer_access import (
     Acceptance,
     Fixtures,
     Refused,
+    RPCError,
     load_fixtures,
     main,
 )
 
-from interview_assistant.account.models import AuthSession
+from interview_assistant.account.models import AuthError, AuthSession
 
 ADMIN = "11111111-1111-4111-8111-111111111111"
 A = "22222222-2222-4222-8222-222222222222"
@@ -220,7 +221,7 @@ class Backend:
         assert target in {A, B}
         row = self.rows[target]
         if payload["expected_version"] != row["version"]:
-            return self.deny("40001", 409)
+            return self.deny("PT409", 409)
         if self.failure == "cancel" and not self.failed:
             self.failed = True
             raise asyncio.CancelledError
@@ -278,7 +279,9 @@ async def test_complete_runner_uses_real_sdk_providers_and_cleans_only_fixture_c
     backend = Backend()
     runner, report = await backend.run()
     assert report["passed"] is True, report
-    assert len(report["checks"]) == 9
+    assert len(report["checks"]) == 10
+    assert "stale_block_version_rejected" in report["checks"]
+    assert "stale_grant_version_rejected" in report["checks"]
     assert "unblock_fresh_signin_and_lease" in report["checks"]
     assert len(backend.tokens_for(A)) == 2
     assert backend.original_alive_after_fresh_logout
@@ -291,6 +294,102 @@ async def test_complete_runner_uses_real_sdk_providers_and_cleans_only_fixture_c
     assert backend.rows[B]["version"] == 0 and backend.rows[B]["grants"] == []
     text = json.dumps(report) + repr(backend.fixtures)
     assert "private-" not in text and "@example" not in text
+
+
+@pytest.mark.parametrize("kind", ["block", "grant"])
+async def test_stale_mutations_preserve_account_grants_version_and_audit(kind: str) -> None:
+    backend = Backend()
+    observed: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content) if request.content else {}
+        stale = (
+            request.url.path.endswith(f"/customer_admin_set_{kind}")
+            and payload["expected_version"] < backend.rows[A]["version"]
+        )
+        before = copy.deepcopy((backend.rows[A], backend.events))
+        response = backend.handle(request)
+        if stale:
+            assert response.status_code == 409 and response.json()["code"] == "PT409"
+            assert (backend.rows[A], backend.events) == before
+            observed.append(before)
+        return response
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        runner = Acceptance(backend.fixtures, client, sleep=backend.sleep)
+        report = (await runner.run()).public()
+    assert report["passed"], report
+    assert len(observed) == 1
+    assert len(observed[0][0]["grants"]) == 2
+    assert observed[0][0]["version"] == 2 and len(observed[0][1]) == 2
+
+
+@pytest.mark.parametrize("kind", ["block", "grant"])
+@pytest.mark.parametrize(
+    "status,code,uncertain",
+    [
+        (500, "PT409", True),
+        (403, "PT409", True),
+        (409, "42501", True),
+        (500, "40001", False),
+        (409, "40001", False),
+        (409, {"bad": "code"}, True),
+    ],
+)
+async def test_stale_rejection_requires_exact_http_and_sql_pair(
+    kind: str, status: int, code: Any, uncertain: bool
+) -> None:
+    backend = Backend()
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith(f"/customer_admin_set_{kind}"):
+            payload = json.loads(request.content)
+            if payload["expected_version"] < backend.rows[A]["version"]:
+                return httpx.Response(status, json={"code": code, "message": "SECRET error"})
+        return backend.handle(request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        runner = Acceptance(backend.fixtures, client, sleep=backend.sleep)
+        report = (await runner.run()).public()
+    assert report["failures"] == [f"stale_{kind}_version_not_confirmed"]
+    assert f"stale_{kind}_version_rejected" not in report["checks"]
+    assert report["cleanup_ok"] is not uncertain
+    assert "SECRET" not in json.dumps(report)
+    assert not backend.rows[A]["blocked"]
+    assert all(not grant["enabled"] for grant in backend.rows[A]["grants"])
+    assert backend.revoked == set(backend.session_users)
+
+
+@pytest.mark.parametrize("kind", ["block", "grant"])
+@pytest.mark.parametrize("effect", ["blocked", "grant", "version", "audit"])
+async def test_stale_rejection_that_changes_state_is_not_accepted(kind: str, effect: str) -> None:
+    backend = Backend()
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        response = backend.handle(request)
+        if request.url.path.endswith(f"/customer_admin_set_{kind}") and response.status_code == 409:
+            row = backend.rows[A]
+            if effect == "blocked":
+                row["blocked"] = True
+            elif effect == "grant":
+                row["grants"][0]["expires_at"] = (backend.now + timedelta(days=1)).isoformat()
+            elif effect == "version":
+                row["version"] += 1
+            else:
+                event = {**backend.events[-1], "id": len(backend.events) + 1}
+                backend.events.append(event)
+        return response
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        runner = Acceptance(backend.fixtures, client, sleep=backend.sleep)
+        report = (await runner.run()).public()
+    suffix = "audit" if effect == "audit" else "account"
+    assert report["failures"] == [f"stale_{kind}_mutated_{suffix}"]
+    assert f"stale_{kind}_version_rejected" not in report["checks"]
+    assert report["cleanup_ok"], report
+    assert not backend.rows[A]["blocked"]
+    assert all(not grant["enabled"] for grant in backend.rows[A]["grants"])
+    assert backend.revoked == set(backend.session_users)
 
 
 @pytest.mark.parametrize(
@@ -375,7 +474,12 @@ async def test_failure_cleans_committed_and_uncertain_grants_without_leaking_err
     backend = Backend()
     backend.failure = failure
     runner, report = await backend.run()
-    assert not report["passed"] and report["cleanup_ok"], report
+    assert not report["passed"], report
+    if failure in {"cancel", "ambiguous"}:
+        assert not report["cleanup_ok"]
+        assert "mutation_operation_cleanup_unconfirmed" in report["cleanup_failures"]
+    else:
+        assert report["cleanup_ok"], report
     assert all(not g["enabled"] for g in backend.rows[A]["grants"])
     assert not backend.rows[A]["blocked"] and not runner.sessions
     assert "SECRET" not in json.dumps(report)
@@ -492,3 +596,142 @@ async def test_cleanup_preserves_preexisting_disabled_grant_expiry() -> None:
     assert report["passed"], report
     grant = next(g for g in backend.rows[A]["grants"] if g["capability"] == "cloud_backup")
     assert not grant["enabled"] and grant["expires_at"] == original
+
+
+@pytest.mark.parametrize("fresh", [False, True])
+@pytest.mark.parametrize("failure", ["timeout", "cancel", "malformed"])
+async def test_lost_login_response_cannot_claim_cleanup_or_guess_session(
+    fresh: bool, failure: str
+) -> None:
+    backend = Backend()
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        response = backend.handle(request)
+        if request.url.path == "/auth/v1/token":
+            email = json.loads(request.content)["email"]
+            if email == backend.fixtures.customers[0].email and backend.login_counts[A] == (
+                2 if fresh else 1
+            ):
+                if failure == "timeout":
+                    raise httpx.ReadTimeout("SECRET lost login response", request=request)
+                if failure == "cancel":
+                    raise asyncio.CancelledError
+                return httpx.Response(200, text="SECRET malformed login response")
+        return response
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        runner = Acceptance(backend.fixtures, client, sleep=backend.sleep)
+        report = (await runner.run()).public()
+    unknown = backend.tokens_for(A)[-1]
+    assert not report["passed"] and not report["cleanup_ok"], report
+    assert report["cleanup_failures"] == ["token_operation_cleanup_unconfirmed"]
+    assert unknown not in backend.signouts and unknown not in backend.revoked
+    assert backend.revoked == set(backend.session_users) - {unknown}
+    assert not runner.sessions and not runner.lease.valid
+    assert all(not grant["enabled"] for grant in backend.rows[A]["grants"])
+    assert "SECRET" not in json.dumps(report) and "private-" not in json.dumps(report)
+
+
+async def test_successful_login_does_not_clear_an_earlier_unknown_login() -> None:
+    backend = Backend()
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        response = backend.handle(request)
+        if request.url.path == "/auth/v1/token" and len(backend.session_users) == 1:
+            raise httpx.ReadTimeout("SECRET lost login response", request=request)
+        return response
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        runner = Acceptance(backend.fixtures, client)
+        with pytest.raises(AuthError):
+            await runner.sign_in("lost", backend.fixtures.admin)
+        await runner.sign_in("known", backend.fixtures.admin)
+        await runner.cleanup()
+        await runner.cleanup()
+    unknown, known = backend.tokens_for(ADMIN)
+    assert runner.report.cleanup_failures == ["token_operation_cleanup_unconfirmed"]
+    assert backend.revoked == {known} and unknown not in backend.signouts
+
+
+@pytest.mark.parametrize("failure", ["late", "malformed", "wrong_version", "server_error"])
+async def test_unknown_mutation_remains_unconfirmed_after_best_effort_cleanup(failure: str) -> None:
+    backend = Backend()
+    admitted: dict[str, Any] = {}
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/customer_admin_set_grant") and not admitted:
+            admitted.update(json.loads(request.content))
+            if failure == "late":
+                raise httpx.ReadTimeout("SECRET late commit", request=request)
+            response = backend.handle(request)
+            if failure == "malformed":
+                return httpx.Response(200, text="SECRET malformed mutation")
+            if failure == "wrong_version":
+                return httpx.Response(200, json={"user_id": A, "version": -1})
+            assert response.status_code == 200
+            return Backend.deny("42501", 500)  # Status and SQL code must agree.
+        return backend.handle(request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        runner = Acceptance(backend.fixtures, client)
+        await runner.preflight()
+        with pytest.raises((httpx.ReadTimeout, Refused, RPCError)):
+            await runner.mutate(
+                A,
+                capability="desktop_access",
+                enabled=True,
+                expiry=(backend.now + timedelta(minutes=5)).isoformat(),
+            )
+        await runner.cleanup()
+    assert runner.report.cleanup_failures == ["mutation_operation_cleanup_unconfirmed"]
+    assert not runner.report.public()["cleanup_ok"]
+    assert all(not grant["enabled"] for grant in backend.rows[A]["grants"])
+    if failure == "late":
+        # The admitted transaction finishes after cleanup's clean-state read.
+        assert backend.rows[A]["version"] == admitted["expected_version"]
+        backend.rows[A]["grants"].append(
+            {key: admitted[key] for key in ("capability", "enabled", "expires_at")}
+        )
+        backend.rows[A]["version"] += 1
+        assert backend.active(A, "desktop_access")
+    assert "SECRET" not in json.dumps(runner.report.public())
+
+
+@pytest.mark.parametrize(
+    "status,code,uncertain",
+    [
+        (403, "42501", False),
+        (409, "PT409", False),
+        (500, "PT409", True),
+        (500, "40001", False),
+        (409, "40001", False),
+        (401, "42501", True),
+        (500, "42501", True),
+        (403, {"bad": "code"}, True),
+    ],
+)
+async def test_only_exact_sql_rejections_confirm_mutation_did_not_commit(
+    status: int, code: Any, uncertain: bool
+) -> None:
+    backend = Backend()
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/customer_admin_set_block"):
+            return httpx.Response(status, json={"code": code, "message": "SECRET remote error"})
+        return backend.handle(request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        runner = Acceptance(backend.fixtures, client)
+        await runner.preflight()
+        with pytest.raises(RPCError):
+            await runner.rpc(
+                runner.sessions["B"],
+                "customer_admin_set_block",
+                {"target_user_id": A, "blocked": True, "expected_version": 0},
+                denial_probe=True,
+            )
+        await runner.cleanup()
+    assert runner.report.public()["cleanup_ok"] is not uncertain
+    assert runner.report.cleanup_failures == (
+        ["mutation_operation_cleanup_unconfirmed"] if uncertain else []
+    )

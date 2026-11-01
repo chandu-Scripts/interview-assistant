@@ -34,6 +34,22 @@ async function grant(user, capability, version, enabled = true) {
 async function block(user, value, version) {
   return asUser(admin, () => scalar(`select public.customer_admin_set_block($1, $2, 'support', $3) as value`, [user, value, version]));
 }
+async function functionCatalog() {
+  return (await db.query(`select n.nspname as schema_name, p.proname as function_name,
+    to_jsonb(p) - 'prosrc' as attributes, p.prosrc as source
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'customer_private'
+      or (n.nspname = 'public' and p.proname like 'customer_%')
+    order by n.nspname, p.proname, p.oid`)).rows;
+}
+async function privateState() {
+  const result = {};
+  for (const table of ['accounts', 'admins', 'grants', 'audit']) {
+    result[table] = await scalar(`select coalesce(jsonb_agg(to_jsonb(t) order by to_jsonb(t)::text), '[]'::jsonb) as value from customer_private.${table} t`);
+  }
+  result.auditSequence = (await db.query('select last_value, is_called from customer_private.audit_id_seq')).rows;
+  return result;
+}
 
 try {
   await db.exec(`
@@ -51,9 +67,53 @@ try {
     await db.query('insert into auth.users(id) values ($1)', [id]);
     await db.query('insert into auth.sessions(id,user_id) values ($1,$2)', [session(id), id]);
   }
-  const migrations = (await readdir(resolve(here, '../migrations'))).filter(name => name.endsWith('_customer_entitlements.sql'));
-  check(migrations.length, 1);
-  await db.exec(await readFile(resolve(here, '../migrations', migrations[0]), 'utf8'));
+  const migrationNames = (await readdir(resolve(here, '../migrations'))).sort();
+  const foundations = migrationNames.filter(name => name.endsWith('_customer_entitlements.sql'));
+  const conflictMigrations = migrationNames.filter(name => name.endsWith('_customer_conflict_response.sql'));
+  check(foundations.length, 1);
+  check(conflictMigrations.length, 1);
+  check(foundations[0] < conflictMigrations[0], true);
+  await db.exec(await readFile(resolve(here, '../migrations', foundations[0]), 'utf8'));
+  const conflictMigration = await readFile(resolve(here, '../migrations', conflictMigrations[0]), 'utf8');
+  const initialCatalog = await functionCatalog();
+  check(initialCatalog.length, 14);
+  const initialData = await privateState();
+  await db.exec(conflictMigration);
+  const changedCatalog = await functionCatalog();
+  check(changedCatalog.length, 14);
+  for (let index = 0; index < initialCatalog.length; index++) {
+    const before = initialCatalog[index];
+    const after = changedCatalog[index];
+    // Includes OID, owner, ACLs, definer/invoker, search_path, argument types,
+    // volatility, language and every other stored pg_proc attribute.
+    check(after.attributes, before.attributes);
+    const changed = before.schema_name === 'customer_private'
+      && ['admin_set_block', 'admin_set_grant'].includes(before.function_name);
+    check(after.source, changed
+      ? before.source.replace("using errcode = '40001'", "using errcode = 'PT409'")
+      : before.source);
+  }
+  check(await privateState(), initialData);
+
+  // Reapplying an already changed/drifted source refuses without altering it.
+  await denied(() => db.exec(conflictMigration), 'P0001');
+  check(await functionCatalog(), changedCatalog);
+
+  // If the second function fails validation, the first replacement must roll
+  // back too. All setup and the deliberately failed migration stay synthetic.
+  await db.exec('begin');
+  try {
+    const blockDefinition = await scalar("select pg_get_functiondef('customer_private.admin_set_block(uuid,boolean,text,bigint)'::regprocedure) as value");
+    await db.exec(blockDefinition.replace("using errcode = 'PT409'", "using errcode = '40001'"));
+    const partialCatalog = await functionCatalog();
+    await db.exec('savepoint failed_migration');
+    await denied(() => db.exec(conflictMigration), 'P0001');
+    await db.exec('rollback to savepoint failed_migration');
+    check(await functionCatalog(), partialCatalog);
+  } finally {
+    await db.exec('rollback');
+  }
+  check(await functionCatalog(), changedCatalog);
   check(await scalar("select count(*)::integer as value from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='customer_private' and c.relkind='r' and c.relrowsecurity"), 4);
   check(await scalar("select count(*)::integer as value from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'customer_%' and p.prosecdef"), 0);
   check(await scalar("select count(*)::integer as value from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='customer_private' and has_function_privilege('anon',p.oid,'execute')"), 0);
@@ -92,7 +152,12 @@ try {
   const blockedA = await snapshot(a);
   check(blockedA.reason, 'blocked');
   await denied(() => asUser(a, () => scalar("select public.customer_require_access('desktop_access') as value")));
-  await denied(() => block(a, false, 1), '40001');
+  const beforeStaleBlock = await privateState();
+  await denied(() => block(a, false, 1), 'PT409');
+  check(await privateState(), beforeStaleBlock);
+  const beforeStaleGrant = await privateState();
+  await denied(() => grant(a, 'desktop_access', 1, false), 'PT409');
+  check(await privateState(), beforeStaleGrant);
   await block(a, false, 2);
   check((await snapshot(a)).allowed, true);
   await db.query("update auth.sessions set not_after=now()+interval '5 seconds' where user_id=$1", [a]);

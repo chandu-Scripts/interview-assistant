@@ -1,9 +1,9 @@
 # Customer admin website (F1)
 
-Local, undeployed administrator UI for the server-owned F2 contract in
-`docs/customer-entitlements.md`. This branch includes F2 and its access-expiry followup.
-No hosted migration, deployment, administrator creation, customer creation, payment,
-real account access or customer document access was performed.
+Undeployed administrator UI for the server-owned contract in
+`docs/customer-entitlements.md`. Development integration and synthetic hosted acceptance
+are recorded in `docs/steps/customer-access-integration-2026-11-01.md`.
+Production deployment, payments and customer document access are outside this step.
 
 ## Decision and boundaries
 
@@ -35,7 +35,7 @@ This remains a prepared foundation, not proof of production readiness.
 - Block/unblock, grant and revoke display the full target UUID and require typing that exact ID,
   choosing one fixed reason, then explicitly confirming. New grants require a future expiry
   entered in the operator's local time and sent as UTC. Revoke preserves the existing expiry.
-- Mutations include the displayed `expected_version`. SQLSTATE `40001` causes a refresh and a
+- Mutations include the displayed `expected_version`. HTTP 409 / SQLSTATE `PT409` causes a refresh and a
   new confirmation, never an automatic retry. A connection error can mean a change succeeded;
   the page clears stale records and asks the operator to refresh before retrying.
 - Activity shows paginated action metadata, actor and target UUIDs, reason, version, expiry and
@@ -93,6 +93,16 @@ JavaScript syntax checks, `git diff --check` and `npm audit --omit=dev` passed (
 runtime dependency vulnerabilities at validation time). Desktop and 390-pixel mobile layouts
 were visually inspected using synthetic data. A production installer/download build and a
 hosted Supabase round trip were not run as part of F1.
+
+Integration follow-up: the `PT409` regression pass now includes **16 mocked Edge tests
+and 6 Node unit/build tests**. A separate isolated Edge run against the development project
+passed real administrator login, exact fixture search, Grant/Block/Unblock/Revoke, ordinary-user
+admin denial, and logout with old-JWT rejection. Desktop and mobile screenshots were inspected.
+The live harness needed a timing correction: closing the action dialog precedes the list refresh
+and saved notice. It now waits for the new mutation and refresh responses before checking that
+notice. This did not require an application change. Every attempt verified cleanup.
+See the integration step report for scope, evidence and final test-role cleanup. The website
+itself remains undeployed and its committed public configuration remains blank.
 
 The generated `dist/vercel.json` permits connections only to the configured hosted Supabase
 origin, uses local scripts/styles, forbids framing and object embeds, and disables admin caching.

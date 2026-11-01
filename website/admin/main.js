@@ -307,7 +307,7 @@ $('action-form').addEventListener('submit', async event => {
     if (result?.user_id !== target.userId || !isVersion(result.version) || result.version !== target.version + 1) throw new Error('Invalid response');
   } catch (error) {
     failed = true;
-    message = error.code === '40001'
+    message = error.code === 'PT409'
       ? 'This account changed. Review the refreshed details and confirm again.'
       : 'The change could not be confirmed. Refresh and check the account before trying again.';
   } finally {

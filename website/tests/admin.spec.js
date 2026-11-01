@@ -53,7 +53,7 @@ async function fixture(page, options = {}) {
       if (state.conflict || body.expected_version !== item.version) {
         state.conflict = false;
         item.version += 1;
-        await route.fulfill({ status: 409, json: { code: '40001', message: 'Stale version' } });
+        await route.fulfill({ status: 409, json: { code: 'PT409', message: 'Stale version' } });
         return;
       }
       item.version += 1;
@@ -131,20 +131,32 @@ test('grant requires future expiry, revoke preserves existing expiry', async ({ 
   expect(state.writes[1].body).toEqual({ target_user_id: TARGET, expected_version: 1, reason_code: 'support', capability: 'desktop_access', expires_at: expiry, enabled: false });
 });
 
-test('version conflict refreshes and requires new explicit confirmation', async ({ page }) => {
-  const state = await fixture(page, { conflict: true });
-  await ready(page);
-  await targetRow(page).getByRole('button', { name: 'Block', exact: true }).click();
-  await confirm(page);
-  await expect(page.getByText('This account changed.', { exact: false })).toBeVisible();
-  await expect(page.getByRole('dialog')).not.toBeVisible();
-  expect(state.writes).toHaveLength(1);
-  await targetRow(page).getByRole('button', { name: 'Block', exact: true }).click();
-  await expect(page.getByLabel('Type the exact user ID to confirm')).toHaveValue('');
-  await confirm(page);
-  await expect(targetRow(page).getByRole('button', { name: 'Unblock', exact: true })).toBeVisible();
-  expect(state.writes[1].body.expected_version).toBe(1);
-});
+for (const action of ['Block', 'Grant Desktop']) {
+  test(`HTTP 409/PT409 on ${action} refreshes and requires new explicit confirmation`, async ({ page }) => {
+    const state = await fixture(page, { conflict: true });
+    await ready(page);
+    const readsBefore = state.requests.filter(item => item.path === '/rest/v1/rpc/customer_admin_list').length;
+    const openAction = async () => {
+      await targetRow(page).getByRole('button', { name: action, exact: true }).click();
+      if (action === 'Grant Desktop') await page.getByLabel('Access expiry (your local time)').fill('2035-01-01T00:00');
+    };
+    await openAction();
+    await confirm(page);
+    await expect(page.getByText('This account changed. Review the refreshed details and confirm again.', { exact: true })).toBeVisible();
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+    expect(state.requests.filter(item => item.path === '/rest/v1/rpc/customer_admin_list')).toHaveLength(readsBefore + 1);
+    expect(state.writes).toHaveLength(1);
+    expect(state.writes[0].body.expected_version).toBe(0);
+    expect(state.users.find(item => item.user_id === TARGET)).toMatchObject({ blocked: false, grants: [], version: 1 });
+    await openAction();
+    await expect(page.getByLabel('Type the exact user ID to confirm')).toHaveValue('');
+    expect(state.writes).toHaveLength(1);
+    await confirm(page);
+    await expect(targetRow(page).getByRole('button', { name: action === 'Block' ? 'Unblock' : 'Revoke Desktop', exact: true })).toBeVisible();
+    expect(state.writes).toHaveLength(2);
+    expect(state.writes[1].body.expected_version).toBe(1);
+  });
+}
 
 test('ordinary user with forged admin metadata is denied and data is cleared', async ({ page }) => {
   const state = await fixture(page, { deny: true });

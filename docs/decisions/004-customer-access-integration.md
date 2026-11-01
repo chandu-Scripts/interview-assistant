@@ -128,3 +128,32 @@ they do not substitute for the pending live acceptance.
 
 References: [API keys](https://supabase.com/docs/guides/getting-started/api-keys) and
 [supported user creation](https://supabase.com/docs/reference/javascript/auth-admin-createuser).
+
+## Hosted optimistic conflict correction
+
+The first synthetic Auth/RPC run passed identity checks, ordinary-user denial, grants and
+account isolation, then failed at the stale block request. Known cleanup succeeded, but the
+lost mutation response correctly kept cleanup unconfirmed. A separate database inspection
+found no remaining fixture sessions, enabled grants or matching RPC backend, with A unblocked
+and B unchanged. The original failed result remains evidence rather than being relabelled a pass.
+
+Both deterministic version checks raised `40001`. Supabase documents unlimited retries for
+custom `40001` on PostgREST 14; this closely matches the failure, but the hosted version and
+original transport exception were not captured. Claude and Codex prepared independent proposals
+and a second challenge review selected `PT409`, the explicit HTTP-conflict contract.
+Increasing timeouts, rewriting applied history, regranting permissions, project restarts and
+unrelated UI timeout work were rejected. No backend termination was necessary.
+
+The CLI-generated forward migration reads the two exact private function definitions,
+requires one old conflict marker each, changes only that marker, and verifies every other
+`pg_proc` attribute plus the exact resulting source inside one atomic statement. It preserves
+owners, OIDs, permissions and authorization logic; public wrappers remain unchanged.
+Failure rolls both replacements back. The applied original stays immutable. Any later
+correction must be another forward migration preserving account/grant/audit data.
+
+The runner must observe exact HTTP 409 / `PT409` for stale block and grant, then prove no
+account/grant/version/audit change. The admin UI refreshes and requires another explicit
+confirmation. Engine tests prove SQL behavior and retained metadata; hosted tests separately
+prove HTTP mapping. General unknown-response cleanup remains conservative.
+
+Reference: [Supabase conflict-error guidance](https://supabase.com/kb/troubleshooting/high-cpu-and-infinite-transaction-retries-when-using-custom-error-codes-in-rpc-functions).

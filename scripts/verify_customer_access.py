@@ -44,10 +44,12 @@ class Refused(Exception):
 
 
 class RPCError(Exception):
-    def __init__(self, status: int, code: str) -> None:
+    def __init__(self, status: int, code: object) -> None:
         super().__init__("RPC request failed")
         self.status = status
-        self.code = code if code in {"42501", "40001"} else "other"
+        self.code = (
+            code if isinstance(code, str) and code in {"42501", "40001", "PT409"} else "other"
+        )
 
 
 @dataclass(frozen=True)
@@ -172,6 +174,8 @@ class Acceptance:
         self.access = SupabaseAccessProvider(DEV_URL, fixtures.publishable_key, client=client)
         self.sleep = sleep
         self.sessions: dict[str, AuthSession] = {}
+        self._pending_tokens = 0
+        self._pending_mutations = 0
         self.signed_out: set[str] = set()
         self.touched_grants: set[tuple[str, str]] = set()
         self.touched_blocks: set[str] = set()
@@ -188,7 +192,8 @@ class Acceptance:
         self, session: AuthSession, name: str, params: dict[str, Any], *, denial_probe: bool = False
     ) -> Any:
         require(name in RPCS, "rpc_not_allowlisted")
-        if name.startswith("customer_admin_set_"):
+        mutation = name.startswith("customer_admin_set_")
+        if mutation:
             require(params.get("target_user_id") in self.targets, "unrelated_mutation_refused")
             negative_block = (
                 denial_probe
@@ -200,6 +205,9 @@ class Acceptance:
                 session.user_id == self.fixtures.admin.user_id or negative_block,
                 "nonadmin_mutation_refused",
             )
+            # Only an acknowledged outcome balances this attempt. A later success
+            # cannot erase a lost response, cancellation or possible late commit.
+            self._pending_mutations += 1
         response = await self.client.post(
             f"{DEV_URL}/rest/v1/rpc/{name}",
             json=params,
@@ -216,11 +224,34 @@ class Acceptance:
                     code = payload.get("code", "other")
             except ValueError:
                 pass
-            raise RPCError(response.status_code, code)
+            error = RPCError(response.status_code, code)
+            # PT409 is the non-retrying optimistic-lock conflict contract.
+            # Keep legacy rollback acknowledgments separate from stale acceptance.
+            # Generic 5xx and a status/code mismatch do not establish a rollback.
+            if mutation and (error.status, error.code) in {
+                (403, "42501"),
+                (409, "PT409"),
+                (500, "40001"),
+                (409, "40001"),
+            }:
+                self._pending_mutations -= 1
+            raise error
         try:
-            return response.json()
+            result = response.json()
         except ValueError:
             raise Refused("malformed_rpc_response") from None
+        if mutation:
+            expected = params.get("expected_version")
+            require(
+                isinstance(result, dict)
+                and result.get("user_id") == params["target_user_id"]
+                and type(result.get("version")) is int
+                and type(expected) is int
+                and result["version"] == expected + 1,
+                "mutation_not_confirmed",
+            )
+            self._pending_mutations -= 1
+        return result
 
     async def denied(
         self, session: AuthSession, name: str, params: dict[str, Any], *, denial_probe: bool = False
@@ -316,15 +347,7 @@ class Acceptance:
             self.touched_grants.add((uid, capability))
             params.update(capability=capability, enabled=enabled, expires_at=expiry)
             name = "customer_admin_set_grant"
-        result = await self.rpc(self.sessions["admin"], name, params)
-        require(
-            isinstance(result, dict)
-            and result.get("user_id") == uid
-            and type(result.get("version")) is int
-            and result.get("version") == params["expected_version"] + 1,
-            "mutation_not_confirmed",
-        )
-        return result
+        return await self.rpc(self.sessions["admin"], name, params)
 
     async def audit(self, start: int, *, verify: bool) -> int:
         cursor = start
@@ -374,8 +397,10 @@ class Acceptance:
 
     async def sign_in(self, label: str, identity: Identity) -> AuthSession:
         require(label not in self.sessions, "session_label_already_used")
+        self._pending_tokens += 1
         session = await self.auth.login(identity.email, identity.password)
         self.sessions[label] = session  # Sign out even a mismatched returned session.
+        self._pending_tokens -= 1
         require(session.user_id == identity.user_id, "authenticated_identity_mismatch")
         await self.auth.validate(session)
         response = await self.client.get(
@@ -466,14 +491,33 @@ class Acceptance:
                 "protected_grant_not_allowed",
             )
         self.report.checks.append("grant_A_lease_and_B_isolation_capabilities_preserved")
-        try:
-            await self.mutate(a.user_id, blocked=True, expected=old_version)
-        except RPCError as error:
-            require(error.code == "40001", "stale_version_not_confirmed")
-        else:
-            raise Refused("stale_version_accepted")
-        require(not (await self.row(a.user_id))["blocked"], "stale_version_mutated_account")
-        self.report.checks.append("stale_version_rejected")
+        before_stale = await self.row(a.user_id)
+        audit_before_stale = await self.audit(0, verify=False)
+        for kind in ("block", "grant"):
+            try:
+                if kind == "block":
+                    await self.mutate(a.user_id, blocked=True, expected=old_version)
+                else:
+                    await self.mutate(
+                        a.user_id,
+                        capability="desktop_access",
+                        enabled=False,
+                        expiry=expiry,
+                        expected=old_version,
+                    )
+            except RPCError as error:
+                require(
+                    (error.status, error.code) == (409, "PT409"),
+                    f"stale_{kind}_version_not_confirmed",
+                )
+            else:
+                raise Refused(f"stale_{kind}_version_accepted")
+            require(await self.row(a.user_id) == before_stale, f"stale_{kind}_mutated_account")
+            require(
+                await self.audit(audit_before_stale, verify=False) == audit_before_stale,
+                f"stale_{kind}_mutated_audit",
+            )
+            self.report.checks.append(f"stale_{kind}_version_rejected")
         await self.mutate(a.user_id, blocked=True)
         for cap in CAPABILITIES:
             await self.denied(a, "customer_require_access", {"capability": cap})
@@ -536,6 +580,17 @@ class Acceptance:
         self.report.checks.extend(["logout_rejects_old_session", "fixture_action_metadata_audit"])
 
     async def cleanup(self) -> None:
+        try:
+            await self._cleanup_known()
+        finally:
+            for pending, label in (
+                (self._pending_tokens, "token_operation_cleanup_unconfirmed"),
+                (self._pending_mutations, "mutation_operation_cleanup_unconfirmed"),
+            ):
+                if pending and label not in self.report.cleanup_failures:
+                    self.report.cleanup_failures.append(label)
+
+    async def _cleanup_known(self) -> None:
         # Fresh versions are used once, with no blind retry if another actor changes the fixture.
         if self.touched_blocks or self.touched_grants:
             for uid in sorted(self.touched_blocks):

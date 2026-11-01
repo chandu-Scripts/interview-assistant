@@ -46,6 +46,11 @@ created with Supabase CLI 2.122.0; applied once through the project-bound Supaba
 to `chandoo-assistant-dev` on November 1, 2026. The local filename now matches the
 hosted migration version; the SQL contents are unchanged. No manual ledger rows were added.
 
+Forward correction: `supabase/migrations/20261101003703_customer_conflict_response.sql`.
+The first hosted stale-version test exposed the documented risk of custom `40001` retry loops.
+The correction changes only the two private mutation errors to `PT409`, atomically preserving
+all other function attributes. Do not edit or reapply the original deployed migration.
+
 Private tables store account block/version/last-seen metadata, administrator membership,
 time-limited capability grants, and admin action audit metadata. All enable RLS, with no client
 table writes or direct reads. No resumes, transcripts, answers, credentials, email addresses,
@@ -70,7 +75,7 @@ Capabilities: `desktop_access`, `cloud_backup`. Reason codes: `support`, `policy
 `owner_request`, `trial`, `manual`, `correction`. Expiry is a finite timestamp; enabling a grant
 requires a future expiry. Revoke supplies the existing expiry with `enabled: false`.
 Admin mutations lock the account row, compare `expected_version`, change state and append audit
-in one transaction. Version conflicts return SQLSTATE `40001`; refresh and obtain a new version
+in one transaction. Version conflicts return HTTP 409 with SQLSTATE `PT409`; refresh and obtain a new version
 before retrying. Self-block is rejected. Administrator promotion has no client RPC.
 
 `customer_admin_list` returns every Auth user with UUID, creation time, block/version, last seen,
@@ -127,8 +132,12 @@ migration, managed-role prerequisites and read-only catalog postflight passed. A
 function fingerprints and the complete catalog result matched the local baseline.
 Advisors reported two WARN findings on the existing `public.rls_auto_enable()` function,
 plus expected INFO findings for the four private RLS tables without direct client policies.
-No performance findings were returned. Live Auth/JWT/PostgREST and visible UI acceptance
-remain pending dedicated synthetic fixtures. No production release, payments or cloud uploads
+No performance findings were returned. The follow-up advisor run also flags disabled leaked-password
+protection. Synthetic live Auth/JWT/PostgREST acceptance now passes all ten checks, including
+exact HTTP 409/PT409 on both stale mutation paths and verified cleanup. Native Windows tests
+pass server blocking, actual grant expiry, fresh login and A/B local-data isolation. See
+`docs/steps/customer-access-integration-2026-11-01.md` for browser results and final cleanup.
+No production release, payments or cloud uploads
 are included. Audit retention/export policy remains a release
 decision. Migration rollback must preserve account/grant/audit data; do not drop these tables
 to troubleshoot access. Code rollback is branch reversion before any deployment.

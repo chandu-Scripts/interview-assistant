@@ -1,7 +1,8 @@
 # Customer access hosted acceptance runner
 
-`scripts/verify_customer_access.py` is prepared for an explicitly authorized development test.
-It has not been run live during preparation. It accepts only the approved development project
+`scripts/verify_customer_access.py` runs explicitly authorized synthetic development tests.
+Execution results are recorded in `docs/steps/customer-access-integration-2026-11-01.md`.
+It accepts only the approved development project
 `https://lctuyznspcufmzzxbjzv.supabase.co`. No production project, account creation/deletion,
 signup email, password changes, paid AI provider, audio or desktop workspace is involved.
 
@@ -98,7 +99,8 @@ No terminal-input fallback is provided when the native prompt is unavailable.
    customer B's explicit attempt to block fixture A must also be denied by the actual server.
 3. Grant A Cloud backup and Desktop. A's real access snapshot admits the existing desktop
    `AccessLease`; B remains denied. Both grants survive, and both protected capability checks pass.
-4. A stale version fails without changing the account. Blocking A rejects protected operations
+4. Both stale block and grant versions must return exactly HTTP 409 / `PT409`, without changing
+   the account, grants, version or audit cursor. Blocking A rejects protected operations
    and its next snapshot clears the existing lease. Unblocking preserves the valid grant.
    A fresh password sign-in then validates UUID/email, a distinct session token, allowed
    access snapshot, a new usable lease and both protected capabilities. The original and
@@ -118,7 +120,11 @@ targeted fixture setup. No unrelated account metadata is retained in the result.
 
 ## Cleanup and limits
 
-Every attempted fixture mutation is tracked before sending, including ambiguous failures.
+Every attempted fixture mutation and token issuance is tracked before sending. A known returned
+session is retained before identity validation. A timeout, cancellation or malformed response
+keeps a sticky unknown-outcome marker; later successful calls cannot erase it. Only an exact
+acknowledged rollback or validated mutation result balances that mutation's pending count.
+Cleanup can reset known state and still fail with an unresolved token/mutation outcome.
 `finally` resets touched fixture block status to false, disables only test-touched grants and
 rechecks the state. Previously disabled grants retain their baseline expiry; newly created
 grant rows remain disabled because the API provides no delete-grant operation. Expired enabled
