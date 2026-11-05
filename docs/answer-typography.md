@@ -13,6 +13,28 @@ settings still follow their existing restart requirements. Code uses regular
 Consolas with the chosen size. Clipboard text, source text, prompts and model
 routing are unchanged. Existing incognito settings-preference semantics are retained.
 
+## Inline answer controls (6 November 2026)
+
+The live answer toolbar now has a Font toggle beside Clear and Copy. It reveals
+Font family, Font style and Font size in the same window. Each explicit choice
+is saved before applying to existing and streamed cards. A failed write restores
+the previous choice and shows an inline error. Settings and the toolbar share
+the account settings store; synchronization preserves unrelated Settings drafts.
+Defaults remove font overrides. Inactive accounts and presentation cannot edit.
+Closing the row or hiding its parent closes any open font dropdown.
+
+Codex and Claude compared inline versus separate-popup controls; inline controls
+keep the requested single-window flow. Preferences retain existing incognito
+behavior. There are no provider requests or changes to generated answer content.
+Validation: 46 typography/inline tests and 107 app tests passed. The first combined
+run exposed an existing cancellation-history timing flake; the full app test file
+passed on rerun. Ruff and targeted mypy passed. Native Windows inspection at
+640 x 500 verified the themed row and an immediate Medium-to-Large change in
+both prose and monospace SQL, without resizing the window. Claude's read-only
+review found no blockers. The constructor loads the Settings baseline before
+the inline binding, addressing the review's baseline initialization question.
+Rollback is reverting this UI commit. The installer has not been rebuilt.
+
 ## Review and validation (6 November 2026)
 
 Codex and the installed Claude CLI prepared independent proposals and compared

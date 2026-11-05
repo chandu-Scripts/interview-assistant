@@ -122,7 +122,7 @@ def build_app(
     review_controller = PostCallController(router, runner, tracker)
     tracker.on_change = controller.notify_cost_changed
     overlay = OverlayWindow(controller, settings=context.qsettings("Overlay") if context else None)
-    overlay.answer.set_typography(
+    overlay.set_typography(
         AnswerTypography(
             settings.answer_font_family, settings.answer_font_weight, settings.answer_font_size
         )
@@ -285,13 +285,14 @@ def build_app(
         data_dir(settings) / "provider_models.json",
         can_write=lambda: active() and not privacy.incognito,
     )
-    settings_dialog = SettingsDialog(user_settings or UserSettingsStore(), keys, catalog=catalog)
+    from interview_assistant.app.answer_appearance import bind_answer_appearance
 
-    def apply_typography(typography: AnswerTypography) -> None:
-        if active():
-            overlay.answer.set_typography(typography)
-
-    settings_dialog.typography_saved.connect(apply_typography)
+    appearance_store = user_settings or UserSettingsStore()
+    settings_dialog = SettingsDialog(appearance_store, keys, catalog=catalog)
+    bind_answer_appearance(
+        overlay, settings_dialog, appearance_store, active,
+        lambda: active() and not presentation.active,
+    )
     selectors = start_screen.create_page.model_selectors
     for selector in selectors:
         selector.bind(

@@ -137,6 +137,9 @@ with the safety boundaries below), and the file:line references each step builds
   draft preview. Successful Save applies live; startup restores account-scoped
   settings. Code stays regular Consolas at the selected size. Use local label QSS
   to override global theme fonts without changing copy text. See docs/answer-typography.md.
+  The live answer toolbar's Font toggle exposes the same three controls inline.
+  Explicit selections persist before applying; failed saves restore the previous
+  selection. Sync only Appearance drafts and keep unrelated Settings edits intact.
 - Startup uses a centered 960 × 680 logical-pixel window, reduced for smaller work areas,
   with compact session cards. Never maximize automatically at launch.
 - Shared navy/cyan styling lives in `ui/theme.py`; floating surfaces use painted translucent

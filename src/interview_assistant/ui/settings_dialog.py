@@ -205,6 +205,16 @@ class SettingsDialog(QDialog):
             self.answer_font_size.currentData(),
         )
 
+    def set_saved_typography(self, typography: AnswerTypography) -> None:
+        """Sync an inline save without resetting unrelated Settings drafts."""
+        for name, value in (
+            ("family", typography.family), ("weight", typography.weight), ("size", typography.size)
+        ):
+            field = f"answer_font_{name}"
+            self._select(getattr(self, field), value)
+            self._initial[field] = value
+        self._preview_typography()
+
     def _preview_typography(self) -> None:
         self.answer_preview.set_typography(self._typography())
 

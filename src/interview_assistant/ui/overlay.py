@@ -33,6 +33,8 @@ from interview_assistant.agents.types import Category, Decision
 from interview_assistant.app.controller import DETECTED_QUESTION_PREFIX, AssistantController
 from interview_assistant.cost.tracker import BudgetLevel, BudgetState, Summary, format_usd
 from interview_assistant.stt.base import NO_WORDS_MESSAGE
+from interview_assistant.ui.answer_font_controls import AnswerFontControls
+from interview_assistant.ui.answer_typography import AnswerTypography
 from interview_assistant.ui.answer_view import AnswerView
 from interview_assistant.ui.audio_panel import AudioPanel
 from interview_assistant.ui.controls import ChoiceComboBox
@@ -333,6 +335,12 @@ class OverlayWindow(QWidget):
         self.continue_btn.setVisible(False)
         self._incomplete = False
         self.copy_btn = QPushButton("Copy")
+        self.font_btn = QPushButton("Font")
+        self.font_btn.setCheckable(True)
+        self.font_btn.setToolTip("Change answer font family, style and size")
+        self.font_controls = AnswerFontControls()
+        self.font_controls.hide()
+        self.font_btn.toggled.connect(self.font_controls.setVisible)
         self.opacity = QSlider(Qt.Orientation.Horizontal)
         self.opacity.setRange(30, 100)
         self.opacity.setFixedWidth(70)
@@ -353,9 +361,11 @@ class OverlayWindow(QWidget):
         answer_toolbar.addWidget(self.nav_row)
         answer_toolbar.addStretch(1)
         answer_toolbar.addWidget(self.continue_btn)
+        answer_toolbar.addWidget(self.font_btn)
         answer_toolbar.addWidget(self.clear_btn)
         answer_toolbar.addWidget(self.copy_btn)
         body.addLayout(answer_toolbar)
+        body.addWidget(self.font_controls)
         body.addWidget(self.question)
         body.addWidget(self.warn_label)
         body.addWidget(self.fix_row)
@@ -990,6 +1000,10 @@ class OverlayWindow(QWidget):
         if screen is not None:
             area = screen.availableGeometry()
             self.move(area.right() - self.width() - 24, area.top() + 24)
+
+    def set_typography(self, typography: AnswerTypography) -> None:
+        self.answer.set_typography(typography)
+        self.font_controls.set_typography(typography)
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self._save_geometry()
