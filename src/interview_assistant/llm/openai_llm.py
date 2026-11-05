@@ -20,6 +20,12 @@ from interview_assistant.llm.types import (
 )
 
 URL = "https://api.openai.com/v1/chat/completions"
+REASONING_EFFORT = {
+    "gpt-6-astra": "low",
+    "gpt-6.1-sol": "low",
+    "gpt-6.1-terra": "none",
+    "gpt-6-luna": "none",
+}
 
 
 class OpenAIProvider:
@@ -60,7 +66,11 @@ class OpenAIProvider:
             "max_completion_tokens": req.max_tokens,
         }
         model = body["model"]
-        if model == "gpt-5.4-mini" or model.startswith("gpt-5.4-mini-"):
+        if model in REASONING_EFFORT:
+            # Astra/Sol cannot disable reasoning. Preserve the caller's completion
+            # budget (including reasoning), and avoid unsupported sampling settings.
+            body["reasoning_effort"] = REASONING_EFFORT[model]
+        elif model == "gpt-5.4-mini" or model.startswith("gpt-5.4-mini-"):
             # Explicitly disable reasoning for interactive interview response latency.
             body["reasoning_effort"] = "none"
         elif req.temperature is not None:

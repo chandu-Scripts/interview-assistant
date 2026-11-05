@@ -32,6 +32,19 @@ REQ = LLMRequest([Message("user", "Hi")], system="sys")
 DEFAULT_USAGE = Usage(1000, 500)
 
 
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("gpt-6-astra", 0.035),
+        ("gpt-6.1-sol", 0.007),
+        ("gpt-6.1-terra", 0.0035),
+        ("gpt-6-luna", 0.00035),
+    ],
+)
+def test_new_openai_standard_text_costs(model, expected):
+    assert PriceBook().llm_cost("openai", model, 1000, 500) == pytest.approx(expected)
+
+
 def test_gpt54_mini_standard_and_snapshot_cost():
     prices = PriceBook()
     for model in ("gpt-5.4-mini", "gpt-5.4-mini-2026-03-17"):

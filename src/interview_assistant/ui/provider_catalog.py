@@ -27,6 +27,22 @@ MODEL_FIELDS = {
     "gemini": ("gemini_fast_model", "gemini_model"),
 }
 SUGGESTIONS = {"openai": ["gpt-5.4-mini", "gpt-5.4"]}
+# Selectable models are independent of the two Fast/Smart recommendations.
+MODEL_CHOICES = {
+    "openai": [
+        *SUGGESTIONS["openai"],
+        "gpt-6-astra",
+        "gpt-6.1-sol",
+        "gpt-6.1-terra",
+        "gpt-6-luna",
+    ]
+}
+MODEL_LABELS = {
+    "gpt-6-astra": "GPT-6 Astra",
+    "gpt-6.1-sol": "GPT-6.1 Sol",
+    "gpt-6.1-terra": "GPT-6.1 Terra",
+    "gpt-6-luna": "GPT-6 Luna",
+}
 VERIFICATION_TTL = 24 * 60 * 60
 
 
@@ -91,8 +107,8 @@ class ProviderCatalog(QObject):
         if self.status(provider)[0] != "verified":
             return []
         models = clean_models(self._records[provider]["models"])
-        if provider in SUGGESTIONS:
-            return [model for model in SUGGESTIONS[provider] if model in models]
+        if provider in MODEL_CHOICES:
+            return [model for model in MODEL_CHOICES[provider] if model in models]
         return models
 
     def options(self, provider: str) -> list[tuple[str, str]]:
@@ -102,20 +118,23 @@ class ProviderCatalog(QObject):
             return []
         settings = self.raw()
         options: list[tuple[str, str]] = []
-        if provider in SUGGESTIONS:
-            for tier, model in zip(("Fast", "Smart"), SUGGESTIONS[provider], strict=True):
-                if model in models:
-                    current = [
-                        name
-                        for name, field in zip(
-                            ("Fast", "Smart"), MODEL_FIELDS[provider], strict=True
-                        )
-                        if getattr(settings, field) == model
-                    ]
-                    label = f"{model} · Recommended for {tier}"
-                    if current:
-                        label += f" (current {' / '.join(current)})"
-                    options.append((label, f"{provider}:{model}"))
+        if provider in MODEL_CHOICES:
+            recommended = dict(zip(SUGGESTIONS[provider], ("Fast", "Smart"), strict=True))
+            for model in models:
+                current = [
+                    name
+                    for name, field in zip(("Fast", "Smart"), MODEL_FIELDS[provider], strict=True)
+                    if getattr(settings, field) == model
+                ]
+                tier = recommended.get(model)
+                label = (
+                    f"{model} · Recommended for {tier}"
+                    if tier
+                    else f"{MODEL_LABELS.get(model, model)} · {model}"
+                )
+                if current:
+                    label += f" (current {' / '.join(current)})"
+                options.append((label, f"{provider}:{model}"))
             return options
         for tier, field in zip(("Fast", "Smart"), MODEL_FIELDS[provider], strict=True):
             model = getattr(settings, field)

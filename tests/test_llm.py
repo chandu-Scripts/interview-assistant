@@ -67,6 +67,74 @@ async def test_openai_collect_usage():
     assert r.provider == "openai" and r.model == "gpt-4o-mini"
 
 
+@pytest.mark.parametrize(
+    "model,effort",
+    [
+        ("gpt-6-astra", "low"),
+        ("gpt-6.1-sol", "low"),
+        ("gpt-6.1-terra", "none"),
+        ("gpt-6-luna", "none"),
+    ],
+)
+@pytest.mark.parametrize("image", [None, b"synthetic-png"])
+async def test_new_openai_payload_stream_and_usage(model, effort, image):
+    def handler(request):
+        body = json.loads(request.content)
+        assert body["model"] == model
+        assert body["reasoning_effort"] == effort
+        assert "temperature" not in body
+        assert body["max_completion_tokens"] == 500
+        assert body["stream_options"] == {"include_usage": True}
+        if image:
+            assert body["messages"][-1]["content"][1]["type"] == "image_url"
+        return openai_ok(request)
+
+    async with client(handler) as transport:
+        result = await collect(
+            OpenAIProvider("synthetic", client=transport),
+            LLMRequest(
+                [Message("user", "Explain a source watermark.")],
+                model=model,
+                image=image,
+                temperature=0.2,
+                max_tokens=500,
+            ),
+        )
+    assert result.text == "Hello" and result.usage == Usage(11, 2)
+    assert result.finish_reason == "stop" and result.model == model
+
+
+async def test_reasoning_only_length_finish_preserves_billed_usage_and_incomplete_status():
+    def handler(_request):
+        return sse(
+            (None, {"choices": [{"delta": {}, "finish_reason": "length"}]}),
+            (
+                None,
+                {
+                    "choices": [],
+                    "usage": {
+                        "prompt_tokens": 11,
+                        "completion_tokens": 500,
+                        "completion_tokens_details": {"reasoning_tokens": 500},
+                    },
+                },
+            ),
+            (None, "[DONE]"),
+        )
+
+    async with client(handler) as transport:
+        result = await collect(
+            OpenAIProvider("synthetic", client=transport),
+            LLMRequest(
+                [Message("user", "Synthetic question")],
+                model="gpt-6-astra",
+                max_tokens=500,
+            ),
+        )
+    assert result.text == "" and result.finish_reason == "length"
+    assert result.usage == Usage(11, 500)
+
+
 # ---------------- Anthropic ----------------
 @pytest.mark.parametrize("model", ["gpt-5.4-mini", "gpt-5.4-mini-2026-03-17"])
 async def test_gpt54_mini_stream_uses_low_latency_payload(model):

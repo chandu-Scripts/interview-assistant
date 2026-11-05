@@ -14,7 +14,13 @@ from interview_assistant.config.user_settings import UserSettingsStore
 from interview_assistant.llm.router import RouteEvent
 from interview_assistant.llm.router_factory import build_router
 from interview_assistant.ui.bg import run_inline
-from interview_assistant.ui.provider_catalog import VERIFICATION_TTL, ProviderCatalog, fingerprint
+from interview_assistant.ui.provider_catalog import (
+    MODEL_CHOICES,
+    SUGGESTIONS,
+    VERIFICATION_TTL,
+    ProviderCatalog,
+    fingerprint,
+)
 from interview_assistant.ui.provider_picker import ModelSelector
 from interview_assistant.ui.session_dialog import SessionDialog
 from interview_assistant.ui.settings_dialog import SettingsDialog
@@ -77,6 +83,99 @@ def verify(catalog, provider="openai", models=None):
             "verified",
         ),
     )
+
+
+def test_new_openai_choices_share_presets_and_session_catalog_without_changing_defaults(
+    qtbot, tmp_path
+):
+    d, selector, catalog, _ = make(qtbot, tmp_path, initial={"openai": "key"})
+    before = (
+        d.model_boxes["openai_model"].currentText(),
+        d.model_boxes["openai_smart_model"].currentText(),
+    )
+    assert selector.count() == 1
+    verify(catalog, models=MODEL_CHOICES["openai"] + ["gpt-image-1"])
+    assert catalog.models("openai") == MODEL_CHOICES["openai"]
+    assert selector.count() == 7
+    assert before == (
+        d.model_boxes["openai_model"].currentText(),
+        d.model_boxes["openai_smart_model"].currentText(),
+    )
+    assert not d._store.load()
+    for model in MODEL_CHOICES["openai"][2:]:
+        assert d.model_boxes["openai_model"].findText(model) >= 0
+        assert d.model_boxes["openai_smart_model"].findText(model) >= 0
+        label = selector.itemText(selector.findData(f"openai:{model}"))
+        assert "Recommended" not in label
+    d.model_boxes["openai_model"].setCurrentText("gpt-6.1-terra")
+    d.model_boxes["openai_smart_model"].setCurrentText("gpt-6.1-sol")
+    d.save()
+    d.load()
+    assert Settings(_env_file=None).openai_model == "gpt-6.1-terra"
+    assert Settings(_env_file=None).openai_smart_model == "gpt-6.1-sol"
+    restored = ProviderCatalog(catalog.raw, catalog.keys, catalog.path)
+    assert restored.models("openai") == MODEL_CHOICES["openai"]
+    assert any(
+        "current Fast" in label
+        for label, route in restored.options("openai")
+        if route == "openai:gpt-6.1-terra"
+    )
+    d.recommended_models_btn.click()
+    assert [
+        d.model_boxes[field].currentText() for field in ("openai_model", "openai_smart_model")
+    ] == SUGGESTIONS["openai"]
+
+
+def test_new_model_subset_does_not_unlock_missing_models_or_recommendations(qtbot, tmp_path):
+    d, selector, catalog, keys = make(qtbot, tmp_path, initial={"openai": "key"})
+    verify(catalog, models=["gpt-6-luna"])
+    assert catalog.models("openai") == ["gpt-6-luna"]
+    assert selector.findData("openai:gpt-6-astra") == -1
+    assert not d.recommended_models_btn.isEnabled()
+    selector.showPopup()
+    selector.picker.show_provider("openai")
+    assert selector.picker.search.isVisible()
+    selector.picker.search.setText("Luna")
+    assert selector.picker.models.count() == 1
+    keys.set("openai", "replacement")
+    catalog.changed.emit()
+    assert catalog.models("openai") == [] and selector.count() == 1
+
+
+@pytest.mark.parametrize("model", MODEL_CHOICES["openai"][2:])
+@pytest.mark.parametrize(
+    "role,question",
+    [
+        ("fast", "What is the difference between a list and a tuple?"),
+        ("coding", "Write a SQL query to count orders."),
+    ],
+)
+async def test_new_models_reach_both_session_routes(qtbot, tmp_path, model, role, question):
+    _, _, catalog, _ = make(qtbot, tmp_path, initial={"openai": "key"})
+    verify(catalog, models=MODEL_CHOICES["openai"])
+    wizard = SessionDialog()
+    qtbot.addWidget(wizard)
+    wizard.company.setText("Synthetic company")
+    selector = getattr(wizard, f"{role}_model_override")
+    selector.bind(catalog)
+    selector.setCurrentIndex(selector.findData(f"openai:{model}"))
+    details = wizard.collect()
+    assert getattr(details, f"{role}_model_route") == f"openai:{model}"
+    requests = []
+
+    class Capture(Script):
+        async def stream(self, request):
+            requests.append(request)
+            async for event in super().stream(request):
+                yield event
+
+    provider = Capture("openai", ["Synthetic answer."])
+    jev = Jev(
+        build_router(catalog.raw(), {"openai": provider}),
+        JevConfig(classify_with_llm=False, **{f"{role}_model_route": f"openai:{model}"}),
+    )
+    _ = [event async for event in jev.ask(question)]
+    assert requests and requests[0].model == model
 
 
 def test_saved_key_is_amber_then_verified_green_in_both_sections(qtbot, tmp_path):
@@ -276,7 +375,7 @@ def test_glass_popup_selects_same_models_and_closes_with_escape(qtbot, tmp_path)
         "gpt-5.4-mini · Recommended for Fast",
         "gpt-5.4 · Recommended for Smart",
     ]
-    assert picker.search.isHidden()
+    assert not picker.search.isHidden()
     item = picker.models.item(0)
     picker.models.itemClicked.emit(item)
     assert selector.currentData() == "openai:gpt-5.4-mini" and not picker.isVisible()
@@ -464,7 +563,7 @@ def test_unavailable_recommendations_are_not_unlocked(qtbot, tmp_path):
     selector.showPopup()
     selector.picker.show_provider("openai")
     assert selector.picker.models.count() == 0
-    assert "neither recommended" in selector.picker.info.text()
+    assert "none of the supported" in selector.picker.info.text()
 
 
 @pytest.mark.parametrize("model", ["gpt-5.4-mini", "gpt-5.4"])

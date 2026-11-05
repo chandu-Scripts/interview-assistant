@@ -6,11 +6,12 @@ model presets. Advanced routing chains are collapsed by default. Speechmatics re
 separate key controls and Speech-tab selection.
 
 Preferred model uses a glass picker: choose a verified provider, then a model. OpenAI is
-limited to `gpt-5.4-mini` (recommended for Fast) and `gpt-5.4` (recommended for Smart).
+limited to `gpt-5.4-mini` (recommended for Fast), `gpt-5.4` (recommended for Smart),
+`gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.1-terra` and `gpt-6-luna`.
 Both Settings dropdowns and Preferred model use this shortlist, intersected with the
 verified account's model list. Old cached catalogs receive the same filtering. Snapshots,
-older families and unrelated models do not appear. The two-item OpenAI picker has no search
-field; Anthropic and Gemini retain their searchable account catalogs.
+older families and unrelated models do not appear. All provider pickers have search.
+Adding choices does not change existing selections or the recommended pair.
 
 Existing configured presets are preserved as editable text in Settings, without adding
 them back to dropdown suggestions. **Use recommended models** fills both OpenAI presets;

@@ -155,7 +155,7 @@ class ModelPicker(GlassDialog):
         if self.provider not in available:
             self.provider = ""
         self.info.setText(
-            "Choose a provider. OpenAI shows the two recommended interview models."
+            "Choose a provider, then a model available to your verified account."
             if available
             else "No verified providers. In Settings → AI providers, save a key, then Test key."
         )
@@ -178,7 +178,7 @@ class ModelPicker(GlassDialog):
     def fill_models(self) -> None:
         self.models.clear()
         self.models.setVisible(bool(self.provider))
-        self.search.setVisible(bool(self.provider) and self.provider != "openai")
+        self.search.setVisible(bool(self.provider))
         if not self.provider:
             return
         query = self.search.text().casefold()
@@ -193,7 +193,7 @@ class ModelPicker(GlassDialog):
             self.models.addItem(item)
         if not self.catalog.models(self.provider):
             self.info.setText(
-                "Key verified, but neither recommended OpenAI model is listed for this account."
+                "Key verified, but none of the supported OpenAI choices is listed for this account."
                 if self.provider == "openai"
                 else "Key verified, but the provider returned no supported text models."
             )

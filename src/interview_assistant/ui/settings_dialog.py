@@ -52,8 +52,13 @@ from interview_assistant.ui.answer_view import AnswerView
 from interview_assistant.ui.bg import Runner, run_in_thread
 from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.key_row import Checker, KeyRow
+from interview_assistant.ui.provider_catalog import (
+    MODEL_CHOICES,
+    NAMES,
+    SUGGESTIONS,
+    ProviderCatalog,
+)
 from interview_assistant.ui.provider_catalog import MODEL_FIELDS as PROVIDER_FIELDS
-from interview_assistant.ui.provider_catalog import NAMES, SUGGESTIONS, ProviderCatalog
 from interview_assistant.ui.provider_picker import GlassDialog, update_provider_button
 from interview_assistant.ui.relay_panel import RelayPanel, RequestFn, StatusFn
 
@@ -251,7 +256,8 @@ class SettingsDialog(QDialog):
             popup.body.addWidget(row)
             model_note = QLabel(
                 "Recommended: Fast — gpt-5.4-mini; Smart — gpt-5.4. "
-                "Only these two models are listed. Existing selections stay until you save."
+                "GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra and GPT-6 Luna are also selectable. "
+                "Existing selections stay until you save."
                 if p == "openai"
                 else "Fast and Smart are your routing presets. Select an actual model for each. "
                 "Test key refreshes the same account model list used in Preferred model."
@@ -263,7 +269,7 @@ class SettingsDialog(QDialog):
             for tier, field in zip(("Fast", "Smart"), PROVIDER_FIELDS[p], strict=True):
                 box = ChoiceComboBox()
                 box.setEditable(True)
-                box.addItems(SUGGESTIONS.get(p, []))
+                box.addItems(MODEL_CHOICES.get(p, []))
                 self.model_boxes[field] = box
                 model_form.addRow(tier, box)
             popup.body.addLayout(model_form)
@@ -334,7 +340,7 @@ class SettingsDialog(QDialog):
                 provider,
                 self.catalog.models(provider)
                 if state == "verified"
-                else SUGGESTIONS.get(provider, []),
+                else MODEL_CHOICES.get(provider, []),
             )
         verified = self.catalog.status("openai")[0] == "verified"
         available = self.catalog.models("openai")
