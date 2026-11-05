@@ -1,5 +1,19 @@
 # Additional OpenAI choices (2026-11-06)
 
+User clarification: all account models must be selectable. The six-model shortlist below
+is now only an ordering/default hint. Provider fetch and picker filters were removed for
+OpenAI and Gemini; Anthropic already returned its full list. Codex and Claude reviewed this:
+we chose literal full-catalog selection with a visible compatibility note over retaining
+Gemini's generation-method filter. This does not add audio/image/embedding endpoints.
+Test key refreshes an older filtered cache. Defaults and recommendations stay unchanged.
+
+Full-catalog validation: 210 automated tests passed across provider pickers, configuration,
+split models, customer BYOK and answer typography. Includes a 120-model searchable catalog,
+cache restoration, exact future-model routing through a mock provider, key invalidation and
+preserved recommendations. Ruff and mypy (4 changed production files) passed. This does not
+claim every listed model can generate answers; earlier live tests cover only the named models.
+Rollback this full-catalog commit to restore the preceding six-model shortlist.
+
 The selectable OpenAI catalog includes GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra and
 GPT-6 Luna alongside the existing GPT-5.4 pair. Settings Fast/Smart presets and
 session Coding/Fast selectors share the verified account catalog. Existing saved

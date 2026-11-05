@@ -6,33 +6,6 @@ from typing import Any
 import httpx
 
 TIMEOUT = 15.0
-_OPENAI_SKIP = (
-    "audio",
-    "realtime",
-    "transcribe",
-    "tts",
-    "image",
-    "search",
-    "instruct",
-    "embed",
-    "codex",
-    "deep-research",
-    "computer-use",
-    "-pro",
-)
-_GEMINI_SKIP = (
-    "tts",
-    "image",
-    "embedding",
-    "aqa",
-    "native-audio",
-    "live",
-    "robotics",
-    "deep-research",
-    "antigravity",
-    "computer-use",
-    "learnlm",
-)
 
 
 @dataclass
@@ -45,9 +18,7 @@ class CheckResult:
 
 
 def _openai_models(data: dict[str, Any]) -> list[str]:
-    ids = [m["id"] for m in data.get("data", []) if isinstance(m.get("id"), str)]
-    keep = [i for i in ids if i.startswith(("gpt-", "o1", "o3", "o4", "chatgpt"))]
-    return sorted(i for i in keep if not any(s in i for s in _OPENAI_SKIP))
+    return sorted(m["id"] for m in data.get("data", []) if isinstance(m.get("id"), str))
 
 
 def _anthropic_models(data: dict[str, Any]) -> list[str]:
@@ -57,11 +28,9 @@ def _anthropic_models(data: dict[str, Any]) -> list[str]:
 def _gemini_models(data: dict[str, Any]) -> list[str]:
     out = []
     for m in data.get("models", []):
-        name = str(m.get("name", "")).removeprefix("models/")
-        if "generateContent" in m.get("supportedGenerationMethods", []) and not any(
-            s in name for s in _GEMINI_SKIP
-        ):
-            out.append(name)
+        name = m.get("name")
+        if isinstance(name, str) and name:
+            out.append(name.removeprefix("models/"))
     return sorted(out)
 
 

@@ -167,7 +167,8 @@ class ModelPicker(GlassDialog):
         self.provider = provider
         self.search.clear()
         self.info.setText(
-            f"{NAMES[provider]} · select a model. Key verified; generation access may vary."
+            f"{NAMES[provider]} · all account models. "
+            "Some models cannot generate text answers; access and endpoint support may vary."
         )
         if not self.selector.provider_ready(provider):
             self.info.setText(
@@ -193,9 +194,7 @@ class ModelPicker(GlassDialog):
             self.models.addItem(item)
         if not self.catalog.models(self.provider):
             self.info.setText(
-                "Key verified, but none of the supported OpenAI choices is listed for this account."
-                if self.provider == "openai"
-                else "Key verified, but the provider returned no supported text models."
+                "Key verified, but the provider returned no models."
             )
 
     def choose(self, route: str) -> None:

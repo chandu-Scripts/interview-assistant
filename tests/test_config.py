@@ -189,7 +189,7 @@ def client(handler):
     return httpx.Client(transport=httpx.MockTransport(handler))
 
 
-def test_check_openai_lists_and_filters_models():
+def test_check_openai_lists_all_models_without_family_or_modality_filter():
     seen = {}
 
     def h(req):
@@ -205,8 +205,15 @@ def test_check_openai_lists_and_filters_models():
         return httpx.Response(200, json={"data": [{"id": i} for i in ids]})
 
     r = check_key("openai", "sk-test", client(h))
-    assert r.ok and r.models == ["gpt-4o", "gpt-4o-mini", "o3-mini"]
-    assert seen["auth"] == "Bearer sk-test" and "3 models" in r.message
+    assert r.ok and r.models == [
+        "gpt-4o",
+        "gpt-4o-audio-preview",
+        "gpt-4o-mini",
+        "o3-mini",
+        "text-embedding-3",
+        "whisper-1",
+    ]
+    assert seen["auth"] == "Bearer sk-test" and "6 models" in r.message
 
 
 def test_check_anthropic_and_gemini_request_shape():
@@ -237,7 +244,11 @@ def test_check_anthropic_and_gemini_request_shape():
         "claude-sonnet-5",
     ]
     assert seen["a"] == ("ak", "2023-06-01")
-    assert check_key("gemini", "gk", client(gem)).models == ["gemini-flash-latest"]
+    assert check_key("gemini", "gk", client(gem)).models == [
+        "embed",
+        "gemini-flash-latest",
+        "gemini-tts",
+    ]
     assert seen["g"][0] == "gk" and "gk" not in seen["g"][1]  # header, never the URL
 
 
@@ -822,7 +833,7 @@ def test_dialog_models_fill_from_key_test(qtbot, dialog):
         "openai", fingerprint("test-only"), CheckResult(True, "Verified", ["gpt-x", "gpt-y"])
     )
     box = d.model_boxes["openai_model"]
-    assert box.count() == 0  # unrelated account models stay out of the recommended shortlist
+    assert [box.itemText(i) for i in range(box.count())] == ["gpt-x", "gpt-y"]
     assert box.currentText() == "gpt-4o-mini"  # the current choice is kept even if not listed
     assert d.model_boxes["gemini_model"].count() == 0  # other providers untouched
 

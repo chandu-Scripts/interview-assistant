@@ -204,9 +204,11 @@ with the safety boundaries below), and the file:line references each step builds
   model ids, timestamps and one-way key fingerprints; incognito keeps new results in memory.
   Key replacement/removal invalidates verification. New credentials require restart before
   selecting their models for answers. Popups close on presentation. See docs/provider-picker.md.
-  OpenAI model dropdowns include gpt-5.4-mini (recommended Fast), gpt-5.4
-  (recommended Smart), gpt-6-astra, gpt-6.1-sol, gpt-6.1-terra and gpt-6-luna,
-  intersected with the verified account catalog. Existing configured
+  Model dropdowns show all sanitized IDs returned by the verified account, across OpenAI,
+  Anthropic and Gemini. No family/modality shortlist. OpenAI gpt-5.4-mini and gpt-5.4
+  retain Fast/Smart recommendation labels without restricting other selections. Test key
+  refreshes older filtered caches. Listed models may not support the app's text endpoint;
+  the picker states this and existing error/fallback behavior remains. Existing configured
   values are preserved; Use recommended models fills both presets, then Save/restart applies.
   A session's explicitly selected account model need not appear in Auto's preset chains;
   its provider must be loaded. Normal fallback and accounting still apply.

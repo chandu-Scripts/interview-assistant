@@ -256,11 +256,12 @@ class SettingsDialog(QDialog):
             popup.body.addWidget(row)
             model_note = QLabel(
                 "Recommended: Fast — gpt-5.4-mini; Smart — gpt-5.4. "
-                "GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra and GPT-6 Luna are also selectable. "
+                "Test key lists all account models. Some models cannot generate text answers. "
                 "Existing selections stay until you save."
                 if p == "openai"
                 else "Fast and Smart are your routing presets. Select an actual model for each. "
-                "Test key refreshes the same account model list used in Preferred model."
+                "Test key lists all account models, also shown in Preferred model. "
+                "Some models cannot generate text answers."
             )
             model_note.setWordWrap(True)
             popup.body.addWidget(model_note)

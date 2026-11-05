@@ -5,13 +5,17 @@ Clicking a card opens a small navy/cyan glass popup with its key controls and Fa
 model presets. Advanced routing chains are collapsed by default. Speechmatics retains its
 separate key controls and Speech-tab selection.
 
-Preferred model uses a glass picker: choose a verified provider, then a model. OpenAI is
-limited to `gpt-5.4-mini` (recommended for Fast), `gpt-5.4` (recommended for Smart),
-`gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.1-terra` and `gpt-6-luna`.
-Both Settings dropdowns and Preferred model use this shortlist, intersected with the
-verified account's model list. Old cached catalogs receive the same filtering. Snapshots,
-older families and unrelated models do not appear. All provider pickers have search.
-Adding choices does not change existing selections or the recommended pair.
+Preferred model uses a glass picker: choose a verified provider, then a model. All sanitized
+model IDs returned by that account are selectable, including snapshots and future families.
+OpenAI, Anthropic and Gemini share their full fetched lists with Settings and session selectors.
+There is no family/modality shortlist. OpenAI recommendations remain `gpt-5.4-mini` for Fast
+and `gpt-5.4` for Smart; recommendation labels do not restrict selection. Known choices sort
+first, remaining IDs alphabetically. All provider pickers have search.
+
+Test key refreshes older cached lists that were filtered before this change. No automatic
+network request or selection change occurs. The list includes models that cannot generate
+text answers or require an unsupported endpoint; the picker states this explicitly. Listing
+is not a capability guarantee. Existing provider adapters, errors and fallback rules apply.
 
 Existing configured presets are preserved as editable text in Settings, without adding
 them back to dropdown suggestions. **Use recommended models** fills both OpenAI presets;

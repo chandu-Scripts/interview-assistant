@@ -27,7 +27,7 @@ MODEL_FIELDS = {
     "gemini": ("gemini_fast_model", "gemini_model"),
 }
 SUGGESTIONS = {"openai": ["gpt-5.4-mini", "gpt-5.4"]}
-# Selectable models are independent of the two Fast/Smart recommendations.
+# Ordering/default hints only, never an allowlist for a verified account.
 MODEL_CHOICES = {
     "openai": [
         *SUGGESTIONS["openai"],
@@ -108,7 +108,8 @@ class ProviderCatalog(QObject):
             return []
         models = clean_models(self._records[provider]["models"])
         if provider in MODEL_CHOICES:
-            return [model for model in MODEL_CHOICES[provider] if model in models]
+            first = [model for model in MODEL_CHOICES[provider] if model in models]
+            return first + [model for model in models if model not in first]
         return models
 
     def options(self, provider: str) -> list[tuple[str, str]]:
@@ -130,7 +131,9 @@ class ProviderCatalog(QObject):
                 label = (
                     f"{model} · Recommended for {tier}"
                     if tier
-                    else f"{MODEL_LABELS.get(model, model)} · {model}"
+                    else f"{MODEL_LABELS[model]} · {model}"
+                    if model in MODEL_LABELS
+                    else model
                 )
                 if current:
                     label += f" (current {' / '.join(current)})"
