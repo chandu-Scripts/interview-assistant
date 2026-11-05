@@ -97,6 +97,9 @@ class Settings(BaseSettings):
     # it's sent to the AI. "auto": answered immediately, the old always-on behavior. Typed
     # questions and Chat always answer immediately regardless of this setting.
     answer_mode: Literal["manual", "auto"] = "manual"
+    answer_font_family: Literal["Segoe UI", "Arial", "Calibri", "Consolas"] = "Segoe UI"
+    answer_font_weight: Literal["Regular", "Medium", "Bold"] = "Regular"
+    answer_font_size: Literal["Small", "Medium", "Large"] = "Medium"
     # Cost tracking. budget_usd=None disables budgets; hard stop blocks new answers once exceeded.
     budget_usd: float | None = None
     budget_scope: Literal["session", "day", "month"] = "session"

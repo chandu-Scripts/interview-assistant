@@ -51,6 +51,9 @@ EDITABLE = frozenset(
         "relay_url",
         "relay_pending_id",
         "answer_mode",
+        "answer_font_family",
+        "answer_font_weight",
+        "answer_font_size",
         "dual_audio_capture",
     }
 )

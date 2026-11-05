@@ -3,6 +3,7 @@ from functools import partial
 from typing import Any
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -40,6 +41,14 @@ from interview_assistant.config.relay import (
 from interview_assistant.config.settings import Settings
 from interview_assistant.config.user_settings import UserSettingsStore
 from interview_assistant.llm.router_factory import parse_chain
+from interview_assistant.ui.answer_typography import (
+    FAMILIES,
+    FIELDS,
+    SIZES,
+    WEIGHTS,
+    AnswerTypography,
+)
+from interview_assistant.ui.answer_view import AnswerView
 from interview_assistant.ui.bg import Runner, run_in_thread
 from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.key_row import Checker, KeyRow
@@ -64,6 +73,7 @@ class SettingsDialog(QDialog):
     settings are saved to settings.json. Most changes apply after a restart."""
 
     saved = Signal(bool)  # needs_restart
+    typography_saved = Signal(object)
 
     def __init__(
         self,
@@ -101,6 +111,7 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self._profile_tab(), "Profile")
         self.tabs.addTab(self._budget_tab(), "Budget && history")
         self.tabs.addTab(self._privacy_tab(), "Privacy && hotkeys")
+        self.tabs.addTab(self._appearance_tab(), "Appearance")
         if not self._customer:
             self.tabs.addTab(
                 self._shared_access_tab(
@@ -141,6 +152,57 @@ class SettingsDialog(QDialog):
         self._refresh_providers()
 
     # ---- tabs ----
+    def _appearance_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        note = QLabel(
+            "Customize answer text. Preview changes here, then Save to apply without restarting. "
+            "Code stays in regular Consolas at the selected size."
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        form = QFormLayout()
+        self.answer_font_family = ChoiceComboBox()
+        available = set(QFontDatabase.families())
+        for family in FAMILIES:
+            label = family if family in available else f"{family} (system fallback)"
+            self.answer_font_family.addItem(label, family)
+        self.answer_font_weight = ChoiceComboBox()
+        for weight in WEIGHTS:
+            self.answer_font_weight.addItem(weight, weight)
+        self.answer_font_size = ChoiceComboBox()
+        for size, points in SIZES.items():
+            self.answer_font_size.addItem(f"{size} ({points} pt)", size)
+        form.addRow("Font family", self.answer_font_family)
+        form.addRow("Font style", self.answer_font_weight)
+        form.addRow("Font size", self.answer_font_size)
+        layout.addLayout(form)
+        hint = QLabel("Font availability and supported weights depend on Windows fonts.")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addWidget(QLabel("Live preview"))
+        self.answer_preview = AnswerView()
+        self.answer_preview.setMinimumHeight(210)
+        self.answer_preview.setMarkdown(
+            "```text\nI check the failed stage first, then compare its input with the last "
+            "successful run.\n```\n\n```sql\nSELECT customer_id, COUNT(*)\nFROM orders\n"
+            "GROUP BY customer_id;\n```"
+        )
+        layout.addWidget(self.answer_preview, 1)
+        for combo in (self.answer_font_family, self.answer_font_weight, self.answer_font_size):
+            combo.currentIndexChanged.connect(self._preview_typography)
+        return page
+
+    def _typography(self) -> AnswerTypography:
+        return AnswerTypography(
+            self.answer_font_family.currentData(),
+            self.answer_font_weight.currentData(),
+            self.answer_font_size.currentData(),
+        )
+
+    def _preview_typography(self) -> None:
+        self.answer_preview.set_typography(self._typography())
+
     def _providers_tab(self, checker: Checker, runner: Runner) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
@@ -437,6 +499,9 @@ class SettingsDialog(QDialog):
     # ---- load / collect / save ----
     def load(self) -> None:
         s = self._raw()
+        for field in FIELDS:
+            self._select(getattr(self, field), getattr(s, field))
+        self._preview_typography()
         for field, box in self.model_boxes.items():
             box.setCurrentText(getattr(s, field))
         for field, edit in (("router_fast", self.router_fast), ("router_smart", self.router_smart)):
@@ -494,6 +559,7 @@ class SettingsDialog(QDialog):
     def collect(self, *, validate_keys: bool = True) -> dict[str, Any]:
         """Form values as saved settings. Raises ValueError with a user-readable reason."""
         values: dict[str, Any] = {f: b.currentText().strip() for f, b in self.model_boxes.items()}
+        values.update({field: getattr(self, field).currentData() for field in FIELDS})
         for field, edit in (("router_fast", self.router_fast), ("router_smart", self.router_smart)):
             text = edit.text().strip()
             if text:
@@ -560,10 +626,12 @@ class SettingsDialog(QDialog):
             changed = {k: v for k, v in values.items() if v != self._initial.get(k)}
             if changed:
                 self._store.save(self._to_store(values))
-        except ValueError as e:
+        except (ValueError, OSError) as e:
             self.message.setText(f"Not saved: {e}")
             return
-        needs_restart = bool(changed) or self._keys_changed
+        needs_restart = bool(changed.keys() - FIELDS) or self._keys_changed
+        if changed.keys() & FIELDS:
+            self.typography_saved.emit(self._typography())
         self._initial = values
         self.message.setText("Saved." + (" Restart to apply." if needs_restart else ""))
         self.catalog.changed.emit()

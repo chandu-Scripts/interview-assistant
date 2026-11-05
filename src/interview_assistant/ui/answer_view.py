@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont, QTextDocument
+from PySide6.QtGui import QTextDocument
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from interview_assistant.ui.answer_typography import AnswerTypography
 
 
 @dataclass(frozen=True)
@@ -94,18 +96,21 @@ class ParagraphCard(QFrame):
         self.label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         layout.addWidget(self.label)
         self._text = ""
+        self._block: AnswerBlock | None = None
+        self._typography: AnswerTypography | None = None
         self._reset = QTimer(self)
         self._reset.setSingleShot(True)
         self._reset.timeout.connect(lambda: self.copy_btn.setText("⧉"))
         self.copy_btn.clicked.connect(self.copy)
 
-    def update_block(self, block: AnswerBlock) -> None:
-        if self._text == block.text and self.label.font().fixedPitch() == block.code:
+    def update_block(self, block: AnswerBlock, typography: AnswerTypography | None = None) -> None:
+        typography = typography or AnswerTypography()
+        if self._block == block and self._typography == typography:
             return
+        self._block, self._typography = block, typography
         self._text = block.text
-        font = QFont("Consolas" if block.code else "Segoe UI", 11)
-        font.setFixedPitch(block.code)
-        self.label.setFont(font)
+        self.label.setFont(typography.font(block.code))
+        self.label.setStyleSheet(typography.stylesheet(block.code))
         self.label.setText(block.text)
         self.copy_btn.setToolTip(
             "Copy this code block" if block.code else "Copy this paragraph only"
@@ -135,11 +140,19 @@ class AnswerView(QScrollArea):
         self._layout.addWidget(self._placeholder)
         self.setWidget(self._content)
         self.cards: list[ParagraphCard] = []
+        self.typography = AnswerTypography()
         self._document = QTextDocument(self)
         self._raw = ""
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setSingleShot(True)
         self._scroll_timer.timeout.connect(self._scroll_to_end)
+
+    def set_typography(self, typography: AnswerTypography) -> None:
+        self.typography = typography
+        for card in self.cards:
+            if card._block is not None:
+                card.update_block(card._block, typography)
+        self._layout.activate()
 
     def setPlaceholderText(self, text: str) -> None:  # noqa: N802
         self._placeholder.setText(text)
@@ -176,7 +189,7 @@ class AnswerView(QScrollArea):
                 card = ParagraphCard(i + 1, self._content)
                 self.cards.append(card)
                 self._layout.addWidget(card)
-            self.cards[i].update_block(block)
+            self.cards[i].update_block(block, self.typography)
         self._placeholder.setVisible(not blocks)
         self._layout.activate()
         if follow:

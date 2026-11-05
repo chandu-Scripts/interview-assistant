@@ -133,6 +133,10 @@ with the safety boundaries below), and the file:line references each step builds
 - Record step outcomes in `docs/steps/step-XX.md`.
 
 ## Desktop appearance (v0.1.1)
+- Settings > Appearance controls answer-only font family, weight and size with a
+  draft preview. Successful Save applies live; startup restores account-scoped
+  settings. Code stays regular Consolas at the selected size. Use local label QSS
+  to override global theme fonts without changing copy text. See docs/answer-typography.md.
 - Startup uses a centered 960 × 680 logical-pixel window, reduced for smaller work areas,
   with compact session cards. Never maximize automatically at launch.
 - Shared navy/cyan styling lives in `ui/theme.py`; floating surfaces use painted translucent

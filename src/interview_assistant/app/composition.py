@@ -41,6 +41,7 @@ from interview_assistant.privacy.disclosure import (
 from interview_assistant.privacy.state import PrivacyState
 from interview_assistant.stt.factory import build_preview_provider, build_provider
 from interview_assistant.stt.metered import MeteredSTT
+from interview_assistant.ui.answer_typography import AnswerTypography
 from interview_assistant.ui.audio_panel import AudioPanel
 from interview_assistant.ui.main_window import MainWindow
 from interview_assistant.ui.overlay import OverlayWindow
@@ -121,6 +122,11 @@ def build_app(
     review_controller = PostCallController(router, runner, tracker)
     tracker.on_change = controller.notify_cost_changed
     overlay = OverlayWindow(controller, settings=context.qsettings("Overlay") if context else None)
+    overlay.answer.set_typography(
+        AnswerTypography(
+            settings.answer_font_family, settings.answer_font_weight, settings.answer_font_size
+        )
+    )
 
     stt = build_provider(settings)
     billed = getattr(stt, "metered", False) and not getattr(stt, "realtime", False)
@@ -280,6 +286,12 @@ def build_app(
         can_write=lambda: active() and not privacy.incognito,
     )
     settings_dialog = SettingsDialog(user_settings or UserSettingsStore(), keys, catalog=catalog)
+
+    def apply_typography(typography: AnswerTypography) -> None:
+        if active():
+            overlay.answer.set_typography(typography)
+
+    settings_dialog.typography_saved.connect(apply_typography)
     selectors = start_screen.create_page.model_selectors
     for selector in selectors:
         selector.bind(

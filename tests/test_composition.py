@@ -275,6 +275,29 @@ def test_everything_is_created_and_connected(parts_factory):
     assert p.jev.config.redact is True and p.tracker.budget is None
 
 
+def test_answer_typography_applies_at_startup_and_after_save(parts_factory):
+    from interview_assistant.ui.answer_typography import AnswerTypography
+
+    restarts = []
+    p = parts_factory(
+        answer_font_family="Calibri",
+        answer_font_weight="Medium",
+        answer_font_size="Large",
+        restart_ok=lambda window: restarts.append(window) or False,
+    )
+    assert p.overlay.answer.typography == AnswerTypography("Calibri", "Medium", "Large")
+    p.overlay.answer.setPlainText("Synthetic answer")
+    dialog = p.settings_dialog
+    dialog.answer_font_family.setCurrentIndex(dialog.answer_font_family.findData("Arial"))
+    dialog.answer_font_weight.setCurrentIndex(dialog.answer_font_weight.findData("Bold"))
+    dialog.answer_font_size.setCurrentIndex(dialog.answer_font_size.findData("Small"))
+    assert p.overlay.answer.typography.family == "Calibri"  # Draft preview stays local.
+    dialog.save()
+    assert p.overlay.answer.typography == AnswerTypography("Arial", "Bold", "Small")
+    assert not restarts
+    assert p.overlay.answer.toPlainText() == "Synthetic answer"
+
+
 def test_speechmatics_composition_uses_live_workers_without_local_previews(parts_factory):
     from interview_assistant.stt.realtime import RealtimeTranscriber
     from interview_assistant.stt.speechmatics import SpeechmaticsProvider
