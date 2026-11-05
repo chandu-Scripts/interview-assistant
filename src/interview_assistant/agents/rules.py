@@ -35,6 +35,22 @@ _PATTERNS: dict[Category, list[tuple[str, int]]] = {
         (r"\b(python|java|javascript|c\+\+|golang|typescript)\b", 1),
     ],
     Category.BEHAVIORAL: [
+        # Match the complete overview target, not a project count, tool or coding request.
+        (
+            r"^\s*(?:(?:so|okay|ok)[, ]+)?(?:(?:can|could|would) you\s+)?(?:please\s+)?"
+            r"(?:explain|describe|walk (?:me|us) through|tell (?:me|us) about|talk about|"
+            r"give (?:me |us )?an overview of)\s+"
+            r"(?:your|the)\s+(?:(?:current|recent|latest|last|main)\s+)?"
+            r"(?:(?:data engineering|data|etl)\s+)?project"
+            r"(?:\s+(?:end[- ]to[- ]end|in detail|briefly|overview))?"
+            r"(?:,?\s+please)?\s*[?.!]*$",
+            4,
+        ),
+        (
+            r"^\s*(?:what is|what's|whats) your (?:current|recent|latest|last|main) "
+            r"project(?: about)?\s*[?.!]*$",
+            4,
+        ),
         (
             r"\b(tell me about|describe|give me an example of|share) (a|an) (time|situation)\b",
             3,

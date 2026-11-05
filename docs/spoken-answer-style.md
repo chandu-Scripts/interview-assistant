@@ -7,10 +7,10 @@ specialist instructions have been removed. The built-in toggle still omits this 
 Off, and format/length/tone preferences remain exclusive to that mode.
 
 The built-in policy requests the main answer first and supporting details in separate closed
-text blocks. Short factual answers have no minimum filler count, usually zero to two natural
-markers. Longer explanations request 3 to 4 meaningful markers per spoken paragraph. It explains
-marker purposes and prohibits empty filler padding. Code, comments and output tables are
-exempt. No em/en dashes in prose is now a built-in rule, listed in Features. The policy
+text blocks. Conversational markers are optional in every answer, including long explanations
+and code line explanations. There is no quota or required padding sentence. Use transitions
+only to connect meaningful content. Code, comments and output tables remain free of fillers.
+No em/en dashes in prose remains a built-in rule, listed in Features. The policy
 preserves supplied facts and does not invent missing personal counts or project experience.
 
 Coding tasks request four parts: approach, executable code, expected output and complete
@@ -20,8 +20,24 @@ Type annotations must match actual types; SQL should handle nullable grouping/jo
 Concept questions do not require manufactured code. The coding output budget stays 4,000.
 
 No automatic filler insertion or additional model rewrite pass was added. Streaming and
-saved fictional Q&A are unchanged. Exact counts, naturalness and code correctness remain
+saved fictional Q&A are unchanged. Naturalness and code correctness remain
 model-dependent; these prompt instructions are not an output validator.
+
+## Current update: November 6, 2026
+
+This supersedes the historical filler quotas in the validation notes below. The diagnostic
+script retains marker counts for inspection but no longer grades answers by filler count.
+Features displays optional natural transitions. All per-line quotas and the required third
+sentence for two-line explanations are removed as well as the general quota.
+
+Project-overview intent variants now use the existing behavioral specialist and its 700-token
+budget. Its guidance distinguishes overviews (business problem, supplied flow, personal scope,
+optional supplied issue/fix) from specific incident STAR answers and narrow follow-ups.
+Patterns are bounded to the whole target, avoiding project architecture, SQL, counts and tools.
+Split-model sessions keep the Fast model for this category; legacy Auto uses its Smart tier.
+No saved model preference is changed. Built-in Off omits the added style/specialist guidance.
+
+Decision and validation: `docs/decisions/005-natural-answers-project-overview.md`.
 
 ## Validation on October 25, 2026
 

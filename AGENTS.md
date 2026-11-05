@@ -321,9 +321,12 @@ and `server/DEPLOY.md`.
   `agents/specialists.py`. Keep one authoritative filler/style rule, preserve custom session
   guidance, and omit this policy when the built-in toggle is Off. No em/en dashes in spoken
   prose; coding requests use approach, annotated code, output and complete line explanations.
-  Short factual answers have no minimum filler count; natural wording takes priority. Longer
-  explanations request 3 to 4 relevant markers per paragraph. Exact counts remain
-  model-dependent; see `docs/spoken-answer-style.md`. Do not add
+  Conversational markers are optional for all prose, including coding explanations;
+  there is no filler quota or mandatory padding sentence. Naturalness needs human
+  review; diagnostic marker counts are descriptive only. Bounded project-overview
+  questions use the existing behavioral specialist (700 tokens), with business problem,
+  supported flow, personal scope and an optional supplied incident, not forced STAR.
+  Narrow project questions keep their existing routes. See `docs/spoken-answer-style.md`. Do not add
   a silent paid rewrite call or mutate saved Q&A to enforce style.
 - Output-limit finishes are saved/displayed as incomplete, never complete. The live overlay's
   explicit Continue answer action preserves raw text/code and original context, uses normal

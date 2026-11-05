@@ -140,9 +140,11 @@ def test_one_style_policy_with_extra_guidance_after_defaults(spec):
     assert "1 or 2" not in prompt and "one sentence may be enough" not in prompt
     assert "three useful sentences, each with one marker" not in prompt
     assert "that is the confirmed size" not in prompt
-    assert "There is no minimum sentence count" in prompt
-    assert "Short factual answers have no minimum filler count" in prompt
-    assert "Longer explanations use 3 to 4" in prompt
+    assert "There is no minimum filler or sentence count" in prompt
+    assert "Conversational markers are optional in every answer" in prompt
+    assert "3 to 4" not in prompt
+    assert "one relevant marker per sentence" not in prompt
+    assert "use a useful third sentence" not in prompt
     assert "Rewrite any paragraph outside 3 to 4" not in prompt
     assert "These are not the candidate's facts" in prompt
     if spec.category in (Category.CODING, Category.DATA_SQL):

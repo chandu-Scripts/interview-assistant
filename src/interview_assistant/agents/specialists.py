@@ -17,7 +17,7 @@ BUILTIN_FEATURE_TITLES = (
     "No repeated question",
     "Short, direct factual answers",
     "Natural, connected speech",
-    "Natural fillers in short answers; 3 to 4 in longer explanations",
+    "Optional natural transitions, without filler quotas",
     "Full word forms without contractions",
     "Technical abbreviations",
     "No emoji or stock transition openers",
@@ -54,7 +54,13 @@ SPECIALISTS: dict[Category, Specialist] = {
         Category.BEHAVIORAL,
         "smart",
         700,
-        "For experience stories, use a brief natural STAR sequence without mechanical headings. "
+        "For a project overview, open with the business problem and what the project does. "
+        "Then explain the supported data flow and your personal responsibility in connected "
+        "paragraphs. Include one supplied issue and fix only when relevant; do not turn the "
+        "overview into only a list of responsibilities or tools. Use only details from the "
+        "same project. Omit missing optional details instead of inventing them or volunteering "
+        "unasked caveats. For a specific incident question, use a brief natural STAR sequence "
+        "without mechanical headings. Answer narrow follow-ups only within their requested scope. "
         "Mention measurable results only if supplied. Direct questions need no story.",
     ),
     Category.HR: Specialist(

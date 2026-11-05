@@ -3,19 +3,20 @@ from scripts.evaluate_answer_style import check_coding, check_style
 
 
 @pytest.mark.parametrize(
-    "paragraph, count, passed",
+    "paragraph, count",
     [
-        ("A list is mutable.", 0, False),
-        ("Yeah, a list is mutable.", 1, False),
-        ("Yeah, a list can change. Mainly, use it for edits. Also, it keeps order.", 3, True),
-        ("Yeah, so this mainly works. Also, I mean it is useful.", 5, False),
+        ("A list is mutable.", 0),
+        ("Yeah, a list is mutable.", 1),
+        ("Yeah, a list can change. Mainly, use it for edits. Also, it keeps order.", 3),
+        ("Yeah, so this mainly works. Also, I mean it is useful.", 5),
     ],
 )
-def test_style_check_counts_occurrences_without_rewriting(paragraph, count, passed):
+def test_style_check_counts_occurrences_without_rewriting_or_grading(paragraph, count):
     result = check_style(f"```text\n{paragraph}\n```")
     assert result["paragraphs"][0]["text"] == paragraph
     assert result["paragraphs"][0]["count"] == count
-    assert result["filler_counts_pass"] is passed
+    assert result["filler_review"] == "manual"
+    assert "filler_counts_pass" not in result
 
 
 def test_style_check_exempts_code_output_and_counts_each_paragraph():
@@ -27,7 +28,7 @@ def test_style_check_exempts_code_output_and_counts_each_paragraph():
     )
     result = check_style(answer)
     assert [p["count"] for p in result["paragraphs"]] == [3, 0]
-    assert not result["filler_counts_pass"]
+    assert result["filler_review"] == "manual"
     assert result["no_prohibited_dashes"]
     assert result["all_content_fenced"]
     assert not check_style(answer + "Outside a block")["all_content_fenced"]
@@ -74,11 +75,7 @@ def test_commentary_diagnostic_preserves_normal_answer_and_code_literals():
     assert result["paragraphs"][0]["text"] == "Six members, including me."
 
 
-def test_short_answer_exemption_requires_explicit_case_annotation_and_one_paragraph():
+def test_paragraph_count_does_not_turn_marker_counts_into_a_quality_score():
     answer = "```text\nSix people, including me.\n```"
-    assert check_style(answer, short_answer=True)["filler_counts_pass"]
-    assert not check_style(answer)["filler_counts_pass"]
-    assert not check_style(answer + answer, short_answer=True)["filler_counts_pass"]
-    assert not check_style("```text\nYeah, so, mainly, basically, also.\n```", short_answer=True)[
-        "filler_counts_pass"
-    ]
+    for text in (answer, answer + answer, "```text\nYeah, so, mainly, basically, also.\n```"):
+        assert check_style(text)["filler_review"] == "manual"

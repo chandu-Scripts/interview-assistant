@@ -34,31 +34,26 @@ CASES = [
     },
     {
         "id": "confirmed_team",
-        "short_answer": True,
         "question": "What is your team size?",
         "profile": "Confirmed project facts: six team members: three data engineers including me, one tech lead, one tester, one business analyst.",
     },
     {
         "id": "missing_fact",
         "question": "How many catalogs have you used in your current project?",
-        "short_answer": True,
     },
-    {"id": "tuple_append", "question": "Can we add elements to a tuple?", "short_answer": True},
+    {"id": "tuple_append", "question": "Can we add elements to a tuple?"},
     {
         "id": "confirmed_pipelines",
-        "short_answer": True,
         "question": "How many pipelines did you build?",
         "profile": "Project facts: I built 12 pipelines. Eight were daily batch ingestion pipelines and four handled hourly incremental loads.",
     },
     {
         "id": "known_tool",
-        "short_answer": True,
         "question": "Have you used ADF in your project?",
         "profile": "Project Cedar: used ADF to schedule daily CSV ingestion into ADLS Gen2; monitored failed activities and reran failed batches.",
     },
     {
         "id": "skills_only",
-        "short_answer": True,
         "question": "Have you used Kafka in your project?",
         "profile": "Project Cedar: ADF and ADLS Gen2. Skills: Kafka concepts, topics, producers and consumers. Project use of Kafka is unspecified.",
     },
@@ -77,8 +72,8 @@ COMMENTARY = re.compile(
 )
 
 
-def check_style(answer: str, *, short_answer: bool = False) -> dict:
-    """Literal marker checks are a proxy; naturalness and factuality need human review."""
+def check_style(answer: str) -> dict:
+    """Marker counts are descriptive only; naturalness and factuality need human review."""
     paragraphs = []
     for language, content in FENCES.findall(answer):
         if language.strip().lower() not in ("", "text", "plaintext"):
@@ -101,11 +96,7 @@ def check_style(answer: str, *, short_answer: bool = False) -> dict:
             c in paragraph["text"] for paragraph in paragraphs for c in ("\u2013", "\u2014")
         ),
         "all_content_fenced": not FENCES.sub("", answer).strip(),
-        "filler_counts_pass": bool(paragraphs)
-        and all(
-            (0 if short_answer and len(paragraphs) == 1 else 3) <= p["count"] <= 4
-            for p in paragraphs
-        ),
+        "filler_review": "manual",
         "commentary_flags": [
             match.group() for p in paragraphs for match in COMMENTARY.finditer(p["text"])
         ],
@@ -193,7 +184,7 @@ async def main(output: Path, repeats: int, selected: list[str] | None) -> None:
                         "Live evaluation failed: " + ", ".join(e.kind.value for e in error.errors)
                     ) from None
                 answer = "".join(parts)
-                checks = check_style(answer, short_answer=case.get("short_answer", False))
+                checks = check_style(answer)
                 if case["id"] in ("python", "sql_code"):
                     checks["coding"] = check_coding(
                         answer, "python" if case["id"] == "python" else "sql"
