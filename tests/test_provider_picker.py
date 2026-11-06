@@ -51,7 +51,9 @@ def make(qtbot, tmp_path, *, initial=None, raw=None, checker=None, runner=run_in
     keys = MemoryKeyStore(initial or {})
     raw = raw or (lambda: Settings(_env_file=None))
     catalog = ProviderCatalog(raw, keys, tmp_path / "models.json")
-    checker = checker or (lambda p, k: CheckResult(True, "Verified", ["gpt-5.4-mini", "gpt-5.4"]))
+    checker = checker or (
+        lambda p, k: CheckResult(True, "Verified", ["gpt-6.1-terra", "gpt-6.1-sol"])
+    )
     dialog = SettingsDialog(
         UserSettingsStore(),
         keys,
@@ -75,7 +77,7 @@ def verify(catalog, provider="openai", models=None):
         CheckResult(
             True,
             "Verified",
-            models or ["gpt-5.4-mini", "gpt-5.4"],
+            models or ["gpt-6.1-terra", "gpt-6.1-sol"],
             "verified",
         ),
     )
@@ -91,18 +93,18 @@ def test_new_openai_choices_share_presets_and_session_catalog_without_changing_d
     )
     assert selector.count() == 1
     verify(catalog, models=MODEL_CHOICES["openai"] + ["gpt-image-1"])
-    assert catalog.models("openai") == MODEL_CHOICES["openai"] + ["gpt-image-1"]
-    assert selector.count() == 8
+    assert catalog.models("openai") == MODEL_CHOICES["openai"]
+    assert selector.count() == 5
     assert before == (
         d.model_boxes["openai_model"].currentText(),
         d.model_boxes["openai_smart_model"].currentText(),
     )
     assert not d._store.load()
-    for model in MODEL_CHOICES["openai"][2:]:
+    for model in MODEL_CHOICES["openai"]:
         assert d.model_boxes["openai_model"].findText(model) >= 0
         assert d.model_boxes["openai_smart_model"].findText(model) >= 0
         label = selector.itemText(selector.findData(f"openai:{model}"))
-        assert "Recommended" not in label
+        assert ("Recommended" in label) == (model in SUGGESTIONS["openai"])
     d.model_boxes["openai_model"].setCurrentText("gpt-6.1-terra")
     d.model_boxes["openai_smart_model"].setCurrentText("gpt-6.1-sol")
     d.save()
@@ -110,7 +112,7 @@ def test_new_openai_choices_share_presets_and_session_catalog_without_changing_d
     assert Settings(_env_file=None).openai_model == "gpt-6.1-terra"
     assert Settings(_env_file=None).openai_smart_model == "gpt-6.1-sol"
     restored = ProviderCatalog(catalog.raw, catalog.keys, catalog.path)
-    assert restored.models("openai") == MODEL_CHOICES["openai"] + ["gpt-image-1"]
+    assert restored.models("openai") == MODEL_CHOICES["openai"]
     assert any(
         "current Fast" in label
         for label, route in restored.options("openai")
@@ -138,7 +140,7 @@ def test_new_model_subset_does_not_unlock_missing_models_or_recommendations(qtbo
     assert catalog.models("openai") == [] and selector.count() == 1
 
 
-@pytest.mark.parametrize("model", MODEL_CHOICES["openai"][2:])
+@pytest.mark.parametrize("model", MODEL_CHOICES["openai"])
 @pytest.mark.parametrize(
     "role,question",
     [
@@ -184,8 +186,8 @@ def test_saved_key_is_amber_then_verified_green_in_both_sections(qtbot, tmp_path
     assert selector.count() == 1
     row.test_btn.click()
     assert d.provider_buttons["openai"].property("providerState") == "verified"
-    assert selector.findData("openai:gpt-5.4-mini") >= 0
-    assert d.model_boxes["openai_model"].findText("gpt-5.4-mini") >= 0
+    assert selector.findData("openai:gpt-6.1-terra") >= 0
+    assert d.model_boxes["openai_model"].findText("gpt-6.1-terra") >= 0
     assert catalog.models("gemini") == []
     assert keys.get("openai") == "test-key-only"
 
@@ -205,7 +207,7 @@ def test_unsaved_test_never_unlocks_provider_but_saving_same_tested_key_does(qtb
 def test_replacing_and_removing_key_resets_selection_immediately(qtbot, tmp_path):
     d, selector, catalog, _ = make(qtbot, tmp_path, initial={"openai": "first"})
     verify(catalog)
-    selector.setCurrentIndex(selector.findData("openai:gpt-5.4-mini"))
+    selector.setCurrentIndex(selector.findData("openai:gpt-6.1-terra"))
     row = d.key_rows["openai"]
     row.edit.setText("second")
     row.save()
@@ -222,7 +224,7 @@ def test_environment_key_is_tested_instead_of_shadowed_credential(qtbot, tmp_pat
 
     def checker(provider, key):
         calls.append((provider, key))
-        return CheckResult(True, "Verified", ["gpt-5.4-mini"])
+        return CheckResult(True, "Verified", ["gpt-6.1-terra"])
 
     def raw():
         return Settings(_env_file=None, openai_api_key="environment-key")
@@ -237,7 +239,7 @@ def test_environment_key_is_tested_instead_of_shadowed_credential(qtbot, tmp_pat
     row = d.key_rows["openai"]
     row.test_btn.click()
     assert calls == [("openai", "environment-key")]
-    assert selector.findData("openai:gpt-5.4-mini") >= 0
+    assert selector.findData("openai:gpt-6.1-terra") >= 0
     assert row.edit.isEnabled() and not row.remove_btn.isEnabled()
     row.edit.setText("replacement-key")
     row.test()
@@ -368,13 +370,13 @@ def test_glass_popup_selects_same_models_and_closes_with_escape(qtbot, tmp_path)
     picker.provider_buttons["openai"].click()
     labels = [picker.models.item(i).text() for i in range(picker.models.count())]
     assert labels == [
-        "gpt-5.4-mini · Recommended for Fast",
-        "gpt-5.4 · Recommended for Smart",
+        "gpt-6.1-sol · Recommended for Smart",
+        "gpt-6.1-terra · Recommended for Fast",
     ]
     assert not picker.search.isHidden()
     item = picker.models.item(0)
     picker.models.itemClicked.emit(item)
-    assert selector.currentData() == "openai:gpt-5.4-mini" and not picker.isVisible()
+    assert selector.currentData() == "openai:gpt-6.1-sol" and not picker.isVisible()
 
 
 def test_expiry_while_picker_open_prevents_stale_selection(qtbot, tmp_path):
@@ -384,7 +386,7 @@ def test_expiry_while_picker_open_prevents_stale_selection(qtbot, tmp_path):
     verify(catalog)
     selector.showPopup()
     clock[0] += VERIFICATION_TTL + 1
-    selector.picker.choose("openai:gpt-5.4-mini")
+    selector.picker.choose("openai:gpt-6.1-terra")
     assert selector.currentData() == ""
     assert not selector.picker.provider_buttons["openai"].isHidden()
     assert selector.picker.refresh_btn.isEnabled()
@@ -398,13 +400,13 @@ def test_changed_key_requires_restart_before_new_model_is_used(qtbot, tmp_path):
     selector.showPopup()
     selector.picker.show_provider("openai")
     assert "Restart" in selector.picker.info.text()
-    selector.picker.choose("openai:gpt-5.4-mini")
+    selector.picker.choose("openai:gpt-6.1-terra")
     assert selector.currentData() == ""
     wizard = SessionDialog()
     qtbot.addWidget(wizard)
     wizard.company.setText("Example")
     wizard.model_override.bind(catalog, runtime_keys={"openai": fingerprint("previous-key")})
-    wizard.model_override.setCurrentIndex(wizard.model_override.findData("openai:gpt-5.4-mini"))
+    wizard.model_override.setCurrentIndex(wizard.model_override.findData("openai:gpt-6.1-terra"))
     with pytest.raises(ValueError, match="Restart"):
         wizard.collect()
 
@@ -506,45 +508,43 @@ def test_provider_popup_sizing_and_no_unrequested_network(qtbot, tmp_path):
 def test_fast_smart_changes_match_preferred_labels_after_saving(qtbot, tmp_path):
     d, selector, catalog, _ = make(qtbot, tmp_path, initial={"openai": "key"})
     verify(catalog)
-    d.model_boxes["openai_model"].setCurrentText("gpt-5.4-mini")
+    d.model_boxes["openai_model"].setCurrentText("gpt-6.1-terra")
     d.save()
-    label = selector.itemText(selector.findData("openai:gpt-5.4-mini"))
+    label = selector.itemText(selector.findData("openai:gpt-6.1-terra"))
     assert "Fast" in label
-    assert d._store.load()["openai_model"] == "gpt-5.4-mini"
+    assert d._store.load()["openai_model"] == "gpt-6.1-terra"
     restored = ProviderCatalog(catalog.raw, catalog.keys, catalog.path)
     assert (
-        "gpt-5.4-mini · Recommended for Fast (current Fast)",
-        "openai:gpt-5.4-mini",
+        "gpt-6.1-terra · Recommended for Fast (current Fast)",
+        "openai:gpt-6.1-terra",
     ) in restored.options("openai")
 
 
-def test_all_account_models_survive_cache_and_share_both_pickers(qtbot, tmp_path):
+def test_only_four_openai_models_survive_cache_and_share_both_pickers(qtbot, tmp_path):
     d, selector, catalog, _ = make(qtbot, tmp_path, initial={"openai": "key"})
     verify(
         catalog,
         models=[
-            "gpt-5.4-mini",
-            "gpt-5.4",
-            "gpt-5.4-2026-03-05",
+            "gpt-6.1-terra",
+            "gpt-6.1-sol",
+            "gpt-6-astra",
+            "gpt-6-luna",
+            "gpt-6.1-sol-2026-03-05",
             "gpt-4o",
             "gpt-audio",
             "gpt-image-1",
-            "gpt-5.4-pro",
+            "gpt-6.1-sol-pro",
             "gpt-5.5",
         ],
     )
     restored = ProviderCatalog(catalog.raw, catalog.keys, catalog.path)
     assert set(restored.models("openai")) == {
-        "gpt-5.4-mini",
-        "gpt-5.4",
-        "gpt-5.4-2026-03-05",
-        "gpt-4o",
-        "gpt-audio",
-        "gpt-image-1",
-        "gpt-5.4-pro",
-        "gpt-5.5",
+        "gpt-6.1-terra",
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "gpt-6-luna",
     }
-    assert selector.count() == 9  # Auto and all 8 verified models, no duplicate tiers
+    assert selector.count() == 5  # Auto and the four shortlisted models
     for field in ("openai_model", "openai_smart_model"):
         box = d.model_boxes[field]
         assert [box.itemText(i) for i in range(box.count())] == restored.models("openai")
@@ -552,49 +552,49 @@ def test_all_account_models_survive_cache_and_share_both_pickers(qtbot, tmp_path
     assert not d._store.load()  # opening / verifying never rewrites saved presets
     d.recommended_models_btn.click()
     assert not d._store.load()
-    assert d.model_boxes["openai_model"].currentText() == "gpt-5.4-mini"
-    assert d.model_boxes["openai_smart_model"].currentText() == "gpt-5.4"
+    assert d.model_boxes["openai_model"].currentText() == "gpt-6.1-terra"
+    assert d.model_boxes["openai_smart_model"].currentText() == "gpt-6.1-sol"
     d.save()
-    assert d._store.load()["openai_smart_model"] == "gpt-5.4"
-    assert Settings(_env_file=None).openai_model == "gpt-5.4-mini"
-    assert Settings(_env_file=None).openai_smart_model == "gpt-5.4"
+    assert d._store.load()["openai_smart_model"] == "gpt-6.1-sol"
+    assert Settings(_env_file=None).openai_model == "gpt-6.1-terra"
+    assert Settings(_env_file=None).openai_smart_model == "gpt-6.1-sol"
 
 
 def test_large_catalog_is_searchable_without_truncation(qtbot, tmp_path):
-    _, selector, catalog, _ = make(qtbot, tmp_path, initial={"openai": "key"})
+    _, selector, catalog, _ = make(qtbot, tmp_path, initial={"gemini": "key"})
     models = [f"future-model-{i:03}" for i in range(120)]
-    verify(catalog, models=models)
+    verify(catalog, "gemini", models=models)
     assert selector.count() == 121
     selector.showPopup()
-    selector.picker.show_provider("openai")
+    selector.picker.show_provider("gemini")
     selector.picker.search.setText("future-model-119")
     assert selector.picker.models.count() == 1
     item = selector.picker.models.item(0)
     assert item.text() == "future-model-119"
     selector.picker.models.itemClicked.emit(item)
-    assert selector.currentData() == "openai:future-model-119"
+    assert selector.currentData() == "gemini:future-model-119"
 
 
 def test_unavailable_recommendations_are_not_unlocked(qtbot, tmp_path):
     d, selector, catalog, _ = make(qtbot, tmp_path, initial={"openai": "key"})
-    verify(catalog, models=["gpt-5.4-mini", "gpt-4o"])
-    assert selector.findData("openai:gpt-5.4") == -1
+    verify(catalog, models=["gpt-6.1-terra", "gpt-4o"])
+    assert selector.findData("openai:gpt-6.1-sol") == -1
     assert not d.recommended_models_btn.isEnabled()
     verify(catalog, models=["gpt-4o"])
-    assert selector.count() == 2
+    assert selector.count() == 1
     selector.showPopup()
     selector.picker.show_provider("openai")
-    assert selector.picker.models.count() == 1
-    assert "Some models cannot generate text answers" in selector.picker.info.text()
+    assert selector.picker.models.count() == 0
+    assert "none of Astra" in selector.picker.info.text()
 
 
-@pytest.mark.parametrize("model", ["gpt-5.4-mini", "gpt-5.4", "future-chat-model"])
+@pytest.mark.parametrize("model", ["gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-astra"])
 @pytest.mark.parametrize("question", ["What is a tuple?", "Design a scalable chat system."])
 async def test_picker_selection_reaches_answer_even_outside_auto_presets(
     qtbot, tmp_path, model, question
 ):
     _, _, catalog, _ = make(qtbot, tmp_path, initial={"openai": "test-key"})
-    verify(catalog, models=["gpt-5.4-mini", "gpt-5.4", "future-chat-model"])
+    verify(catalog, models=["gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-astra"])
     wizard = SessionDialog()
     qtbot.addWidget(wizard)
     wizard.company.setText("Test company")
@@ -620,7 +620,7 @@ def test_cache_write_failure_keeps_ui_usable(qtbot, tmp_path):
     _, selector, catalog, _ = make(qtbot, tmp_path, initial={"openai": "key"})
     catalog.path = tmp_path  # a directory cannot be replaced with a JSON file
     verify(catalog)
-    assert catalog.persistence_error and selector.findData("openai:gpt-5.4-mini") >= 0
+    assert catalog.persistence_error and selector.findData("openai:gpt-6.1-terra") >= 0
 
 
 def test_remove_failure_keeps_active_key_and_reports_failure(qtbot, tmp_path):

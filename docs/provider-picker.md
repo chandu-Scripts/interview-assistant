@@ -1,5 +1,25 @@
 # Provider and model selection
 
+## Current OpenAI shortlist (7 November 2026)
+
+The user superseded the full OpenAI list request with four choices: GPT-6 Astra,
+GPT-6.1 Sol, GPT-6.1 Terra and GPT-6 Luna. Settings and both session selectors share
+the same allowlist intersected with verified account IDs. Fast recommends Terra;
+Smart/Coding recommends Sol. The complete API response remains cached, so filtering
+also works for existing full catalogs without a migration. Other providers keep
+their full catalogs. Existing saved presets and sessions are not silently rewritten;
+the recommendation button explicitly selects the new pair before Save.
+
+Codex and Claude independently reviewed the shared-catalog approach. Runtime adapters
+and legacy routes remain intact. No model generation calls or inference defaults
+changed. Revert this UI commit to roll back. Earlier full-catalog notes below are
+historical for OpenAI; they still describe Anthropic and Gemini behavior.
+Validation: 88 provider/session/refresh tests passed, including all four models
+routed through both session roles with fake providers, omitted extra IDs, cache
+reload, missing recommendations and unchanged legacy presets. Ruff and targeted
+mypy passed. Native Windows inspection showed exactly four available models and
+Terra/Sol recommendation labels. No installed package or live account was changed.
+
 ## Session refresh (7 November 2026)
 
 Coding and Fast pickers now keep saved providers visible when their 24-hour

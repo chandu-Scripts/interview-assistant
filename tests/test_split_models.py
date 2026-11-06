@@ -31,8 +31,8 @@ def test_recommendations_fill_both_and_reset_on_cancel(qtbot, tmp_path):
     wizard, _, _ = wizard_with_catalog(qtbot, tmp_path)
     wizard.recommend_models_btn.click()
     details = wizard.collect()
-    assert details.coding_model_route == "openai:gpt-5.4"
-    assert details.fast_model_route == "openai:gpt-5.4-mini"
+    assert details.coding_model_route == "openai:gpt-6.1-sol"
+    assert details.fast_model_route == "openai:gpt-6.1-terra"
     assert details.model_route_override == ""
     wizard.cancel_btn.click()
     assert all(selector.currentData() == "" for selector in wizard.model_selectors)
@@ -58,7 +58,7 @@ async def test_recommended_session_answers_with_both_selected_models(qtbot, tmp_
     try:
         manager = InterviewSessionManager(config, history, None)
         session = manager.activate(wizard.collect())
-        assert session.fast_model_route == "openai:gpt-5.4-mini"
+        assert session.fast_model_route == "openai:gpt-6.1-terra"
         for question in (
             "Write a Python function to reverse a linked list.",
             "Write a SQL query to find duplicate records.",
@@ -66,14 +66,14 @@ async def test_recommended_session_answers_with_both_selected_models(qtbot, tmp_
         ):
             events = [event async for event in jev.ask(question)]
             assert any(isinstance(event, RouteEvent) for event in events)
-        assert provider.calls == ["gpt-5.4", "gpt-5.4", "gpt-5.4-mini"]
+        assert provider.calls == ["gpt-6.1-sol", "gpt-6.1-sol", "gpt-6.1-terra"]
         manager.end_active()
     finally:
         history.close()
 
 
 def test_unavailable_recommendation_does_not_partially_change_choices(qtbot, tmp_path):
-    wizard, _, _ = wizard_with_catalog(qtbot, tmp_path, models=["gpt-5.4"])
+    wizard, _, _ = wizard_with_catalog(qtbot, tmp_path, models=["gpt-6.1-sol"])
     wizard.recommend_models_btn.click()
     assert all(selector.currentData() == "" for selector in wizard.model_selectors)
     assert "Both recommended" in wizard.model_notice.text()
@@ -98,7 +98,7 @@ def test_both_roles_allow_manual_provider_choice_and_validate_expiry(qtbot, tmp_
     assert coding.picker.windowTitle() == "Coding model"
     coding.picker.choose("anthropic:claude-sonnet-5")
     assert wizard.collect().coding_model_route == "anthropic:claude-sonnet-5"
-    assert wizard.collect().fast_model_route == "openai:gpt-5.4-mini"
+    assert wizard.collect().fast_model_route == "openai:gpt-6.1-terra"
     # Expiry between selection and collection must reject the session, not silently use Auto.
     catalog.clock = lambda: 10**12
     with pytest.raises(ValueError, match="Coding model"):
@@ -147,8 +147,8 @@ def test_models_survive_session_storage_resume_and_end(tmp_path, save_transcript
     history = HistoryStore(path)
     details = SessionDetails(
         company="Test",
-        coding_model_route="openai:gpt-5.4",
-        fast_model_route="openai:gpt-5.4-mini",
+        coding_model_route="openai:gpt-6.1-sol",
+        fast_model_route="openai:gpt-6.1-terra",
         save_transcript=save_transcript,
     )
     sid = history.create_interview_session(

@@ -265,8 +265,8 @@ class SettingsDialog(QDialog):
             popup.body.addWidget(state)
             popup.body.addWidget(row)
             model_note = QLabel(
-                "Recommended: Fast — gpt-5.4-mini; Smart — gpt-5.4. "
-                "Test key lists all account models. Some models cannot generate text answers. "
+                "Recommended: Fast — GPT-6.1 Terra; Smart — GPT-6.1 Sol. "
+                "Choose Astra, Sol, Terra or Luna when available to your verified account. "
                 "Existing selections stay until you save."
                 if p == "openai"
                 else "Fast and Smart are your routing presets. Select an actual model for each. "
@@ -359,7 +359,7 @@ class SettingsDialog(QDialog):
             not verified or all(model in available for model in SUGGESTIONS["openai"])
         )
         self.recommended_models_btn.setToolTip(
-            "Set Fast to gpt-5.4-mini and Smart to gpt-5.4. Save settings to apply."
+            "Set Fast to GPT-6.1 Terra and Smart to GPT-6.1 Sol. Save settings to apply."
             if self.recommended_models_btn.isEnabled()
             else "Both recommended models must be listed by your account."
         )

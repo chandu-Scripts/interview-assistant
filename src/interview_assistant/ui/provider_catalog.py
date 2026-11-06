@@ -26,11 +26,10 @@ MODEL_FIELDS = {
     "anthropic": ("anthropic_fast_model", "anthropic_model"),
     "gemini": ("gemini_fast_model", "gemini_model"),
 }
-SUGGESTIONS = {"openai": ["gpt-5.4-mini", "gpt-5.4"]}
-# Ordering/default hints only, never an allowlist for a verified account.
+SUGGESTIONS = {"openai": ["gpt-6.1-terra", "gpt-6.1-sol"]}
+# User-selected OpenAI shortlist, intersected with the verified account catalog.
 MODEL_CHOICES = {
     "openai": [
-        *SUGGESTIONS["openai"],
         "gpt-6-astra",
         "gpt-6.1-sol",
         "gpt-6.1-terra",
@@ -108,8 +107,7 @@ class ProviderCatalog(QObject):
             return []
         models = clean_models(self._records[provider]["models"])
         if provider in MODEL_CHOICES:
-            first = [model for model in MODEL_CHOICES[provider] if model in models]
-            return first + [model for model in models if model not in first]
+            return [model for model in MODEL_CHOICES[provider] if model in models]
         return models
 
     def options(self, provider: str) -> list[tuple[str, str]]:

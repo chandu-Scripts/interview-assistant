@@ -192,7 +192,9 @@ class ModelPicker(GlassDialog):
             )
             return
         self.info.setText(
-            f"{NAMES[provider]} · all account models. "
+            "OpenAI · Astra, Sol, Terra and Luna available to your account."
+            if provider == "openai"
+            else f"{NAMES[provider]} · all account models. "
             "Some models cannot generate text answers; access and endpoint support may vary."
         )
         if not self.selector.provider_ready(provider):
@@ -261,9 +263,14 @@ class ModelPicker(GlassDialog):
                 item.setToolTip("Restart the app to use the changed key.")
             self.models.addItem(item)
         total = len(self.catalog.models(self.provider))
-        self.count_label.setText(f"{self.models.count()} of {total} account models")
+        self.count_label.setText(f"{self.models.count()} of {total} available models")
         if not total and self.catalog.status(self.provider)[0] == "verified":
-            self.info.setText("Key verified, but the provider returned no models.")
+            self.info.setText(
+                "Key verified, but none of Astra, Sol, Terra or Luna were listed. "
+                "Refresh models or check your OpenAI account access."
+                if self.provider == "openai"
+                else "Key verified, but the provider returned no models."
+            )
 
     def choose(self, route: str) -> None:
         if route and not self.selector.provider_ready(route.partition(":")[0]):

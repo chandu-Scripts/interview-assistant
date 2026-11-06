@@ -207,10 +207,11 @@ with the safety boundaries below), and the file:line references each step builds
   model ids, timestamps and one-way key fingerprints; incognito keeps new results in memory.
   Key replacement/removal invalidates verification. New credentials require restart before
   selecting their models for answers. Popups close on presentation. See docs/provider-picker.md.
-  Model dropdowns show all sanitized IDs returned by the verified account, across OpenAI,
-  Anthropic and Gemini. No family/modality shortlist. OpenAI gpt-5.4-mini and gpt-5.4
-  retain Fast/Smart recommendation labels without restricting other selections. Test key
-  refreshes older filtered caches. Listed models may not support the app's text endpoint;
+  OpenAI dropdowns show only gpt-6-astra, gpt-6.1-sol, gpt-6.1-terra and gpt-6-luna,
+  intersected with the verified account catalog (user decision 7 November 2026).
+  Fast recommends Terra and Smart/Coding recommends Sol. Anthropic and Gemini retain
+  full sanitized account lists. Test key refreshes older filtered caches.
+  Listed models may not support the app's text endpoint;
   the picker states this and existing error/fallback behavior remains.
   Session model pickers keep saved providers visible after verification expires and
   offer explicit Refresh models, search and a model count. Unverified models remain
@@ -221,7 +222,7 @@ with the safety boundaries below), and the file:line references each step builds
   A session's explicitly selected account model need not appear in Auto's preset chains;
   its provider must be loaded. Normal fallback and accounting still apply.
   Session preferences have separate Coding (coding/SQL) and Fast (all other questions)
-  selectors. Use recommended models selects OpenAI gpt-5.4 and gpt-5.4-mini respectively,
+  selectors. Use recommended models selects OpenAI gpt-6.1-sol and gpt-6.1-terra respectively,
   only when both are verified and their credential is loaded. Schema 6 stores both choices;
   NULL retains legacy single-model behavior, empty string selects Auto for that role.
   The session form has a Built-in prompt toggle below AI instructions, enabled by default.

@@ -2,7 +2,7 @@ import pytest
 
 from interview_assistant.config.provider_check import CheckResult
 from interview_assistant.ui.bg import run_inline
-from interview_assistant.ui.provider_catalog import VERIFICATION_TTL
+from interview_assistant.ui.provider_catalog import MODEL_CHOICES, VERIFICATION_TTL
 from interview_assistant.ui.provider_picker import ModelSelector
 from tests.test_provider_picker import isolated, make, verify  # noqa: F401
 
@@ -16,12 +16,12 @@ def test_expired_list_refresh_updates_both_selectors_and_presets(qtbot, tmp_path
     coding = ModelSelector([])
     qtbot.addWidget(coding)
     coding.bind(catalog)
-    models = [f"gpt-test-{i:03}" for i in range(120)]
+    models = MODEL_CHOICES["openai"]
     calls = []
 
     def check(provider, key):
         calls.append(provider)
-        return CheckResult(True, "Verified", models, "verified")
+        return CheckResult(True, "Verified", models + ["gpt-4o", "gpt-image-1"], "verified")
 
     fast.model_checker, fast.model_runner = check, run_inline
     fast.showPopup()
@@ -32,9 +32,9 @@ def test_expired_list_refresh_updates_both_selectors_and_presets(qtbot, tmp_path
     assert picker.refresh_btn.isVisible()
     picker.refresh_btn.click()
     assert calls == ["openai"]
-    assert picker.models.count() == 120
-    assert picker.count_label.text() == "120 of 120 account models"
-    assert fast.count() == coding.count() == 121
+    assert picker.models.count() == 4
+    assert picker.count_label.text() == "4 of 4 available models"
+    assert fast.count() == coding.count() == 5
     assert dialog.model_boxes["openai_model"].findText(models[-1]) >= 0
     picker.search.setText(models[-1])
     assert picker.models.count() == 1
