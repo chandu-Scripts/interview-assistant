@@ -1,5 +1,29 @@
 # Provider and model selection
 
+## Session refresh (7 November 2026)
+
+Coding and Fast pickers now keep saved providers visible when their 24-hour
+verification expires. Select a provider and click Refresh models to reverify and
+fetch the full account list, without leaving session creation. A single configured
+provider is shown automatically; multiple providers require a choice. Search and
+the visible/total count make large catalogs inspectable. No network call runs just
+from opening the picker. Models still require verification and a loaded credential.
+
+The async refresh uses existing credential precedence and the shared catalog.
+Key replacement/removal, account revocation, hiding or destroying the picker
+prevent late results from changing it. Failures stay retryable and expose no remote
+error text. Incognito retains the existing memory-only catalog policy.
+
+Codex and Claude compared approaches. Retaining selectable stale entries was
+rejected to preserve verification semantics. A cache schema migration was not
+needed: explicit refresh replaces old filtered lists. Rollback is reverting this
+UI commit; no stored format or database change is required. Synthetic regression
+coverage: 88 tests passed across session refresh, provider picker and split models;
+targeted mypy passed. Claude read-only source review found no blockers.
+Native Windows preview verified the saved-but-unverified provider, Refresh models
+button and transition to a complete 120-model synthetic list with a visible count.
+No live provider request or installed-app update was performed in this verification.
+
 The AI providers page now shows OpenAI, Anthropic (Claude), and Google (Gemini) cards.
 Clicking a card opens a small navy/cyan glass popup with its key controls and Fast/Smart
 model presets. Advanced routing chains are collapsed by default. Speechmatics retains its

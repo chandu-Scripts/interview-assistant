@@ -16,10 +16,14 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from interview_assistant.account.context import current_context
 from interview_assistant.config.keys import PROVIDERS
+from interview_assistant.config.provider_check import CheckResult, check_key
+from interview_assistant.ui.bg import Runner, run_in_thread
 from interview_assistant.ui.controls import ChoiceComboBox
+from interview_assistant.ui.key_row import Checker
 from interview_assistant.ui.provider_catalog import NAMES, ProviderCatalog, fingerprint
 from interview_assistant.ui.theme import STYLE, paint_glass
 
@@ -112,6 +116,9 @@ class ModelPicker(GlassDialog):
         super().__init__(selector.picker_title, selector)
         self.selector, self.catalog = selector, catalog
         self.provider = ""
+        self._refresh_revision = 0
+        self._refreshing = False
+        self._context = current_context()
         self.auto_btn = QPushButton("Auto · use configured routing")
         self.auto_btn.clicked.connect(lambda: self.choose(""))
         self.body.addWidget(self.auto_btn)
@@ -128,6 +135,11 @@ class ModelPicker(GlassDialog):
         self.info = QLabel()
         self.info.setWordWrap(True)
         self.body.addWidget(self.info)
+        self.refresh_btn = QPushButton("Refresh models")
+        self.refresh_btn.clicked.connect(self.refresh_account_models)
+        self.body.addWidget(self.refresh_btn)
+        self.count_label = QLabel()
+        self.body.addWidget(self.count_label)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search this provider's models")
         self.search.textChanged.connect(self.fill_models)
@@ -148,24 +160,37 @@ class ModelPicker(GlassDialog):
         available = []
         for provider, button in self.provider_buttons.items():
             update_provider_button(button, provider, self.catalog)
-            verified = self.catalog.status(provider)[0] == "verified"
-            button.setVisible(verified)
-            if verified:
+            configured = bool(self.catalog.key(provider))
+            button.setVisible(configured)
+            if configured:
                 available.append(provider)
         if self.provider not in available:
-            self.provider = ""
+            self.provider = available[0] if len(available) == 1 else ""
         self.info.setText(
             "Choose a provider, then a model available to your verified account."
             if available
-            else "No verified providers. In Settings → AI providers, save a key, then Test key."
+            else "No saved providers. In Settings → AI providers, save an API key."
         )
+        if self.provider:
+            self._provider_message()
+        self.refresh_btn.setVisible(bool(self.provider))
+        self.refresh_btn.setEnabled(not self._refreshing)
         self.fill_models()
 
     def show_provider(self, provider: str) -> None:
-        if self.catalog.status(provider)[0] != "verified":
+        if not self.catalog.key(provider):
             return
         self.provider = provider
         self.search.clear()
+        self.refresh()
+
+    def _provider_message(self) -> None:
+        provider = self.provider
+        if self.catalog.status(provider)[0] != "verified":
+            self.info.setText(
+                self.catalog.status(provider)[1] + ". Click Refresh models to load the full list."
+            )
+            return
         self.info.setText(
             f"{NAMES[provider]} · all account models. "
             "Some models cannot generate text answers; access and endpoint support may vary."
@@ -174,12 +199,55 @@ class ModelPicker(GlassDialog):
             self.info.setText(
                 "Key verified. Restart the app to use this changed credential for answers."
             )
-        self.fill_models()
+
+    def refresh_account_models(self) -> None:
+        if self._refreshing or not self.provider or not self.isVisible():
+            return
+        if self._context is not None and not self._context.active:
+            return
+        provider = self.provider
+        key = self.catalog.key(provider)
+        if not key:
+            self.refresh()
+            return
+        token = fingerprint(key)
+        self._refresh_revision += 1
+        revision = self._refresh_revision
+        self._refreshing = True
+        self.refresh_btn.setEnabled(False)
+        self.info.setText("Refreshing the account model list…")
+
+        def done(result: object) -> None:
+            if not isValid(self) or revision != self._refresh_revision:
+                return
+            self._refreshing = False
+            self.refresh_btn.setEnabled(True)
+            if not self.isVisible() or (self._context is not None and not self._context.active):
+                return
+            if token != fingerprint(self.catalog.key(provider)):
+                self.refresh()
+                return
+            checked = (
+                result
+                if isinstance(result, CheckResult)
+                else CheckResult(False, "Could not refresh models. Please try again.")
+            )
+            self.catalog.record(provider, token, checked)
+            self.refresh()
+
+        self.selector.model_runner(lambda: self.selector.model_checker(provider, key), done)
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self._refresh_revision += 1
+        self._refreshing = False
+        self.refresh_btn.setEnabled(True)
+        super().hideEvent(event)
 
     def fill_models(self) -> None:
         self.models.clear()
         self.models.setVisible(bool(self.provider))
         self.search.setVisible(bool(self.provider))
+        self.count_label.setVisible(bool(self.provider))
         if not self.provider:
             return
         query = self.search.text().casefold()
@@ -192,10 +260,10 @@ class ModelPicker(GlassDialog):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
                 item.setToolTip("Restart the app to use the changed key.")
             self.models.addItem(item)
-        if not self.catalog.models(self.provider):
-            self.info.setText(
-                "Key verified, but the provider returned no models."
-            )
+        total = len(self.catalog.models(self.provider))
+        self.count_label.setText(f"{self.models.count()} of {total} account models")
+        if not total and self.catalog.status(self.provider)[0] == "verified":
+            self.info.setText("Key verified, but the provider returned no models.")
 
     def choose(self, route: str) -> None:
         if route and not self.selector.provider_ready(route.partition(":")[0]):
@@ -211,8 +279,16 @@ class ModelPicker(GlassDialog):
 
 
 class ModelSelector(ChoiceComboBox):
-    def __init__(self, choices: list[str], *, title: str = "Preferred model") -> None:
+    def __init__(
+        self,
+        choices: list[str],
+        *,
+        title: str = "Preferred model",
+        checker: Checker = check_key,
+        runner: Runner = run_in_thread,
+    ) -> None:
         super().__init__()
+        self.model_checker, self.model_runner = checker, runner
         self._customer = current_context() is not None
         if self._customer:
             choices = [

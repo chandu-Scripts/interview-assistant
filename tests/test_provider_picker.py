@@ -386,7 +386,9 @@ def test_expiry_while_picker_open_prevents_stale_selection(qtbot, tmp_path):
     clock[0] += VERIFICATION_TTL + 1
     selector.picker.choose("openai:gpt-5.4-mini")
     assert selector.currentData() == ""
-    assert selector.picker.provider_buttons["openai"].isHidden()
+    assert not selector.picker.provider_buttons["openai"].isHidden()
+    assert selector.picker.refresh_btn.isEnabled()
+    assert selector.picker.models.count() == 0
 
 
 def test_changed_key_requires_restart_before_new_model_is_used(qtbot, tmp_path):
