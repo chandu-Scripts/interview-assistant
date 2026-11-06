@@ -246,9 +246,11 @@ data as a test, expose credentials in reports, or disable Smart App Control.
 
 ## Handoff and update procedure
 
-This documentation refresh is on `docs/project-status-20261107`; merge and push are
-not included in the documentation request. Existing unrelated local edits and untracked
-research/configuration files were preserved and are not silently included in commits.
+The documentation refresh (`d204444`, `docs/project-status-20261107`) was subsequently
+approved for merge and push by the user and merged into main without conflicts.
+The source-code baseline above remains unchanged by these documentation-only commits.
+Existing unrelated local edits and untracked research/configuration files were preserved
+and are not silently included in commits. This is not an installer or website release.
 
 After any approved merge/release, update the baseline, feature table, branch disposition,
 test scope, remaining gaps and deployment state here. Keep historical reports intact
