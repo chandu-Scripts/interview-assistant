@@ -142,9 +142,11 @@ with the safety boundaries below), and the file:line references each step builds
   selection. Sync only Appearance drafts and keep unrelated Settings edits intact.
 - Startup uses a centered 960 × 680 logical-pixel window, reduced for smaller work areas,
   with compact session cards. Never maximize automatically at launch.
-- Shared navy/cyan styling lives in `ui/theme.py`; floating surfaces use painted translucent
-  glass gradients. Preserve contrast and explicit recording/presentation indicators.
-- First-run setup explicitly uses Qt's Classic wizard style and the shared navy/cyan theme.
+- Shared light blue/pastel glass styling lives in `ui/theme.py`, `ui/tokens.py` and
+  `ui/surfaces.py`. Native Qt paints the mesh and translucent surfaces; it does not blur the
+  desktop. Respect OS reduced motion/transparency and high contrast through `ui/motion.py`.
+  Overlay surfaces remain static. Preserve contrast and explicit recording/privacy indicators.
+- First-run setup explicitly uses Qt's Classic wizard style and the shared glass theme.
   Windows Aero wizard surfaces paint white behind the app's light text. Keep setup centered
   at 840 x 660 logical pixels, reduced for smaller work areas. Provider rows scroll on short
   screens; Skip and navigation stay reachable. Preserve consent and key-management behavior.
