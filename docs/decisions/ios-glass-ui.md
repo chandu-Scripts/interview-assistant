@@ -30,8 +30,8 @@ auth, fonts, answer typography, privacy policy or screen-capture behaviour.
 ## Contrast
 `#767b93` fails AA for text (about 4.2:1) on the glass, so text uses `MUTED_TEXT` #585d77;
 `#767b93` is kept for icons/borders. Tests check every text token against every surface over
-every mesh colour (workspace) and over black/white/red/blue (overlay). The incognito banner keeps
-its existing `#7a5cf5` (asserted by tests/test_privacy.py) at about 4.49:1 on bold white text.
+every mesh colour (workspace) and over black/white/red/blue (overlay). The incognito banner uses
+`#7658ef` so its white text also passes the 4.5:1 threshold.
 
 ## Rejected
 - Dual dark/light theme (dead code per project rules): rollback is a branch revert.

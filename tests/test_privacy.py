@@ -507,7 +507,7 @@ def test_main_window_banner_and_consent_wiring(qtbot, privacy_stack, tmp_path):
     assert win.audio_panel.before_start == gate.ensure
     st.set_incognito(True)
     assert win.banner.isVisibleTo(win) and "INCOGNITO" in win.banner.text()
-    assert "7a5cf5" in win.banner.styleSheet()
+    assert "7658ef" in win.banner.styleSheet()
     pm.activate()
     assert "PRESENTATION MODE" in win.banner.text() and "d32f2f" in win.banner.styleSheet()
     pm.deactivate()

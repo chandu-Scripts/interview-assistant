@@ -80,7 +80,7 @@ def test_requested_muted_colour_would_fail_so_text_uses_the_darker_token():
         (tokens.WHITE, tokens.BLUE, 4.5),  # primary buttons
         (tokens.WHITE, tokens.BLUE_DARK, 4.5),
         (tokens.WHITE, tokens.RECORDING, 4.5),  # End / recording / presentation banner
-        (tokens.WHITE, tokens.INCOGNITO, 4.4),  # existing indicator colour, bold label
+        (tokens.WHITE, tokens.INCOGNITO, 4.5),
         (tokens.DISABLED_TEXT, tokens.SOLID_PANEL, 3.0),  # disabled text is exempt from AA
     ],
 )

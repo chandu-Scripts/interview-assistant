@@ -20,7 +20,7 @@ OK = "#17714a"
 WARN = "#92540a"
 ERROR = "#b3261e"
 RECORDING = "#d32f2f"
-INCOGNITO = "#7a5cf5"  # existing indicator colour, asserted by tests/test_privacy.py
+INCOGNITO = "#7658ef"  # white label meets 4.5:1 contrast
 PRESENTATION = "#d32f2f"
 
 # Radii (px)
