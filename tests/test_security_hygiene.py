@@ -39,6 +39,11 @@ def test_the_source_tree_was_found():
 def test_banned_patterns_are_absent(pattern, why):
     hits = []
     for py in SOURCES:
+        if (
+            pattern == r"SetWindowDisplayAffinity|WDA_EXCLUDEFROMCAPTURE"
+            and py == SRC / "privacy" / "capture_visibility.py"
+        ):
+            continue  # User-authorized, opt-in adapter; all other modules remain guarded.
         for n, line in enumerate(py.read_text(encoding="utf-8").splitlines(), 1):
             if line.lstrip().startswith("#") or "http://timestamp" in line:
                 continue

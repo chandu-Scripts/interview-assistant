@@ -184,9 +184,14 @@ with the safety boundaries below), and the file:line references each step builds
 - Presentation mode hides the assistant **on the user's own screen** (overlay/history/privacy windows hidden, main window
   minimized) and pauses capture + answering. It is user-activated only (button, tray, hotkey), always OFF at startup, and
   never auto-resumes capture.
-- It must NOT use OS capture-exclusion (SetWindowDisplayAffinity / WDA_*) or any other way of staying on screen while being
-  invisible to screen-sharing software. `tests/test_privacy.py::test_source_never_hides_windows_from_capture` enforces this and
-  `scripts/live_presentation.py` verifies display affinity is 0 on the running app.
+- Presentation itself must NOT set OS capture affinity. A separate explicit Screen-share
+  privacy feature is authorized by the user on 7 November 2026. It starts Off, stays visible
+  locally, does not pause audio/answers, and only requests exclusion from supported Windows
+  capture. The sole native adapter is `privacy/capture_visibility.py`; other modules may not
+  set affinity. Failures show Unavailable, including failed resets. Receiver verification is
+  separate and no universal protection is promised. Native popups may briefly appear before
+  the enabled-only audit. See `docs/decisions/screen-share-privacy.md`.
+  `scripts/live_presentation.py` must be run with Screen-share privacy Off when checking 0.
 - Redaction (PII/secrets) is applied to every outbound LLM request; incognito writes nothing to history/usage log.
 
 ## Keys and settings (decided in Step 11)

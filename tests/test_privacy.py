@@ -346,8 +346,8 @@ def test_paused_controller_ignores_questions(qtbot):
         c.shutdown()
 
 
-def test_source_never_hides_windows_from_capture():
-    """Presentation mode hides windows on this PC only - no capture-evasion APIs anywhere."""
+def test_capture_affinity_is_confined_to_explicit_privacy_adapter():
+    """Presentation stays local hide/pause; only the opt-in privacy adapter can set affinity."""
     src = pathlib.Path(__file__).parents[1] / "src" / "interview_assistant"
     banned = [
         "SetWindowDisplayAffinity",
@@ -356,6 +356,8 @@ def test_source_never_hides_windows_from_capture():
         "ExcludeFromCapture",
     ]
     for py in src.rglob("*.py"):
+        if py == src / "privacy" / "capture_visibility.py":
+            continue
         text = py.read_text(encoding="utf-8")
         for word in banned:
             assert word not in text, (py, word)
