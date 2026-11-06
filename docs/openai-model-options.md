@@ -1,5 +1,11 @@
 # Additional OpenAI choices (2026-11-06)
 
+> Historical implementation/benchmark record. On 7 November the user chose a four-ID
+> OpenAI shortlist, now in main: Astra, Sol, Terra and Luna. Fast recommends Terra;
+> Smart/Coding recommends Sol. See [current provider behavior](provider-picker.md)
+> and [project status](PROJECT_STATUS.md). Full-catalog OpenAI selection described
+> below is superseded. These dated prices/smoke measurements are not current advice.
+
 User clarification: all account models must be selectable. The six-model shortlist below
 is now only an ordering/default hint. Provider fetch and picker filters were removed for
 OpenAI and Gemini; Anthropic already returned its full list. Codex and Claude reviewed this:

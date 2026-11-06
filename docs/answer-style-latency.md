@@ -1,5 +1,10 @@
 # Faster answer startup and mock-interview answer style
 
+> This document includes historical prompt iterations. The authoritative current
+> policy is `agents/answer_style.py`; [spoken-answer-style.md](spoken-answer-style.md)
+> describes the later optional-marker/project-overview decision. The separate full
+> Data Engineer format-lock branch is not merged. See [project status](PROJECT_STATUS.md).
+
 Implemented in the source preview after the latency and prompt feedback.
 
 ## Latency

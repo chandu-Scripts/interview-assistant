@@ -1,5 +1,13 @@
 # Packaging and installing
 
+## Release status (7 November 2026)
+
+Source `78f5b54` was merged and pushed with Screen-share privacy. No new installer
+was built, signed, installed or published for it. GitHub source changes do not update
+an installed executable. See [release checklist](PROJECT_STATUS.md#pending-checklist-in-practical-order).
+The separate production-release branch contains additional preparation, not a completed
+commercial release. Size/startup figures below are historical measurements, not a new build.
+
 ## Build
 ```
 python scripts/build.py              # PyInstaller onedir build -> dist/InterviewAssistant/

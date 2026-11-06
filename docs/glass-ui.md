@@ -1,5 +1,9 @@
 # Desktop glass refresh — v0.1.1
 
+Current main retains this navy/cyan design. The newer light iOS-style redesign is
+on `feature/ios-glass-ui` (`7c1f17c`), tested but not merged. See
+[current status](PROJECT_STATUS.md) for its evidence and remaining approval.
+
 Requested on 2026-10-25 after reviewing the owner's eight Parakeet reference photos.
 
 The dashboard opens centered at 960 × 680 logical pixels, reduced for smaller work areas.

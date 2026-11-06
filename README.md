@@ -1,13 +1,20 @@
 # Interview Assistant
 
 A Windows desktop app that listens to a conversation (system audio and/or microphone), transcribes it
-locally, and streams a suggested answer into a small always-on-top overlay. It routes each question to a
+using a configured local or cloud speech provider, and streams a suggested answer into a small always-on-top overlay. It routes each question to a
 specialist (behavioral, coding, system design, SQL, concepts, HR), calls OpenAI / Anthropic / Gemini with
 automatic failover, tracks cost, keeps a searchable local history, and has explicit privacy controls.
 
-**Safety rules (see AGENTS.md):** capture only starts when you press *Start capture* and a red RECORDING
-indicator is shown; presentation mode hides the assistant on *your own* screen and is never used to evade
-screen sharing or monitoring; nothing leaves the PC except the text sent to the AI providers you configure.
+**Current status:** [Completed work, pending tasks, branches and release gaps](docs/PROJECT_STATUS.md).
+The source includes Screen-share privacy (`78f5b54`, merged and pushed); the latest installer
+has not been rebuilt. The light glass redesign and improved saved-Q&A matching remain separate branches.
+
+**Privacy controls (see AGENTS.md):** capture requires an explicit start and visible indicator.
+Presentation hides locally and pauses capture/answers. The separate Screen-share privacy toggle
+starts Off, requests supported Windows capture exclusion and leaves audio/answers running;
+receiver-side verification is pending and exclusion is not guaranteed. Cloud STT sends audio,
+configured LLMs receive request content, and explicit screenshot requests may include an image.
+Customer mode also contacts the account service. Incognito is not an offline mode.
 
 ## Run from source
 ```
@@ -15,8 +22,11 @@ py -m venv .venv && .venv\Scripts\activate
 pip install -e .[dev]            # or: pip install -r requirements.lock
 python -m interview_assistant    # first run shows a setup wizard (keys, speech model, profile)
 ```
-API keys are stored in the Windows Credential Manager (or in environment / `.env`, which override).
-Everything else is in **Settings** (or `%APPDATA%\InterviewAssistant\settings.json`).
+API keys are stored in Windows Credential Manager; personal-mode environment / `.env` values
+normally override unless an explicit in-app Save selects saved-key precedence. Customer mode
+uses account-scoped keys and ignores personal environment provider keys. Source development
+defaults to the personal workspace; `--customer` requires account login. See
+[accounts/storage](docs/PROJECT_STATUS.md#accounts-storage-and-credentials).
 
 ## Everyday commands
 | What | Command |
@@ -31,7 +41,8 @@ Everything else is in **Settings** (or `%APPDATA%\InterviewAssistant\settings.js
 | Self-test / version / uninstall data | `--self-test [--deep]`, `--version`, `--purge-data` |
 
 ## Documentation
-- `AGENTS.md` - architecture, rules and decisions (start here)
-- `docs/steps/step-01.md ... step-13.md` - what was built in each step, how it was tested, known gaps
-- `docs/packaging.md` - building, the installer, **code signing / Smart App Control**
-- `docs/testing.md` - the test layers and how to run them
+- [AGENTS.md](AGENTS.md) - architecture and working rules
+- [Project status](docs/PROJECT_STATUS.md) - completed/pending work, exact branch state, known failures and release checklist
+- [Documentation index](docs/README.md) - implementation notes, decisions, bug fixes and step reports
+- [Packaging](docs/packaging.md) - builds, installer and code signing / Smart App Control
+- [Testing](docs/testing.md) - test layers, commands and evidence limits
