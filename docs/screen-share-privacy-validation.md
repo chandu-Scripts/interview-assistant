@@ -57,4 +57,9 @@ Receiver-side Teams, Zoom, Meet and other capture tools remain unverified. Windo
 does not prove that every sharing/capture path respects the setting. Native dialogs outside
 Qt's synchronous Show path can expose initial frames before the 500 ms enabled-only audit.
 No zero-frame-leak guarantee is made. Real sharing recipients must verify the result.
-The combined liquid-glass and matching branches have not been merged into this branch.
+Independent integration review applied this branch's patch to a detached liquid-glass
+checkout without merging either branch: **94 passed, 2 skipped**, followed by **2 native
+passes**. The patch applied without conflicts. Root also independently repeated the isolated
+privacy suite (**78 passed, 2 skipped**) and native suite (**2 passed**).
+The matching branch has not been included in that integration check. None of these branches
+has been merged into main or pushed.
