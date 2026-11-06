@@ -36,3 +36,12 @@ Validation:
 
 The installer remains an unsigned personal development build. Upgrading requires installing
 v0.1.1; an already running or installed v0.1.0 copy will not change automatically.
+
+## Light iOS glass theme (feature/ios-glass-ui, 2026-11-07)
+
+Supersedes the navy/cyan palette above. A pastel mesh (painted per window) sits behind
+translucent white panels with bright edges; the blue rim is animated only on active workspace
+windows and static on the overlay. Reduced motion, reduced transparency and high contrast are read
+from Windows (`ui/motion.py`). Decision, tokens, contrast results and limits:
+`docs/decisions/ios-glass-ui.md`. Preview: `python scripts/preview_glass.py --platform windows
+--policy default|reduced-motion|reduced-transparency|high-contrast [--hold SECONDS]`.
