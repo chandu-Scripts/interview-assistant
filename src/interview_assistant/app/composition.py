@@ -32,6 +32,7 @@ from interview_assistant.history.store import HistoryStore
 from interview_assistant.llm.base import LLMProvider
 from interview_assistant.llm.factory import build_providers
 from interview_assistant.llm.router_factory import build_router, default_chains
+from interview_assistant.privacy.capture_visibility import CapturePrivacy
 from interview_assistant.privacy.consent import SCREENSHOT_KEY, ConsentGate
 from interview_assistant.privacy.disclosure import (
     SCREENSHOT_CONSENT_TEXT,
@@ -46,7 +47,7 @@ from interview_assistant.ui.audio_panel import AudioPanel
 from interview_assistant.ui.main_window import MainWindow
 from interview_assistant.ui.overlay import OverlayWindow
 from interview_assistant.ui.practice_page import PracticePage
-from interview_assistant.ui.privacy_dialog import PrivacyDialog
+from interview_assistant.ui.privacy_dialog import CapturePrivacyIndicator, PrivacyDialog
 from interview_assistant.ui.provider_catalog import ProviderCatalog, fingerprint
 from interview_assistant.ui.settings_dialog import SettingsDialog
 from interview_assistant.ui.start_screen import StartScreen
@@ -70,6 +71,7 @@ class AppParts:
     privacy: PrivacyState
     presentation: PresentationMode
     privacy_dialog: PrivacyDialog
+    capture_privacy: CapturePrivacy
     settings_dialog: SettingsDialog
     tray: TrayController
     stt_name: str
@@ -263,7 +265,13 @@ def build_app(
         (settings.hotkey_chat, "show/hide chat"),
     )
     hint = ", ".join(f"{key} = {what}" for key, what in hotkey_pairs if key)
-    privacy_dialog = PrivacyDialog(privacy, presentation, flows, hint)
+    capture_privacy = CapturePrivacy(QApplication.instance())
+    capture_indicator = CapturePrivacyIndicator(capture_privacy, overlay, overlay.header)
+    overlay.header.layout().insertWidget(5, capture_indicator)
+    overlay._header_extras = (*overlay._header_extras, capture_indicator)
+    privacy_dialog = PrivacyDialog(
+        privacy, presentation, flows, hint, capture_privacy=capture_privacy
+    )
     consent = ConsentGate(app_settings, consent_prompt, settings.require_consent)
     screenshot_consent = ConsentGate(
         app_settings,
@@ -351,10 +359,13 @@ def build_app(
             notices.append("RECORDING — audio capture is active")
         if privacy.incognito:
             notices.append("INCOGNITO — nothing is being saved")
+        if capture_privacy.status != "Off":
+            notices.append(f"SCREEN-SHARE PRIVACY: {capture_privacy.status}")
         start_screen.notice.setText("  ·  ".join(notices))
         start_screen.notice.setVisible(bool(notices))
 
     privacy.changed.connect(update_workspace_notice)
+    capture_privacy.changed.connect(update_workspace_notice)
     presentation.changed.connect(update_workspace_notice)
     window.audio_panel.recording_changed.connect(update_workspace_notice)
     if window.mic_panel is not None:
@@ -409,6 +420,7 @@ def build_app(
         if closed:
             return
         closed = True
+        capture_privacy.release()
         # Invalidate persistence before cancellation can emit late usage/history results.
         history.suspended = True
         tracker.persist = False
@@ -442,6 +454,7 @@ def build_app(
         privacy=privacy,
         presentation=presentation,
         privacy_dialog=privacy_dialog,
+        capture_privacy=capture_privacy,
         settings_dialog=settings_dialog,
         tray=tray,
         stt_name=stt.name,
