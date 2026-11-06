@@ -129,6 +129,9 @@ features deliberately excluded (screen-capture evasion, cross-user question shar
 with the safety boundaries below), and the file:line references each step builds on.
 
 ## Maintenance
+- Current completion, branch, validation and deployment status is in `docs/PROJECT_STATUS.md`;
+  `docs/README.md` indexes the documentation. Update status after verified merges/releases.
+  Dated step reports are historical evidence, not claims about the latest installed build.
 - Keep this file current when stable decisions change. Add nested `AGENTS.md` files only for areas that become complex (e.g., `src/<app>/llm/`, `src/<app>/audio/`).
 - Record step outcomes in `docs/steps/step-XX.md`.
 

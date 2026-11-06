@@ -49,12 +49,12 @@ Clicking a card opens a small navy/cyan glass popup with its key controls and Fa
 model presets. Advanced routing chains are collapsed by default. Speechmatics retains its
 separate key controls and Speech-tab selection.
 
-Preferred model uses a glass picker: choose a verified provider, then a model. All sanitized
-model IDs returned by that account are selectable, including snapshots and future families.
-OpenAI, Anthropic and Gemini share their full fetched lists with Settings and session selectors.
-There is no family/modality shortlist. OpenAI recommendations remain `gpt-5.4-mini` for Fast
-and `gpt-5.4` for Smart; recommendation labels do not restrict selection. Known choices sort
-first, remaining IDs alphabetically. All provider pickers have search.
+Preferred model uses a glass picker: choose a verified provider, then a model.
+Settings and session selectors share one account catalog. OpenAI selectable IDs are
+restricted to the four-model shortlist above; Anthropic and Gemini keep their full
+sanitized lists. OpenAI recommendations are `gpt-6.1-terra` for Fast and `gpt-6.1-sol`
+for Smart/Coding. Existing runtime presets are not silently rewritten. All provider
+pickers have search; listed models still need endpoint and generation access.
 
 Test key refreshes older cached lists that were filtered before this change. No automatic
 network request or selection change occurs. The list includes models that cannot generate

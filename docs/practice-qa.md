@@ -1,5 +1,14 @@
 # Fictional / Realistic Q&A
 
+## Current accuracy status (7 November 2026)
+
+Main still uses the existing saved-answer matcher. Related-but-different questions
+can retrieve the wrong saved answer; the broader equivalence fix is not yet merged.
+`feature/saved-answer-equivalence` (`fe33293`) fixes observed false accepts but fails
+the retained 80% paraphrase-coverage gate (3/6 positives in the latest set).
+See [project status](PROJECT_STATUS.md#saved-qa-known-blocker-not-a-completed-fix).
+Do not describe that candidate as production-ready or active in main.
+
 One workspace section for locally saved practice questions and answers. Supports adding,
 editing, keyword search across question text, and confirmed deletion. The optional
 Add fictional examples button adds four hypothetical entries (catalogs, pipelines, data

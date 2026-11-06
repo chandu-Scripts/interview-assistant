@@ -1,5 +1,14 @@
 # Screen-share privacy validation
 
+## Approved merge and push
+
+On 7 November 2026 the user separately approved merge and push. Main merge
+`78f5b54` contains this feature; GitHub `origin/main` was verified at the same hash.
+Post-merge root validation repeated **78 passed, 2 skipped**, followed by **2 native
+Windows passes**. No conflicts. No installer was rebuilt or published. Receiver-side
+verification remains pending. The earlier branch evidence below is retained unchanged.
+See [current project status](PROJECT_STATUS.md).
+
 Validated on Windows, 7 November 2026, feature branch `feature/screen-share-privacy`.
 This report records API state and synthetic behavior, not receiver-side capture results.
 

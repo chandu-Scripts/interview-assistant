@@ -1,5 +1,10 @@
 # Feature branch work report, 1 November 2026
 
+> Historical work-round evidence. Later work integrated customer entitlements/admin
+> and completed recorded hosted development acceptance. The current merge/push,
+> branch and deployment state is in [PROJECT_STATUS.md](PROJECT_STATUS.md).
+> Statements below about untouched main or pending migrations refer to their dated phase.
+
 Work was performed in separate local Git worktrees with three delegated agents and
 independent reviews through the installed Claude CLI. At the end of that work round,
 main remained at `5d111fc` and no branch had been merged or pushed. No live service,

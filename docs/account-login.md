@@ -87,6 +87,13 @@ real credentials, capture or network; it does not substitute for hosted OTP test
 
 ## Rollback and release
 
+Current source status: account login and customer access foundations are already
+merged and pushed. Hosted development Auth/RPC/native/admin acceptance is recorded
+in [the integration report](steps/customer-access-integration-2026-11-01.md).
+Email delivery and commercial release remain separate pending gates; see
+[current status](PROJECT_STATUS.md). The branch-era instructions below describe
+release constraints, not a claim that source integration is still pending.
+
 The existing installed app and website are unchanged. A prior build can use the
 untouched personal workspace; do not merge account data back into it automatically.
 Do not publish this branch before hosted email acceptance, deployment configuration

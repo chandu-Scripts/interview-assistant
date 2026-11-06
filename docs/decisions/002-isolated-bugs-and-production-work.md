@@ -1,5 +1,9 @@
 # Isolated bug fixes and production preparation
 
+> Historical decision and initial scope. Later approved merges and development
+> acceptance supersede the original branch/deployment status below. Consult
+> [current status](../PROJECT_STATUS.md) before treating an item as still pending.
+
 Date: 2026-11-01. User authorized work on the audited bugs and pending features in
 separate branches. Main, hosted services, user data and published installers remain
 untouched. Existing login foundation is preserved at `683efd1` on
