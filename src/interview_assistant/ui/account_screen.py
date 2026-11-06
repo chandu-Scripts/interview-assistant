@@ -15,7 +15,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from interview_assistant.ui.theme import STYLE, WindowBar, center_window, paint_glass
+from interview_assistant.ui import tokens
+from interview_assistant.ui.surfaces import GlassBackdrop, Panel
+from interview_assistant.ui.theme import WindowBar, center_window, status_color, window_style
 
 _STAGES = {
     "login": ("Welcome back", "Sign in to your private workspace.", "Sign in"),
@@ -59,16 +61,20 @@ class AccountScreen(QDialog):
         self._busy = False
         self._restore_available = False
         self.setWindowTitle("Chandoo Assistant - Sign in")
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(window_style())
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         center_window(self, 840, 660)
+        self.backdrop = GlassBackdrop(self, self._glass_panels, animated=True)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 0, 8, 12)
-        layout.addWidget(WindowBar(self))
+        layout.setContentsMargins(12, 10, 12, 14)
+        layout.setSpacing(8)
+        self.window_bar = WindowBar(self)
+        layout.addWidget(self.window_bar)
         scroll = QScrollArea()
+        self._scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
@@ -210,7 +216,7 @@ class AccountScreen(QDialog):
 
     def show_message(self, message: str, error: bool = False) -> None:
         self.message.setText(message)
-        self.message.setStyleSheet("color: #ffb5b5;" if error else "color: #a7d8da;")
+        self.message.setStyleSheet(f"color: {status_color(tokens.ERROR if error else tokens.OK)};")
         self.message.setVisible(bool(message))
 
     def clear_secrets(self) -> None:
@@ -277,5 +283,11 @@ class AccountScreen(QDialog):
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
         painter = QPainter(self)
-        paint_glass(painter, QRectF(self.rect()))
+        self.backdrop.paint(painter)
         painter.end()
+
+    def _glass_panels(self) -> list[Panel]:
+        return [
+            Panel(QRectF(self.window_bar.geometry()), tokens.RADIUS_HEADER, "header"),
+            Panel(QRectF(self._scroll.geometry()), tokens.RADIUS_PANEL, "panel", rim=True),
+        ]

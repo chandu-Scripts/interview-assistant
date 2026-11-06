@@ -17,7 +17,9 @@ from PySide6.QtWidgets import (
 )
 
 from interview_assistant.app.practice_library import PracticeLibrary
+from interview_assistant.ui import motion, tokens
 from interview_assistant.ui.practice_import import PracticeImport
+from interview_assistant.ui.theme import white
 
 
 class PracticePage(QWidget):
@@ -71,9 +73,10 @@ class PracticePage(QWidget):
         self.entries.setStyleSheet(
             "QListWidget { border: none; background: transparent; }"
             "QListWidget::item { padding: 16px; margin: 4px 0; border-radius: 10px; "
-            "background: rgba(125, 210, 220, 12); }"
-            "QListWidget::item:hover { background: rgba(125, 210, 220, 32); }"
-            "QListWidget::item:selected { background: rgba(125, 210, 220, 45); }"
+            f"background: {white(150)}; }}"
+            "QListWidget::item:hover { background: rgba(67, 85, 220, 30); }"
+            f"QListWidget::item:selected {{ background: rgba(67, 85, 220, 46); "
+            f"color: {tokens.BLUE_DARK}; }}"
         )
         self.entries.itemClicked.connect(self._select)
         self.entries.itemActivated.connect(self._select)
@@ -162,6 +165,9 @@ class PracticePage(QWidget):
         self._transition.stop()
         self.stack.setCurrentWidget(view)
         self.message.clear()
+        if not motion.current().animations_allowed:
+            self._opacity.setOpacity(1)
+            return
         self._transition.setStartValue(0.35)
         self._transition.setEndValue(1.0)
         self._transition.start()

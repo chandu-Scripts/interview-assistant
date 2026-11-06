@@ -21,17 +21,19 @@ from shiboken6 import isValid
 from interview_assistant.account.context import current_context
 from interview_assistant.config.keys import PROVIDERS
 from interview_assistant.config.provider_check import CheckResult, check_key
+from interview_assistant.ui import tokens
 from interview_assistant.ui.bg import Runner, run_in_thread
 from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.key_row import Checker
 from interview_assistant.ui.provider_catalog import NAMES, ProviderCatalog, fingerprint
-from interview_assistant.ui.theme import STYLE, paint_glass
+from interview_assistant.ui.surfaces import GlassBackdrop, Panel
+from interview_assistant.ui.theme import status_color, window_style
 
 COLORS = {
-    "verified": "#8af0b6",
-    "missing": "#ff9aab",
-    "invalid": "#ff9aab",
-    "unverified": "#ffd29b",
+    "verified": tokens.OK,
+    "missing": tokens.ERROR,
+    "invalid": tokens.ERROR,
+    "unverified": tokens.WARN,
 }
 
 
@@ -46,7 +48,7 @@ def update_provider_button(button: QPushButton, provider: str, catalog: Provider
     button.setText(f"●  {NAMES[provider]}\n{label}")
     button.setProperty("providerState", state)
     button.setStyleSheet(
-        f"QPushButton {{ color: {COLORS[state]}; text-align: left; padding: 14px; }}"
+        f"QPushButton {{ color: {status_color(COLORS[state])}; text-align: left; padding: 14px; }}"
     )
     button.setToolTip(detail)
     button.setAccessibleName(f"{NAMES[provider]}: {label}")
@@ -58,7 +60,8 @@ class GlassDialog(QDialog):
         self.setWindowTitle(title)
         self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setStyleSheet(STYLE + "QDialog { background: transparent; }")
+        self.setStyleSheet(window_style() + "QDialog { background: transparent; }")
+        self.backdrop = GlassBackdrop(self, self._glass_panels, animated=True)
         self.resize(570, 530)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 20)
@@ -101,7 +104,10 @@ class GlassDialog(QDialog):
 
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
-        paint_glass(painter, QRectF(self.rect()))
+        self.backdrop.paint(painter)
+
+    def _glass_panels(self) -> list[Panel]:
+        return [Panel(QRectF(self.rect()), tokens.RADIUS_PANEL, "panel", rim=True)]
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton and event.position().y() < 60:

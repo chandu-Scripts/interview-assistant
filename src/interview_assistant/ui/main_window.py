@@ -26,6 +26,7 @@ from interview_assistant.privacy.state import PrivacyState
 from interview_assistant.stt.base import StreamingSTTProvider, STTProvider, TranscriptEvent
 from interview_assistant.stt.realtime import RealtimeTranscriber
 from interview_assistant.stt.streaming import StreamingTranscriber
+from interview_assistant.ui import motion, tokens
 from interview_assistant.ui.audio_panel import AudioPanel
 from interview_assistant.ui.history_window import HistoryWindow
 from interview_assistant.ui.overlay import OverlayWindow
@@ -247,17 +248,24 @@ class MainWindow(QMainWindow):
         if self._presentation is not None and self._presentation.active:
             text, color = (
                 "PRESENTATION MODE - assistant hidden, listening and answering paused",
-                "#d32f2f",
+                tokens.PRESENTATION,
             )
         elif self._privacy is not None and self._privacy.incognito:
-            text, color = "INCOGNITO - nothing is being saved", "#7a5cf5"
+            text, color = "INCOGNITO - nothing is being saved", tokens.INCOGNITO
         else:
             self.banner.setVisible(False)
             return
         self.banner.setText(text)
-        self.banner.setStyleSheet(
-            f"background:{color}; color:white; font-weight:bold; padding:4px; border-radius:4px;"
-        )
+        if motion.current().high_contrast:
+            self.banner.setStyleSheet(
+                "background: palette(highlight); color: palette(highlighted-text); "
+                "font-weight:bold; padding:4px; border: 2px solid palette(window-text);"
+            )
+        else:
+            self.banner.setStyleSheet(
+                f"background:{color}; color:white; font-weight:bold; padding:4px;"
+                " border-radius:4px;"
+            )
         self.banner.setVisible(True)
 
     def _on_cost(self, summary, state) -> None:
