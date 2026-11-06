@@ -33,55 +33,65 @@ from interview_assistant.agents.types import Category, Decision
 from interview_assistant.app.controller import DETECTED_QUESTION_PREFIX, AssistantController
 from interview_assistant.cost.tracker import BudgetLevel, BudgetState, Summary, format_usd
 from interview_assistant.stt.base import NO_WORDS_MESSAGE
+from interview_assistant.ui import motion, tokens
 from interview_assistant.ui.answer_font_controls import AnswerFontControls
 from interview_assistant.ui.answer_typography import AnswerTypography
 from interview_assistant.ui.answer_view import AnswerView
 from interview_assistant.ui.audio_panel import AudioPanel
 from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.screenshot import capture_screen_png
-from interview_assistant.ui.theme import paint_glass
+from interview_assistant.ui.surfaces import Panel, paint_panel
 
-# Navy glass live bar: one toolbar with
-# labelled shortcut buttons, a listening line under it, and the answer panel below.
-BG = QColor(17, 31, 52, 240)
-BORDER = QColor(164, 220, 240, 65)
-STYLE = """
-QWidget { font-family: 'Segoe UI'; font-size: 12px; }
-QLabel { color: #e6f3ff; background: transparent; }
-#title { color: #9eb9cf; font-size: 10px; }
-#chip { color: #a7b9d2; font-size: 11px; }
-#question { color: #f0fbff; font-size: 14px; font-weight: 600; padding: 8px 0; }
-#transcript { background: rgba(255,255,255,0.08); border-radius: 8px; padding: 6px 10px; }
-#history { color: #a7b9d2; font-size: 11px; }
-#warn { color: #ffb86b; font-size: 11px; }
-#timer { color: #e8eaf2; font-size: 12px; }
-#status { color: #aab0c4; font-size: 12px; }
-QTextBrowser { background: transparent; color: #e6f3ff; border: none; font-size: 14px; }
-QLineEdit { background: rgba(255,255,255,0.06); color: #e8eaf2; border: 1px solid #3a3e4c;
-            border-radius: 6px; padding: 4px 8px; }
-QPushButton { background: rgba(255,255,255,0.08); color: #e8eaf2; border: none;
-              border-radius: 8px; padding: 6px 9px; }
-QPushButton:hover { background: rgba(255,255,255,0.16); }
-QPushButton:disabled { color: #5d6276; background: rgba(255,255,255,0.04); }
-#iconbtn { padding: 2px 8px; font-weight: bold; }
-#pill { font-weight: 600; background: rgba(104,225,223,28); color: #abf6f0; }
-#audio { padding: 4px 8px; }
-#audio:checked { background: #d6363f; color: #ffffff; }
-#end { background: #d6363f; color: #ffffff; font-weight: 600; }
-#end:hover { background: #e5484f; }
-QMenu { background: #162b42; color: #e6f3ff; border: 1px solid #44637e; padding: 5px; }
-QMenu::item { padding: 6px 18px; }
-QMenu::item:selected { background: #285c74; border-radius: 4px; }
-QScrollBar:vertical { background: transparent; width: 7px; }
-QScrollBar::handle:vertical { background: #46657f; border-radius: 3px; min-height: 24px; }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+# Light glass live bar: one toolbar with labelled shortcut buttons, a listening line under it,
+# and the answer panel below. The overlay floats over arbitrary content, so its fill is nearly
+# opaque and its blue rim is static: nothing animates during an interview.
+STYLE = f"""
+QWidget {{ font-family: 'Segoe UI'; font-size: 12px; }}
+QLabel {{ color: {tokens.INK}; background: transparent; }}
+#title {{ color: {tokens.MUTED_TEXT}; font-size: 10px; }}
+#chip {{ color: {tokens.MUTED_TEXT}; font-size: 11px; }}
+#question {{ color: {tokens.INK}; font-size: 14px; font-weight: 600; padding: 8px 0; }}
+#transcript {{ background: rgba(35,40,71,0.07); border-radius: 8px; padding: 6px 10px; }}
+#history {{ color: {tokens.MUTED_TEXT}; font-size: 11px; }}
+#warn {{ color: {tokens.WARN}; font-size: 11px; }}
+#timer {{ color: {tokens.INK}; font-size: 12px; }}
+#status {{ color: {tokens.MUTED_TEXT}; font-size: 12px; }}
+QTextBrowser {{ background: transparent; color: {tokens.INK}; border: none; font-size: 14px; }}
+QLineEdit {{ background: rgba(255,255,255,0.85); color: {tokens.INK};
+            border: 1px solid rgba(35,40,71,0.30); border-radius: 8px; padding: 4px 8px; }}
+QLineEdit:focus {{ border-color: {tokens.BLUE}; }}
+QPushButton {{ background: rgba(35,40,71,0.07); color: {tokens.INK};
+              border: 1px solid transparent; border-radius: {tokens.RADIUS_CONTROL}px;
+              padding: 6px 9px; }}
+QPushButton:hover {{ background: rgba(67,85,220,0.16); }}
+QPushButton:focus {{ border-color: {tokens.BLUE}; }}
+QPushButton:disabled {{ color: {tokens.DISABLED_TEXT}; background: rgba(35,40,71,0.04); }}
+#iconbtn {{ padding: 2px 8px; font-weight: bold; }}
+#pill {{ font-weight: 600; background: rgba(67,85,220,0.14); color: {tokens.BLUE_DARK}; }}
+#audio {{ padding: 4px 8px; }}
+#audio:checked {{ background: {tokens.RECORDING}; color: #ffffff; }}
+#end {{ background: {tokens.RECORDING}; color: #ffffff; font-weight: 600; }}
+#end:hover {{ background: #b71c1c; }}
+QMenu {{ background: {tokens.SOLID_PANEL}; color: {tokens.INK};
+        border: 1px solid rgba(35,40,71,0.20); padding: 5px; }}
+QMenu::item {{ padding: 6px 18px; }}
+QMenu::item:selected {{ background: rgba(67,85,220,0.16); border-radius: 6px; }}
+QScrollBar:vertical {{ background: transparent; width: 7px; }}
+QScrollBar::handle:vertical {{ background: rgba(35,40,71,0.30); border-radius: 3px;
+                              min-height: 24px; }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 """
 COST_COLOR = {
-    BudgetLevel.OK: "#1f9d55",
-    BudgetLevel.WARN: "#b5650a",
-    BudgetLevel.EXCEEDED: "#d6363f",
+    BudgetLevel.OK: tokens.OK,
+    BudgetLevel.WARN: tokens.WARN,
+    BudgetLevel.EXCEEDED: tokens.ERROR,
 }
-DOT = {"idle": "#9aa0b4", "listening": "#d32f2f", "thinking": "#d98c1f", "answering": "#1f9d55"}
+DOT = {
+    "idle": tokens.MUTED,
+    "listening": tokens.RECORDING,
+    "thinking": tokens.WARN,
+    "answering": tokens.OK,
+}
 STATUS_TEXT = {
     "idle": "Ready",
     "listening": "Listening…",
@@ -139,9 +149,9 @@ class ShortcutButton(QPushButton):
         badge_width = QFontMetrics(font).horizontalAdvance(keys) + 12
         badge = QRectF(self.width() - badge_width - 6, 5, badge_width, self.height() - 10)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(255, 255, 255, 22 if self.isEnabled() else 8))
+        painter.setBrush(QColor(35, 40, 71, 26 if self.isEnabled() else 10))
         painter.drawRoundedRect(badge, 4, 4)
-        painter.setPen(QColor("#e6f3ff" if self.isEnabled() else "#687e99"))
+        painter.setPen(QColor(tokens.INK if self.isEnabled() else tokens.DISABLED_TEXT))
         painter.drawText(
             QRectF(9, 0, badge.left() - 12, self.height()), Qt.AlignmentFlag.AlignVCenter, label
         )
@@ -202,7 +212,7 @@ class OverlayWindow(QWidget):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMinimumSize(640, 90)
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet("" if motion.current().high_contrast else STYLE)
 
         self.dot = QLabel("●")
         self.title = QLabel("Interview Assistant")
@@ -958,14 +968,17 @@ class OverlayWindow(QWidget):
     def paintEvent(self, _event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setBrush(BG)
-        p.setPen(BORDER)
         if self._bubble:
-            p.drawEllipse(self.rect().adjusted(0, 0, -1, -1))
+            size = float(min(self.width(), self.height()))
+            paint_panel(p, Panel(QRectF(0, 0, size, size), size / 2, "overlay", rim=True))
         else:
-            for panel in (self.header, self.transcript_panel, self.body):
+            for panel, radius, role, rim in (
+                (self.header, tokens.RADIUS_HEADER, "overlay", False),
+                (self.transcript_panel, tokens.RADIUS_CARD, "overlay", False),
+                (self.body, tokens.RADIUS_CARD, "overlay", True),
+            ):
                 if panel.isVisibleTo(self):
-                    paint_glass(p, QRectF(panel.geometry()), 14)
+                    paint_panel(p, Panel(QRectF(panel.geometry()), radius, role, rim))
 
     def mousePressEvent(self, e) -> None:  # noqa: N802
         if e.button() == Qt.MouseButton.LeftButton and (self._bubble or e.position().y() < 44):
