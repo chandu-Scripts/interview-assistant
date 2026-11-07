@@ -1,109 +1,197 @@
-"""Shared navy/cyan surfaces, with translucent glass on floating windows."""
+"""Shared light glass theme: tokens become QSS, the application palette and painted surfaces."""
+
+from string import Template
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPalette
+from PySide6.QtGui import QColor, QPainter, QPalette
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QWidget
 
-STYLE = """
-QWidget { font-family: 'Segoe UI'; font-size: 13px; color: #e6f3ff; }
-QDialog, QMainWindow, QWizard { background: #101c30; }
-QLabel, QScrollArea, QStackedWidget, QWidget#sessionForm { background: transparent; }
-QWidget#sidebar { background: rgba(7,17,32,150); border-radius: 16px; }
-QLabel#brand { font-size: 17px; font-weight: 700; padding: 8px 0 20px; color: #7ee9ed; }
+from interview_assistant.ui import motion, tokens
+from interview_assistant.ui.surfaces import Panel, paint_panel
+
+_STYLE_TEMPLATE = Template(
+    """
+QWidget { font-family: 'Segoe UI'; font-size: 13px; color: ${ink}; }
+QDialog, QMainWindow, QWizard { background: ${base}; }
+QLabel, QScrollArea, QStackedWidget, QWidget#sessionForm, QWidget#accountBody {
+    background: transparent; }
+QScrollArea QDialog { background: transparent; }
+QWidget#sidebar { background: transparent; }
+QLabel#brand { font-size: 17px; font-weight: 700; padding: 8px 0 20px; color: ${blue}; }
 QLabel#title { font-size: 22px; font-weight: 600; }
-QLabel#hint, QLabel#muted { color: #a7b9d2; }
-QLabel#section { color: #7e9ab9; font-size: 10px; padding-top: 16px; }
-QPushButton { background: rgba(133,174,211,22); border: 1px solid rgba(171,210,240,35);
-    border-radius: 10px; padding: 9px 13px; }
-QPushButton:hover { background: rgba(100,205,224,40); border-color: #4c9faf; }
-QPushButton:checked { background: #173e51; color: #8af0ed; border-color: #3e899a; }
-QPushButton:disabled { color: #687e99; background: rgba(133,174,211,10); }
+QLabel#hint, QLabel#muted { color: ${muted_text}; }
+QLabel#section { color: ${muted_text}; font-size: 11px; font-weight: 600; padding-top: 16px; }
+QPushButton { background: rgba(255,255,255,${ctl}); border: 1px solid rgba(${ink_rgb},48);
+    border-radius: ${r_control}px; padding: 9px 13px; }
+QPushButton:hover { background: rgba(${blue_rgb},30); border-color: rgba(${blue_rgb},170); }
+QPushButton:pressed { background: rgba(${blue_rgb},56); }
+QPushButton:focus { border-color: ${blue}; }
+QPushButton:checked { background: rgba(${blue_rgb},38); color: ${blue_dark};
+    border-color: ${blue}; }
+QPushButton:disabled { color: ${disabled}; background: rgba(255,255,255,${w_dim});
+    border-color: rgba(${ink_rgb},24); }
 QPushButton#create, QPushButton#connect, QPushButton#rowStart {
-    background: #77e5df; color: #08232f; border: none; font-weight: 600; }
+    background: ${blue}; color: #ffffff; border: 1px solid ${blue}; font-weight: 600; }
 QPushButton#create:hover, QPushButton#connect:hover, QPushButton#rowStart:hover {
-    background: #a2f5ed; }
+    background: ${blue_dark}; border-color: ${blue_dark}; }
+QPushButton#create:focus, QPushButton#connect:focus, QPushButton#rowStart:focus {
+    border: 1px solid ${ink}; }
 QPushButton#create:disabled, QPushButton#connect:disabled, QPushButton#rowStart:disabled {
-    color: #687e99; background: rgba(133,174,211,10); border: 1px solid rgba(171,210,240,35); }
-QPushButton#nav { text-align: left; background: transparent; border: none; padding: 11px 9px; }
-QPushButton#nav:checked { background: rgba(95,220,222,28); color: #8af0ed; }
+    color: ${disabled}; background: rgba(255,255,255,${w_dim});
+    border: 1px solid rgba(${ink_rgb},24); }
+QPushButton#nav { text-align: left; background: transparent; border: 1px solid transparent;
+    padding: 11px 9px; }
+QPushButton#nav:hover { background: rgba(${blue_rgb},20); border-color: transparent; }
+QPushButton#nav:focus { border-color: ${blue}; }
+QPushButton#nav:checked { background: rgba(${blue_rgb},34); color: ${blue_dark};
+    border-color: transparent; }
+QPushButton#nav:disabled { background: transparent; border-color: transparent; }
 QPushButton#filter { padding: 7px 16px; }
-QPushButton#windowControl { padding: 4px; min-width: 28px; border: none; background: transparent; }
-QPushButton#windowControl:hover { background: #28415a; }
-QPushButton#windowClose { padding: 4px; min-width: 28px; border: none; background: #442c40; }
-QPushButton#windowClose:hover { background: #a63954; }
-QTableWidget { background: transparent; border: none; gridline-color: #29425b;
-    selection-background-color: #1e3b50; selection-color: #e6f3ff; }
-QTableWidget::item { padding: 12px; border-bottom: 1px solid #29425b; }
-QWidget#sessionCard { background: rgba(123,168,209,16); border-radius: 12px; }
-QFrame#promptFeatures { background: rgba(25,58,77,150);
-    border: 1px solid rgba(119,229,223,55); border-radius: 12px; }
+QPushButton#windowControl { padding: 4px; min-width: 28px; border: 1px solid transparent;
+    background: transparent; }
+QPushButton#windowControl:hover { background: rgba(${blue_rgb},26); }
+QPushButton#windowClose { padding: 4px; min-width: 28px; border: 1px solid transparent;
+    background: transparent; }
+QPushButton#windowClose:hover { background: ${recording}; color: #ffffff; }
+QTableWidget { background: transparent; border: none; gridline-color: rgba(${ink_rgb},28);
+    selection-background-color: rgba(${blue_rgb},34); selection-color: ${ink}; }
+QTableWidget::item { padding: 12px; border-bottom: 1px solid rgba(${ink_rgb},28); }
+QWidget#sessionCard { background: rgba(255,255,255,${card}); border-radius: ${r_card}px;
+    border: 1px solid rgba(255,255,255,${w_edge}); }
+QFrame#promptFeatures { background: rgba(${blue_rgb},20);
+    border: 1px solid rgba(${blue_rgb},80); border-radius: ${r_control}px; }
 QLabel#cardTitle { font-size: 15px; font-weight: 600; }
-QHeaderView::section { background: #15273d; color: #a7b9d2; border: none; padding: 10px; }
+QHeaderView::section { background: rgba(255,255,255,${w_head}); color: ${muted_text}; border: none;
+    padding: 10px; }
 QLineEdit, QPlainTextEdit, QTextEdit, QTextBrowser, QComboBox, QSpinBox, QDoubleSpinBox {
-    background: #12253a; color: #e6f3ff; border: 1px solid #334b66;
-    border-radius: 9px; padding: 8px; selection-background-color: #285c74; }
-QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus { border-color: #77e5df; }
-QListWidget { background: #12253a; border: 1px solid #334b66; border-radius: 9px; }
+    background: rgba(255,255,255,${ctl}); color: ${ink}; border: 1px solid rgba(${ink_rgb},56);
+    border-radius: ${r_control}px; padding: 8px; selection-background-color: ${blue};
+    selection-color: #ffffff; }
+QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus,
+QDoubleSpinBox:focus { border: 1px solid ${blue}; }
+QLineEdit:disabled, QPlainTextEdit:disabled, QComboBox:disabled { color: ${disabled}; }
+QListWidget { background: rgba(255,255,255,${ctl}); border: 1px solid rgba(${ink_rgb},56);
+    border-radius: ${r_control}px; }
 QListWidget::item { padding: 12px 8px; }
-QListWidget::item:selected { background: #21485c; color: #9af4eb; }
-QTabWidget::pane { border: 1px solid #334b66; background: #101c30; }
-QTabBar::tab { background: #15273d; padding: 10px 16px; color: #a7b9d2; }
-QTabBar::tab:selected { color: #8af0ed; border-bottom: 2px solid #77e5df; }
-QComboBox QAbstractItemView, QMenu { background: #162b42; color: #e6f3ff;
-    selection-background-color: #285c74; selection-color: #ffffff; }
+QListWidget::item:selected { background: rgba(${blue_rgb},38); color: ${blue_dark}; }
+QTabWidget::pane { border: 1px solid rgba(${ink_rgb},40); background: rgba(255,255,255,${w_pane});
+    border-radius: ${r_control}px; }
+QTabBar::tab { background: transparent; padding: 10px 16px; color: ${muted_text}; }
+QTabBar::tab:selected { color: ${blue_dark}; border-bottom: 2px solid ${blue}; }
+QComboBox QAbstractItemView, QMenu { background: ${solid_panel}; color: ${ink};
+    border: 1px solid rgba(${ink_rgb},48); selection-background-color: rgba(${blue_rgb},40);
+    selection-color: ${ink}; }
 QMenu::item { padding: 8px 18px; }
-QMenu::item:selected { background: #285c74; }
-QLabel#readyBadge { color: #8af0d1; background: #173d3e; border-radius: 6px; padding: 5px 8px; }
-QLabel#endedBadge { color: #afbed2; background: #24344b; border-radius: 6px; padding: 5px 8px; }
+QMenu::item:selected { background: rgba(${blue_rgb},40); }
+QLabel#readyBadge { color: ${ok}; background: rgba(23,113,74,30); border-radius: 8px;
+    padding: 5px 8px; }
+QLabel#endedBadge { color: ${muted_text}; background: rgba(${ink_rgb},22); border-radius: 8px;
+    padding: 5px 8px; }
 QCheckBox { spacing: 9px; }
 QCheckBox::indicator { width: 16px; height: 16px; border-radius: 5px;
-    border: 1px solid #60849d; background: #12253a; }
-QCheckBox::indicator:checked { background: #77e5df; border: 3px solid #347c86; }
+    border: 1px solid rgba(${ink_rgb},120); background: #ffffff; }
+QCheckBox::indicator:checked { background: ${blue}; border: 4px solid #dfe3ff; }
+QCheckBox:focus { color: ${blue_dark}; }
 QScrollBar:vertical { background: transparent; width: 8px; }
-QScrollBar::handle:vertical { background: #46657f; border-radius: 4px; min-height: 24px; }
+QScrollBar::handle:vertical { background: rgba(${ink_rgb},70); border-radius: 4px;
+    min-height: 24px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QToolTip { color: #e6f3ff; background: #162b42; border: 1px solid #44637e; padding: 6px; }
+QToolTip { color: ${ink}; background: ${solid_panel}; border: 1px solid rgba(${ink_rgb},60);
+    padding: 6px; }
+"""
+)
+
+
+def _build_style(opaque: bool) -> str:
+    """The glass stylesheet; ``opaque`` swaps every translucent white for a solid one."""
+
+    def alpha(value: int) -> int:
+        return 255 if opaque else value
+
+    return _STYLE_TEMPLATE.substitute(
+        ink=tokens.INK,
+        ink_rgb="35,40,71",
+        base=tokens.BASE,
+        blue=tokens.BLUE,
+        blue_rgb="67,85,220",
+        blue_dark=tokens.BLUE_DARK,
+        muted_text=tokens.MUTED_TEXT,
+        disabled=tokens.DISABLED_TEXT,
+        recording=tokens.RECORDING,
+        ok=tokens.OK,
+        ctl=alpha(tokens.ALPHA_CONTROL),
+        card=alpha(tokens.ALPHA_CARD),
+        w_dim=alpha(110),
+        w_head=alpha(150),
+        w_pane=alpha(120),
+        w_edge=alpha(200),
+        r_control=tokens.RADIUS_CONTROL,
+        r_card=tokens.RADIUS_CARD,
+        solid_panel=tokens.SOLID_PANEL,
+    )
+
+
+STYLE = _build_style(opaque=False)
+OPAQUE_STYLE = _build_style(opaque=True)
+
+ONBOARDING_STYLE = f"""
+QWizardPage {{ background: transparent; }}
+QRadioButton:disabled, QCheckBox:disabled, QLabel:disabled {{ color: {tokens.DISABLED_TEXT}; }}
 """
 
 
-ONBOARDING_STYLE = """
-QWizardPage { background: #101c30; }
-QRadioButton:disabled, QCheckBox:disabled, QLabel:disabled { color: #8da3bc; }
-"""
+def window_style() -> str:
+    """Stylesheet for top-level windows: empty in high contrast, solid with reduced transparency."""
+    policy = motion.current()
+    if policy.high_contrast:
+        return ""
+    return OPAQUE_STYLE if policy.reduce_transparency else STYLE
+
+
+def status_color(color: str) -> str:
+    """A status text colour for local QSS; high contrast defers to the system text colour."""
+    return "palette(window-text)" if motion.current().high_contrast else color
+
+
+def white(alpha: int) -> str:
+    """Translucent white for local QSS, solid when transparency is reduced."""
+    solid = motion.current().reduce_transparency or motion.current().high_contrast
+    return f"rgba(255, 255, 255, {255 if solid else alpha})"
 
 
 def apply_theme(app: QApplication) -> None:
     app.setStyle("Fusion")
+    if motion.current().high_contrast:
+        # Defer to the system's high-contrast colours, discarding any earlier glass palette.
+        app.setStyleSheet("")
+        app.setPalette(app.style().standardPalette())
+        return
     palette = QPalette()
     for role, color in (
-        (QPalette.ColorRole.Window, "#101c30"),
-        (QPalette.ColorRole.WindowText, "#e6f3ff"),
-        (QPalette.ColorRole.Base, "#12253a"),
-        (QPalette.ColorRole.AlternateBase, "#1b3249"),
-        (QPalette.ColorRole.Text, "#e6f3ff"),
-        (QPalette.ColorRole.Button, "#1b3249"),
-        (QPalette.ColorRole.ButtonText, "#e6f3ff"),
-        (QPalette.ColorRole.Highlight, "#285c74"),
-        (QPalette.ColorRole.HighlightedText, "#ffffff"),
-        (QPalette.ColorRole.PlaceholderText, "#91a7bf"),
-        (QPalette.ColorRole.Link, "#77e5df"),
+        (QPalette.ColorRole.Window, tokens.BASE),
+        (QPalette.ColorRole.WindowText, tokens.INK),
+        (QPalette.ColorRole.Base, tokens.WHITE),
+        (QPalette.ColorRole.AlternateBase, "#f4f5fe"),
+        (QPalette.ColorRole.Text, tokens.INK),
+        (QPalette.ColorRole.Button, tokens.WHITE),
+        (QPalette.ColorRole.ButtonText, tokens.INK),
+        (QPalette.ColorRole.Highlight, tokens.BLUE),
+        (QPalette.ColorRole.HighlightedText, tokens.WHITE),
+        (QPalette.ColorRole.PlaceholderText, tokens.MUTED_TEXT),
+        (QPalette.ColorRole.Link, tokens.BLUE),
+        (QPalette.ColorRole.ToolTipBase, tokens.SOLID_PANEL),
+        (QPalette.ColorRole.ToolTipText, tokens.INK),
     ):
         palette.setColor(role, QColor(color))
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor("#687e99"))
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor("#687e99"))
+    for role in (QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
+        palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(tokens.DISABLED_TEXT))
     app.setPalette(palette)
-    app.setStyleSheet(STYLE)
+    app.setStyleSheet(window_style())
 
 
-def paint_glass(painter: QPainter, rect: QRectF, radius: int = 18) -> None:
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
-    gradient.setColorAt(0, QColor(29, 57, 79, 245))
-    gradient.setColorAt(0.45, QColor(17, 31, 52, 240))
-    gradient.setColorAt(1, QColor(19, 32, 57, 245))
-    painter.setBrush(gradient)
-    painter.setPen(QColor(164, 220, 240, 65))
-    painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius)
+def paint_glass(painter: QPainter, rect: QRectF, radius: int = tokens.RADIUS_CARD) -> None:
+    """Single translucent panel (kept for callers that paint one surface)."""
+    paint_panel(painter, Panel(rect, radius, "panel"))
 
 
 class WindowBar(QWidget):
@@ -114,9 +202,9 @@ class WindowBar(QWidget):
         self.setFixedHeight(44)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(18, 4, 8, 4)
-        label = QLabel("CHANDOO  /  INTERVIEW ASSISTANT")
+        label = QLabel("Chandoo  ·  Interview Assistant")
         label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        label.setStyleSheet("color: #a6c6dc; font-size: 10px; font-weight: 600;")
+        label.setStyleSheet(f"color: {tokens.MUTED_TEXT}; font-size: 11px; font-weight: 600;")
         layout.addWidget(label)
         layout.addStretch()
         for text, tip, callback in (

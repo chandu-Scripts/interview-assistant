@@ -37,10 +37,12 @@ from interview_assistant.app.attachments import ATTACHMENT_FILTER
 from interview_assistant.app.interview_session import SessionDetails
 from interview_assistant.app.resume_library import ResumeLibrary
 from interview_assistant.llm.router_factory import parse_chain
+from interview_assistant.ui import tokens
 from interview_assistant.ui.controls import ChoiceComboBox, ToggleSwitch
 from interview_assistant.ui.provider_catalog import SUGGESTIONS
 from interview_assistant.ui.provider_picker import ModelSelector
 from interview_assistant.ui.resume_page import ResumeImport
+from interview_assistant.ui.theme import status_color
 
 SESSION_TYPES = ["Interview", "Regular"]
 LANGUAGES = ["English", "Hindi", "Telugu", "Tamil", "Spanish", "French", "German"]
@@ -85,7 +87,7 @@ class SessionDialog(QWidget):
         self._refresh_resumes()
 
         self.message = QLabel("")
-        self.message.setStyleSheet("color: #ff9aab;")
+        self.message.setStyleSheet(f"color: {status_color(tokens.ERROR)};")
         self.message.setWordWrap(True)
         self.back_btn = QPushButton("Back")
         self.cancel_btn = QPushButton("Cancel")
@@ -103,7 +105,7 @@ class SessionDialog(QWidget):
         title = QLabel("Create Interview Session")
         title.setObjectName("title")
         self.progress = QLabel()
-        self.progress.setStyleSheet("color: #77e5df; font-weight: 600;")
+        self.progress.setStyleSheet(f"color: {status_color(tokens.BLUE_DARK)}; font-weight: 600;")
         self.subtitle = QLabel()
         self.subtitle.setWordWrap(True)
         self.subtitle.setObjectName("hint")

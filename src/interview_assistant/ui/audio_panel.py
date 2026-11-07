@@ -16,7 +16,9 @@ from interview_assistant.audio.capture import AudioCapture
 from interview_assistant.audio.devices import list_devices
 from interview_assistant.audio.types import AudioDevice, DeviceKind
 from interview_assistant.audio.vad import VadConfig
+from interview_assistant.ui import tokens
 from interview_assistant.ui.controls import ChoiceComboBox
+from interview_assistant.ui.theme import status_color
 
 log = logging.getLogger(__name__)
 
@@ -176,7 +178,9 @@ class AudioPanel(QWidget):
         self._capture = capture
         self.error_label.setText("")
         self.recording_label.setText("● RECORDING")
-        self.recording_label.setStyleSheet("color: #d32f2f; font-weight: bold;")
+        self.recording_label.setStyleSheet(
+            f"color: {status_color(tokens.RECORDING)}; font-weight: bold;"
+        )
         self.toggle_button.setText("Stop capture")
         self.device_combo.setEnabled(False)
         self.refresh_button.setEnabled(False)

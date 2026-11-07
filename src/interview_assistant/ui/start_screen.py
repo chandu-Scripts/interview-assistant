@@ -29,10 +29,12 @@ from interview_assistant.app.interview_session import SessionDetails
 from interview_assistant.app.post_call import PostCallController
 from interview_assistant.app.resume_library import ResumeLibrary
 from interview_assistant.history.store import HistoryStore, InterviewSession
+from interview_assistant.ui import tokens
 from interview_assistant.ui.post_call_page import PostCallPage
 from interview_assistant.ui.resume_page import ResumePage
 from interview_assistant.ui.session_dialog import SessionDialog
-from interview_assistant.ui.theme import STYLE, WindowBar, center_window, paint_glass
+from interview_assistant.ui.surfaces import GlassBackdrop, Panel
+from interview_assistant.ui.theme import WindowBar, center_window, status_color, window_style
 
 
 class SessionCardDelegate(QStyledItemDelegate):
@@ -114,7 +116,7 @@ class StartScreen(QWidget):
         self.extra_nav: dict[str, QPushButton] = {}
         self.setObjectName("start")
         self.setWindowTitle("Interview Assistant")
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(window_style())
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         center_window(self)
@@ -138,30 +140,39 @@ class StartScreen(QWidget):
             self.resume_page.use_for_session_requested.connect(self._attach_session_resume)
             self.create_page.resumes_changed.connect(self.resume_page.refresh)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 0, 8, 6)
-        layout.setSpacing(0)
+        layout.setContentsMargins(12, 10, 12, 8)
+        layout.setSpacing(8)
         self.window_bar = WindowBar(self)
         layout.addWidget(self.window_bar)
         self.notice = QLabel()
         self.notice.setTextFormat(Qt.TextFormat.PlainText)
         self.notice.setWordWrap(True)
-        self.notice.setStyleSheet("color: #ffd29b; padding: 4px 16px;")
+        self.notice.setStyleSheet(f"color: {status_color(tokens.WARN)}; padding: 4px 16px;")
         self.notice.hide()
         layout.addWidget(self.notice)
         self.account_notice = QLabel()
         self.account_notice.setWordWrap(True)
         self.account_notice.setTextFormat(Qt.TextFormat.PlainText)
-        self.account_notice.setStyleSheet("color: #ffd29b; padding: 4px 16px;")
+        self.account_notice.setStyleSheet(f"color: {status_color(tokens.WARN)}; padding: 4px 16px;")
         self.account_notice.hide()
         layout.addWidget(self.account_notice)
         content = QHBoxLayout()
-        content.setSpacing(0)
-        content.addWidget(self._sidebar(on_settings, on_privacy))
+        content.setSpacing(10)
+        self.sidebar = self._sidebar(on_settings, on_privacy)
+        content.addWidget(self.sidebar)
         content.addWidget(self.pages, 1)
         layout.addLayout(content, 1)
         grip = QSizeGrip(self)
         layout.addWidget(grip, 0, Qt.AlignmentFlag.AlignRight)
+        self.backdrop = GlassBackdrop(self, self._glass_panels, animated=True)
         self.refresh()
+
+    def _glass_panels(self) -> list[Panel]:
+        return [
+            Panel(QRectF(self.window_bar.geometry()), tokens.RADIUS_HEADER, "header"),
+            Panel(QRectF(self.sidebar.geometry()), tokens.RADIUS_HEADER, "sidebar"),
+            Panel(QRectF(self.pages.geometry()), tokens.RADIUS_PANEL, "panel", rim=True),
+        ]
 
     def _sidebar(
         self, on_settings: Callable[[], None] | None, on_privacy: Callable[[], None] | None
@@ -174,7 +185,7 @@ class StartScreen(QWidget):
         brand = QLabel("Chandoo\nAssistant")
         brand.setObjectName("brand")
         layout.addWidget(brand)
-        section = QLabel("WORKSPACE")
+        section = QLabel("Workspace")
         section.setObjectName("section")
         layout.addWidget(section)
         self.sessions_btn = QPushButton("Call Sessions")
@@ -564,7 +575,7 @@ class StartScreen(QWidget):
 
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
-        paint_glass(painter, QRectF(self.rect()))
+        self.backdrop.paint(painter)
 
     def hasHeightForWidth(self) -> bool:  # noqa: N802
         # Wrapped text belongs to scrollable pages, not the native window's minimum height.
