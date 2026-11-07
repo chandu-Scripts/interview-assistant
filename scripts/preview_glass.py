@@ -169,6 +169,9 @@ def main() -> int:
     snap(screen, "02-create-session")
     screen.open_workspace_page("settings")
     snap(screen, "03-settings")
+    settings.provider_buttons["openai"].click()
+    snap(screen, "03b-settings-provider-inline")
+    settings.close_provider_popups()
     screen._show_list()
     screen.sessions.selectRow(0)
 
