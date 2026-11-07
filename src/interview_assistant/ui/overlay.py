@@ -701,10 +701,9 @@ class OverlayWindow(QWidget):
             self._answer_cost = usd
 
     def on_cost_updated(self, summary: Summary, state: BudgetState) -> None:
-        text = format_usd(summary.total_usd, summary.unpriced_calls > 0)
-        if state.limit_usd is not None:
-            text += f" / {format_usd(state.limit_usd)}"
-        self.cost_label.setText(text)
+        # Only the spend is shown. The budget limit has no UI any more (Settings and setup no
+        # longer ask for one), so the overlay does not print a limit the user cannot change.
+        self.cost_label.setText(format_usd(summary.total_usd, summary.unpriced_calls > 0))
         self.cost_label.setStyleSheet(f"color: {cost_color(state.level)}; font-size: 11px;")
         lines = [f"Session: {format_usd(summary.total_usd)} ({summary.calls} calls)"]
         lines += [f"  {k}: {format_usd(v)}" for k, v in sorted(summary.by_model.items())]
