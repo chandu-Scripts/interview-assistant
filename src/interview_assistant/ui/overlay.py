@@ -52,6 +52,7 @@ from interview_assistant.ui.theme import rgb as theme_rgb
 def build_style() -> str:
     ink, rgb = tokens.INK, tokens.INK_RGB
     blue_rgb = theme_rgb(tokens.BLUE)
+    warn_rgb = theme_rgb(tokens.WARN)
     return f"""
 QWidget {{ font-family: 'Segoe UI'; font-size: 12px; }}
 QLabel {{ color: {ink}; background: transparent; }}
@@ -81,7 +82,11 @@ QPushButton:disabled {{ color: {tokens.DISABLED_TEXT}; background: rgba({rgb},0.
 #primary:hover {{ background: {tokens.BLUE_DARK}; border-color: {tokens.BLUE_DARK}; }}
 #primary:disabled {{ background: rgba({blue_rgb},0.22); color: {tokens.DISABLED_TEXT};
                     border-color: transparent; }}
-#audio {{ padding: 4px 8px; }}
+#audio {{ padding: 4px 10px; font-weight: 600; }}
+#capturePrivacyStatus {{ color: {ink}; font-weight: 600; padding: 3px 10px;
+    border: 1px solid {tokens.BLUE}; border-radius: 11px; background: rgba({blue_rgb},0.18); }}
+#capturePrivacyStatus[privacyState="unavailable"] {{ border-color: {tokens.WARN};
+    background: rgba({warn_rgb},0.22); }}
 #audio:checked {{ background: {tokens.RECORDING}; color: {tokens.ON_BLUE}; }}
 #end {{ background: transparent; color: {tokens.RECORDING};
        border: 1px solid {tokens.RECORDING}; font-weight: 600; }}
@@ -126,6 +131,9 @@ STATUS_TEXT = {
     "answering": "Answering…",
 }
 BUBBLE_SIZE = 48
+# Narrowest width at which the whole header row (toggles, three pills, privacy chip, timer,
+# menu, End) fits without clipping labels; measured at about 714 px with Segoe UI.
+MIN_WIDTH = 740
 SCREENSHOT_TIP = "Capture your screen and answer it now (Ctrl+Shift+Enter)"
 
 
@@ -246,7 +254,7 @@ class OverlayWindow(QWidget):
         self.setWindowTitle("Interview Assistant Overlay")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setMinimumSize(640, 90)
+        self.setMinimumSize(MIN_WIDTH, 90)
         self.setStyleSheet("" if motion.current().high_contrast else build_style())
 
         self.dot = QLabel("●")
@@ -261,8 +269,10 @@ class OverlayWindow(QWidget):
         self.timer_label = QLabel("00:00")
         self.timer_label.setObjectName("timer")
         self.timer_label.setToolTip("Time since the overlay started")
-        self.system_toggle = self._audio_toggle("🔊", "System audio (what the interviewer says)")
-        self.mic_toggle = self._audio_toggle("🎤", "Microphone (what you say)")
+        self.system_toggle = self._audio_toggle(
+            "System", "System audio (what the interviewer says)"
+        )
+        self.mic_toggle = self._audio_toggle("Mic", "Microphone (what you say)")
         self.mic_toggle.setVisible(False)  # shown once bind_audio() gets a microphone panel
         self.answer_btn = self._shortcut_button("Answer", "Ctrl ↵", "Answer the question above")
         self.answer_btn.setObjectName("primary")
@@ -942,7 +952,7 @@ class OverlayWindow(QWidget):
             self.setMinimumSize(BUBBLE_SIZE, BUBBLE_SIZE)
             self.resize(BUBBLE_SIZE, BUBBLE_SIZE)
         else:
-            self.setMinimumSize(640, 48 if self._collapsed else 90)
+            self.setMinimumSize(MIN_WIDTH, 48 if self._collapsed else 90)
             self.resize(self._restore_width, 48 if self._collapsed else self._expanded_height)
         self.update()  # repaint with the bubble's round-vs-rounded-rect shape
 

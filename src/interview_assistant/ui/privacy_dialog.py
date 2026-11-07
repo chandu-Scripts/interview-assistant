@@ -28,10 +28,8 @@ class CapturePrivacyIndicator(QLabel):
         self._overlay = overlay
         self.setObjectName("capturePrivacyStatus")
         self.setAccessibleName("Screen-share privacy status")
-        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.setMinimumWidth(54)
-        self.setMaximumWidth(80)
-        self.setWordWrap(True)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        self.setWordWrap(False)
         overlay.installEventFilter(self)
         manager.changed.connect(self.refresh)
         self.refresh()
@@ -39,6 +37,10 @@ class CapturePrivacyIndicator(QLabel):
     def refresh(self) -> None:
         manager = self._manager
         self.setText("Privacy On" if manager.enabled else "Unavailable")
+        self.setProperty("privacyState", "on" if manager.enabled else "unavailable")
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.updateGeometry()
         self.setToolTip(
             f"Screen-share privacy: {manager.status}. Supported Windows capture only; "
             "verify on the receiver's screen. Native popups may briefly appear."

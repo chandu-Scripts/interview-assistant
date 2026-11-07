@@ -243,9 +243,9 @@ def test_privacy_ui_and_shutdown_leave_answering_unpaused(
         assert not parts.presentation.active
         assert parts.window.audio_panel.recording and sources[0].stopped == 0
         assert label.text() == "Privacy On" and not label.isHidden()
-        parts.overlay.resize(640, 500)
+        parts.overlay.resize(parts.overlay.minimumWidth(), 500)
         qtbot.wait(20)
-        assert parts.overlay.width() == 640
+        assert parts.overlay.width() == parts.overlay.minimumWidth()
         assert label.geometry().right() <= parts.overlay.header.width()
         parts.overlay.toggle_bubble()
         qtbot.wait(20)
