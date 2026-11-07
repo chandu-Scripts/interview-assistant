@@ -5,7 +5,6 @@ from PySide6.QtCore import QRectF, QSettings
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
-    QDoubleSpinBox,
     QFrame,
     QLabel,
     QLayout,
@@ -208,24 +207,9 @@ class ProfilePage(QWizardPage):
         self.profile.setPlaceholderText(
             "e.g. Backend engineer, 5 years Python/Go, payments platform…"
         )
-        self.budget_on = QCheckBox("Limit spending to")
-        self.budget = QDoubleSpinBox()
-        self.budget.setRange(0.01, 10000)
-        self.budget.setPrefix("$")
-        self.budget.setValue(5.0)
-        self.budget_scope = ChoiceComboBox()
-        for label, value in (
-            ("per session", "session"),
-            ("per day", "day"),
-            ("per month", "month"),
-        ):
-            self.budget_scope.addItem(label, value)
         self.incognito = QCheckBox("Start in incognito mode (save no history)")
         lay = QVBoxLayout(self)
         lay.addWidget(self.profile, 1)
-        lay.addWidget(self.budget_on)
-        lay.addWidget(self.budget)
-        lay.addWidget(self.budget_scope)
         lay.addWidget(self.incognito)
 
 
@@ -274,8 +258,6 @@ class OnboardingWizard(QWizard):
             "whisper_model": sp.model.currentData(),
             "default_audio_kind": sp.source.currentData(),
             "candidate_profile": pr.profile.toPlainText().strip() or None,
-            "budget_usd": pr.budget.value() if pr.budget_on.isChecked() else None,
-            "budget_scope": pr.budget_scope.currentData(),
             "incognito": pr.incognito.isChecked(),
         }
 

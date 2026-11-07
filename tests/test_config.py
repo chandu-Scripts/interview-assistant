@@ -653,7 +653,7 @@ def test_dialog_loads_current_values(dialog):
     assert d.model_boxes["openai_model"].currentText() == "gpt-4o-mini"
     assert d.stt_provider.currentData() == "local" and d.whisper_model.currentData() == "base.en"
     assert d.default_audio_kind.currentData() == "loopback"
-    assert not d.budget_on.isChecked() and d.redact.isChecked() and d.history_on.isChecked()
+    assert d.redact.isChecked() and d.history_on.isChecked()
     assert d.hotkey_presentation.text() == "ctrl+alt+p"
     assert not d.auto_generate.isChecked()  # default answer_mode is "manual"
 
@@ -697,9 +697,8 @@ def test_dialog_can_select_and_save_gpt54_mini(dialog):
 def test_dialog_save_writes_only_non_defaults_and_requests_restart(qtbot, dialog):
     d, _ = dialog
     d.whisper_model.setCurrentIndex(d.whisper_model.findData("small.en"))
-    d.budget_on.setChecked(True)
-    d.budget_usd.setValue(7.5)
-    d.budget_scope.setCurrentIndex(d.budget_scope.findData("day"))
+    d.retention_on.setChecked(True)
+    d.retention_days.setValue(7)
     d.profile.setPlainText("Backend engineer, 5 years")
     with qtbot.waitSignal(d.saved) as sig:
         d.save_btn.click()
@@ -707,12 +706,11 @@ def test_dialog_save_writes_only_non_defaults_and_requests_restart(qtbot, dialog
     saved = json.loads(settings_path().read_text(encoding="utf-8"))
     assert saved == {
         "whisper_model": "small.en",
-        "budget_usd": 7.5,
-        "budget_scope": "day",
+        "history_retention_days": 7,
         "candidate_profile": "Backend engineer, 5 years",
     }  # defaults are NOT pinned into the file
     s = Settings(_env_file=None)  # simulates the next start
-    assert (s.whisper_model, s.budget_usd, s.budget_scope) == ("small.en", 7.5, "day")
+    assert (s.whisper_model, s.history_retention_days) == ("small.en", 7)
 
 
 def test_dialog_auto_generate_toggle_round_trips_through_answer_mode(qtbot, dialog):
@@ -840,13 +838,13 @@ def test_dialog_models_fill_from_key_test(qtbot, dialog):
 
 def test_dialog_none_values_remove_saved_keys(qtbot, dialog):
     d, _ = dialog
-    d.budget_on.setChecked(True)
+    d.retention_on.setChecked(True)
     d.save_btn.click()
-    assert "budget_usd" in UserSettingsStore().load()
+    assert "history_retention_days" in UserSettingsStore().load()
     d.load()
-    d.budget_on.setChecked(False)
+    d.retention_on.setChecked(False)
     d.save_btn.click()
-    assert "budget_usd" not in UserSettingsStore().load()
+    assert "history_retention_days" not in UserSettingsStore().load()
 
 
 def test_main_window_settings_button(qtbot, dialog):
@@ -971,8 +969,6 @@ def test_onboarding_speech_page_and_collect(qtbot, clean_env):
     sp.cloud.setChecked(True)
     assert not sp.model.isEnabled() and not sp.download.isEnabled()
     w.profile.profile.setPlainText("  Data engineer  ")
-    w.profile.budget_on.setChecked(True)
-    w.profile.budget.setValue(12)
     w.profile.incognito.setChecked(True)
     sp.source.setCurrentIndex(sp.source.findData("mic"))
     assert w.collect() == {
@@ -980,8 +976,6 @@ def test_onboarding_speech_page_and_collect(qtbot, clean_env):
         "whisper_model": "small.en",
         "default_audio_kind": "mic",
         "candidate_profile": "Data engineer",
-        "budget_usd": 12.0,
-        "budget_scope": "session",
         "incognito": True,
     }
 
@@ -997,11 +991,12 @@ def test_onboarding_download_failure_is_shown(qtbot, clean_env):
 
 def test_onboarding_result_round_trips_through_the_store(qtbot, clean_env):
     w, _ = make_wizard(qtbot)
-    w.profile.budget_on.setChecked(True)
-    w.profile.budget.setValue(3)
+    w.profile.profile.setPlainText("Data engineer")
     UserSettingsStore().update(w.collect())
     s = Settings(_env_file=None)
-    assert s.budget_usd == 3.0 and s.whisper_model == "base.en" and s.stt_provider == "local"
+    assert s.candidate_profile == "Data engineer"
+    assert s.whisper_model == "base.en" and s.stt_provider == "local"
+    assert s.budget_usd is None and "budget_usd" not in w.collect()
 
 
 # ---------------- audio default kind ----------------
@@ -1067,3 +1062,15 @@ def test_settings_save_is_the_primary_button(qtbot, dialog):
     d, _ = dialog
     assert d.save_btn.objectName() == "create"
     assert d.cancel_btn.objectName() != "create"
+
+
+def test_settings_has_no_budget_controls_and_keeps_a_saved_budget(qtbot, dialog):
+    d, _ = dialog
+    assert not hasattr(d, "budget_on")
+    assert "Budget and history" not in [d.tabs.tabText(i) for i in range(d.tabs.count())]
+    UserSettingsStore().update({"budget_usd": 3.0, "budget_scope": "day"})
+    d.load()
+    d.profile.setPlainText("Backend engineer")
+    d.save_btn.click()
+    saved = UserSettingsStore().load()
+    assert saved["budget_usd"] == 3.0 and saved["budget_scope"] == "day"

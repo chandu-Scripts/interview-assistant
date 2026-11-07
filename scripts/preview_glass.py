@@ -172,6 +172,10 @@ def main() -> int:
     settings.provider_buttons["openai"].click()
     snap(screen, "03b-settings-provider-inline")
     settings.close_provider_popups()
+    for page in ("Speech", "Privacy"):
+        settings.nav_buttons[[b.text() for b in settings.nav_buttons].index(page)].click()
+        snap(screen, f"03c-settings-{page.lower()}")
+    settings.nav_buttons[0].click()
     screen._show_list()
     screen.sessions.selectRow(0)
 
