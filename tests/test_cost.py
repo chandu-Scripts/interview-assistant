@@ -23,7 +23,7 @@ from interview_assistant.llm.router import AttemptRecord, Route, Router, RouterC
 from interview_assistant.llm.types import ErrorKind, LLMError, LLMRequest, Message, Usage
 from interview_assistant.stt.metered import MeteredSTT
 from interview_assistant.stt.streaming import StreamingTranscriber
-from interview_assistant.ui.overlay import OverlayWindow, cost_color
+from interview_assistant.ui.overlay import OverlayWindow
 from tests.test_router import Script
 
 REQ = LLMRequest([Message("user", "Hi")], system="sys")
@@ -397,8 +397,8 @@ def test_overlay_shows_answer_cost_and_session_total(qtbot, tmp_path):
     c.ask("Write a function to solve the two sum problem.")
     qtbot.waitUntil(lambda: "openai:gpt-4o" in o.chip.text(), timeout=5000)
     assert "$" in o.chip.text()  # per-answer cost in the chip
-    assert o.cost_label.text().startswith("$") and tracker.summary().calls == 1
-    assert "openai:gpt-4o" in o.cost_label.toolTip()
+    assert tracker.summary().calls == 1
+    assert not hasattr(o, "cost_label")  # the overlay shows the answer cost only, no session total
     c.shutdown()
 
 
@@ -413,12 +413,10 @@ def test_hard_budget_blocks_new_answers(qtbot, tmp_path, next_question):
     tracker, c, o = make_stack(qtbot, tmp_path, budget=Budget(0.0000001, hard_stop=True))
     c.ask("Write a function to solve the two sum problem.")
     qtbot.waitUntil(lambda: tracker.summary().calls == 1, timeout=5000)
-    qtbot.waitUntil(lambda: "$" in o.cost_label.text(), timeout=2000)
     assert tracker.budget_state().blocked
     c.ask(next_question)
     qtbot.waitUntil(lambda: "Budget reached" in o.answer.toPlainText(), timeout=5000)
     assert tracker.summary().calls == 1  # no second LLM call was made
-    assert cost_color(BudgetLevel.EXCEEDED) in o.cost_label.styleSheet()
     c.shutdown()
 
 
@@ -431,11 +429,3 @@ def test_new_interview_resets_session_and_history(qtbot, tmp_path):
     assert tracker.summary("session").calls == 0 and tracker.summary("all").calls == 1
     c.shutdown()
 
-
-def test_overlay_cost_label_shows_spend_only_even_with_a_saved_budget(qtbot, tmp_path):
-    tracker, c, o = make_stack(qtbot, tmp_path, budget=Budget(17.0))
-    c.ask("Write a function to solve the two sum problem.")
-    qtbot.waitUntil(lambda: tracker.summary().calls == 1, timeout=5000)
-    qtbot.waitUntil(lambda: "$" in o.cost_label.text(), timeout=2000)
-    assert "/" not in o.cost_label.text()
-    c.shutdown()

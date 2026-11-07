@@ -187,7 +187,7 @@ def test_spoken_question_flows_to_answer_history_and_cost(make_stack):
     assert s.tracker.summary().calls == 1
     assert "openai:gpt-4o" in s.overlay.chip.text() and "$" in s.overlay.chip.text()
     assert "transcribe" in s.overlay.chip.toolTip()  # the latency breakdown is available
-    assert s.overlay.cost_label.text().startswith("$")
+    assert not hasattr(s.overlay, "cost_label")  # no session-cost label on the overlay
 
 
 def test_a_question_split_by_a_pause_is_answered_once(make_stack):
