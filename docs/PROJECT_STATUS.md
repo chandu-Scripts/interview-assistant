@@ -1,8 +1,8 @@
 # Project status and handoff
 
-Updated: 7 November 2026. Source baseline: `78f5b54` on `main`, pushed to
-`origin/main` and remote hash verified. This is a repository/evidence review, not
-a fresh audit of hosted services or a new full-suite run.
+Updated: 7 November 2026. Source baseline: `172bd33` on `main` (blue glass light/dark themes),
+pushed to `origin/main` and remote hash verified. This is a repository/evidence review, not
+a fresh audit of hosted services. A full-suite run on this baseline is recorded below.
 
 Use this file for **what exists now and what remains**. [AGENTS.md](../AGENTS.md)
 contains working rules; [the documentation index](README.md) links implementation
@@ -22,9 +22,9 @@ details. Dated reports retain their original results and are not current release
 | Area | Current state | Next action |
 |---|---|---|
 | Screen-share privacy | Main, merged and pushed at `78f5b54` | Receiver-side sharing acceptance; installer update separately |
-| Light iOS-style glass | Branch `feature/ios-glass-ui`, `7c1f17c`; reviewed/tested | User merge approval, integration verification, separate push approval |
+| Blue glass light/dark themes (Orbit look) | Main, merged and pushed at `172bd33` (built on `67db178`) | Check reduced-transparency/high-contrast previews of both palettes and the screen-share indicator on the new overlay; installer update separately |
 | Saved-answer equivalence | Branch `feature/saved-answer-equivalence`, `fe33293`; not release-ready | Improve paraphrase coverage without returning merely related answers |
-| Existing desktop functionality | Main; current theme remains navy/cyan | Keep regression coverage when integrating changes |
+| Existing desktop functionality | Main; now styled with the light glass theme | Keep regression coverage when integrating changes |
 | Customer login/access/admin | Source foundations in main; development acceptance recorded | Production configuration, owner provisioning, email acceptance and admin hosting |
 | Cloud backup/local import | Branch-only preparation | Review, approve integration and complete hosted acceptance |
 | Payments | Planning only | Decide app pricing, merchant, currency and terms before implementation |
@@ -96,7 +96,6 @@ branch names. Retained merged branches do not imply unfinished work.
 
 | Branch | Head | State / remaining work |
 |---|---|---|
-| `feature/ios-glass-ui` | `7c1f17c` | Light palette, Qt-painted mesh/glass, limited rims, motion/transparency/high-contrast handling; review-ready, not merged/pushed |
 | `feature/saved-answer-equivalence` | `fe33293` | Conservative matching and local verifier candidate; coverage gate fails; do not merge/release as ready |
 | `feature/data-engineer-format-lock` | `812cad9` | Alternative prompt experiment; excluded from main; reconcile with current style before any integration |
 | `feature/legacy-import` | `b9768c4` | Explicit preview/export/append-only account import prepared; not integrated |
@@ -108,7 +107,8 @@ branch names. Retained merged branches do not imply unfinished work.
 Merged ancestors include account-login, customer-entitlements, customer-admin,
 customer-access-integration, the six B1-B6 bug branches, B7 overlay error fix,
 onboarding-readability, answer-typography, openai-model-options, four-openai-models,
-session-model-refresh and screen-share-privacy. Main also includes the earlier
+session-model-refresh, screen-share-privacy and ios-glass-ui (`7c1f17c`, merged as
+`67db178`). Main also includes the earlier
 Parakeet-inspired workspace and resume/style fixes. Do not remerge these as new work.
 `backup/before-bug-merge-20261101` remains a historical rollback reference, not a
 recommended wholesale rollback of later account/schema changes.
@@ -121,10 +121,29 @@ contrast/privacy rerun passed **108** (overlapping tests, not additive coverage)
 Native synthetic dashboard, wizard, providers and overlay were inspected. The
 incognito label was darkened to meet the 4.5:1 contrast threshold.
 
+**Merged into main as `67db178` (7 November 2026), no conflicts, pushed.** On the
+integration branch: ruff and mypy clean, and glass/review/screen-share/privacy/security/
+onboarding tests gave 162 passed, 2 skipped. Native Windows previews in the default policy
+were inspected against the Orbit web app's look. Full suite on merged main: **6 failed,
+1689 passed, 5 skipped**; none caused by the merge (details in `docs/glass-ui.md`). One,
+`test_overlay_window_flags_and_visibility_contract`, is a stale assertion that conflicts
+with the authorized screen-share adapter and fails on the pre-merge baseline too; it needs
+updating to allow only that adapter. **Not yet checked on the merged build:**
+reduced-transparency and high-contrast previews, and the screen-share indicator when On
+on the light overlay. No installer has been rebuilt, so the installed app keeps the old theme.
+
+**Dark and blue-tinted themes (decision 006), merged as `172bd33` and pushed.** New `theme`
+setting (Light blue default, Dark blue, Match Windows; restart to apply), blue-tinted panels,
+and an overlay state edge. Contrast tests run for both palettes. Theme tests: 106 passed. A
+quiet rerun of the app, start-screen, provider-picker, session-dialog, composition and e2e
+files gave 265 passed and 2 failed; both failures also fail without this change (see
+`docs/glass-ui.md`). One e2e test failed once under heavy machine load and passed on every
+quiet run. Not done: "Up next" dashboard card, new-palette reduced-transparency and
+high-contrast previews, screen-share indicator check on the new overlay, installer rebuild.
+
 Qt-painted translucency is not true iOS/desktop backdrop blur. The overlay is static.
 Real iPhone blur/keyboard behavior was not tested and this is a Windows desktop UI.
-Branch evidence is in `docs/decisions/ios-glass-ui.md` and `docs/glass-ui.md` **on that
-branch**. Main's glass document still describes the existing navy/cyan version.
+Evidence: `docs/decisions/ios-glass-ui.md` and `docs/glass-ui.md`.
 
 ### Saved-Q&A: known blocker, not a completed fix
 
@@ -196,8 +215,9 @@ No hosted settings, migrations, users, payments or DNS were changed by this docs
 
 1. Verify screen-share privacy from an actual receiver; record app/version, full-screen
    versus window capture, Off/On/reset and native popup observations. No blanket guarantee.
-2. Obtain glass-branch merge approval; recheck conflicts against current main, test the
-   actual integrated result, then obtain separate push approval.
+2. Finish glass verification on merged main: reduced-transparency and high-contrast
+   previews, the screen-share indicator on the light overlay, and the extra bottom-right
+   "Start Session" button on the dashboard (confirm whether intended).
 3. Improve saved-question equivalence coverage and fresh validation. Keep its branch
    excluded while its promotion gate fails. Preserve exact text, cancellation and privacy.
 4. Reconcile stale model-selection test fixtures with the approved four-model picker.

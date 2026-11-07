@@ -145,10 +145,14 @@ with the safety boundaries below), and the file:line references each step builds
   selection. Sync only Appearance drafts and keep unrelated Settings edits intact.
 - Startup uses a centered 960 × 680 logical-pixel window, reduced for smaller work areas,
   with compact session cards. Never maximize automatically at launch.
-- Shared light blue/pastel glass styling lives in `ui/theme.py`, `ui/tokens.py` and
-  `ui/surfaces.py`. Native Qt paints the mesh and translucent surfaces; it does not blur the
-  desktop. Respect OS reduced motion/transparency and high contrast through `ui/motion.py`.
-  Overlay surfaces remain static. Preserve contrast and explicit recording/privacy indicators.
+- Shared blue glass styling lives in `ui/theme.py`, `ui/tokens.py` and `ui/surfaces.py`, with a
+  light and a dark palette (decision 006). `tokens.use()` picks one at startup; the `theme`
+  setting (`light` default, `dark`, `system`) applies after a restart. Panels are blue-tinted,
+  never pure white. Build styles from the active tokens at call time, never at import. Native Qt
+  paints the mesh and translucent surfaces; it does not blur the desktop. Respect OS reduced
+  motion/transparency and high contrast through `ui/motion.py`. Overlay surfaces remain static;
+  its top edge shows state and listening keeps the recording colour. Contrast tests must pass for
+  both palettes. Preserve explicit recording/privacy indicators.
 - First-run setup explicitly uses Qt's Classic wizard style and the shared glass theme.
   Windows Aero wizard surfaces paint white behind the app's light text. Keep setup centered
   at 840 x 660 logical pixels, reduced for smaller work areas. Provider rows scroll on short
