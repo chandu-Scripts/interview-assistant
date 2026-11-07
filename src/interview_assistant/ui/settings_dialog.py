@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QDialog,
-    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -151,7 +150,6 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self._providers_tab(checker, runner), "AI providers")
         self.tabs.addTab(self._speech_tab(), "Speech")
         self.tabs.addTab(self._profile_tab(), "Profile")
-        self.tabs.addTab(self._budget_tab(), "Budget and history")
         self.tabs.addTab(self._privacy_tab(), "Privacy")
         self.tabs.addTab(self._hotkeys_tab(), "Hotkeys")
         self.tabs.addTab(self._appearance_tab(), "Appearance")
@@ -468,12 +466,27 @@ class SettingsDialog(QDialog):
             "Both sources are transcribed simultaneously instead of picking one above. Doubles "
             "the local speech model's memory use (if using Local Whisper)."
         )
+        for combo in (self.stt_provider, self.whisper_model, self.default_audio_kind):
+            combo.setSizeAdjustPolicy(
+                ChoiceComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            combo.setMinimumContentsLength(20)
+        for edit in (self.stt_language, self.stt_vocabulary):
+            edit.setMinimumWidth(0)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
         form.addRow("Speech-to-text", self.stt_provider)
         form.addRow("Local model", self.whisper_model)
         form.addRow("Language", self.stt_language)
         form.addRow("Vocabulary hint", self.stt_vocabulary)
         form.addRow("Pre-selected audio source", self.default_audio_kind)
         form.addRow(self.dual_audio)
+        self.auto_generate = QCheckBox("Auto Generate (Beta): answer voice questions immediately")
+        self.auto_generate.setToolTip(
+            "Off (default): a detected voice question waits for you to click Answer or press "
+            "Ctrl+Enter. On: answered automatically, like before this setting existed. Typed "
+            "questions and Chat always answer immediately either way."
+        )
+        form.addRow(self.auto_generate)
         return w
 
     def _profile_tab(self) -> QWidget:
@@ -489,50 +502,22 @@ class SettingsDialog(QDialog):
         lay.addWidget(self.profile, 1)
         return w
 
-    def _budget_tab(self) -> QWidget:
-        w = QWidget()
-        form = QFormLayout(w)
-        self.budget_on = QCheckBox("Limit spending")
-        self.budget_usd = QDoubleSpinBox()
-        self.budget_usd.setRange(0.01, 10000)
-        self.budget_usd.setDecimals(2)
-        self.budget_usd.setPrefix("$")
-        self.budget_scope = ChoiceComboBox()
-        for label, value in (
-            ("per session", "session"),
-            ("per day", "day"),
-            ("per month", "month"),
-        ):
-            self.budget_scope.addItem(label, value)
-        self.budget_hard = QCheckBox("Stop answering when the limit is reached")
-        self.auto_generate = QCheckBox("Auto Generate (Beta): answer voice questions immediately")
-        self.auto_generate.setToolTip(
-            "Off (default): a detected voice question waits for you to click Answer or press "
-            "Ctrl+Enter. On: answered automatically, like before this setting existed. Typed "
-            "questions and Chat always answer immediately either way."
-        )
-        self.history_on = QCheckBox("Save question/answer history on this PC")
-        self.retention_on = QCheckBox("Auto-delete history older than")
-        self.retention_days = QSpinBox()
-        self.retention_days.setRange(1, 3650)
-        self.retention_days.setSuffix(" days")
-        form.addRow(self.budget_on, self.budget_usd)
-        form.addRow("Budget period", self.budget_scope)
-        form.addRow(self.budget_hard)
-        form.addRow(self.auto_generate)
-        form.addRow(self.history_on)
-        form.addRow(self.retention_on, self.retention_days)
-        return w
-
     def _privacy_tab(self) -> QWidget:
         w = QWidget()
         form = QFormLayout(w)
         self.incognito = QCheckBox("Start in incognito (save nothing)")
         self.redact = QCheckBox("Mask emails, phones, cards and API keys before sending to AI")
         self.consent = QCheckBox("Show the recording notice before the first capture")
+        self.history_on = QCheckBox("Save question/answer history on this PC")
+        self.retention_on = QCheckBox("Auto-delete history older than")
+        self.retention_days = QSpinBox()
+        self.retention_days.setRange(1, 3650)
+        self.retention_days.setSuffix(" days")
         form.addRow(self.incognito)
         form.addRow(self.redact)
         form.addRow(self.consent)
+        form.addRow(self.history_on)
+        form.addRow(self.retention_on, self.retention_days)
         return w
 
     def _hotkeys_tab(self) -> QWidget:
@@ -619,10 +604,6 @@ class SettingsDialog(QDialog):
         self._select(self.default_audio_kind, s.default_audio_kind)
         self.dual_audio.setChecked(s.dual_audio_capture)
         self.profile.setPlainText(s.candidate_profile or "")
-        self.budget_on.setChecked(s.budget_usd is not None)
-        self.budget_usd.setValue(s.budget_usd or 5.0)
-        self._select(self.budget_scope, s.budget_scope)
-        self.budget_hard.setChecked(s.budget_hard_stop)
         self.auto_generate.setChecked(s.answer_mode == "auto")
         self.history_on.setChecked(s.history_enabled)
         self.retention_on.setChecked(s.history_retention_days is not None)
@@ -680,9 +661,6 @@ class SettingsDialog(QDialog):
         values["default_audio_kind"] = self.default_audio_kind.currentData()
         values["dual_audio_capture"] = self.dual_audio.isChecked()
         values["candidate_profile"] = self.profile.toPlainText().strip() or None
-        values["budget_usd"] = self.budget_usd.value() if self.budget_on.isChecked() else None
-        values["budget_scope"] = self.budget_scope.currentData()
-        values["budget_hard_stop"] = self.budget_hard.isChecked()
         values["answer_mode"] = "auto" if self.auto_generate.isChecked() else "manual"
         values["history_enabled"] = self.history_on.isChecked()
         values["history_retention_days"] = (
