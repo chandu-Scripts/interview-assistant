@@ -54,6 +54,7 @@ EDITABLE = frozenset(
         "answer_font_family",
         "answer_font_weight",
         "answer_font_size",
+        "theme",
         "dual_audio_capture",
     }
 )

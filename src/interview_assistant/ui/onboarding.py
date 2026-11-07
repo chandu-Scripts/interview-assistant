@@ -39,7 +39,7 @@ from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.key_row import Checker, KeyRow
 from interview_assistant.ui.settings_dialog import WHISPER_CHOICES
 from interview_assistant.ui.surfaces import GlassBackdrop, Panel
-from interview_assistant.ui.theme import ONBOARDING_STYLE, center_window, window_style
+from interview_assistant.ui.theme import center_window, onboarding_style, window_style
 
 DONE_KEY = "onboarding/done_v1"
 WarmupFn = Callable[[str], None]
@@ -254,7 +254,7 @@ class OnboardingWizard(QWizard):
         self.profile = ProfilePage()
         for page in (self.welcome, self.providers, self.speech, self.profile):
             self.addPage(page)
-        self.setStyleSheet(window_style() + ONBOARDING_STYLE)
+        self.setStyleSheet(window_style() + onboarding_style())
         self.backdrop = GlassBackdrop(self, self._glass_panels, animated=True, radius=0)
 
     def _glass_panels(self) -> list[Panel]:

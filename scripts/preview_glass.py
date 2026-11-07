@@ -27,6 +27,7 @@ parser.add_argument(
     choices=("default", "reduced-transparency", "reduced-motion", "high-contrast"),
     default="default",
 )
+parser.add_argument("--theme", choices=("light", "dark"), default="light")
 parser.add_argument(
     "--hold", type=float, default=0.0, help="keep the synthetic dashboard open this many seconds"
 )
@@ -56,7 +57,7 @@ from interview_assistant.config.relay import MemoryRelayTokenStore  # noqa: E402
 from interview_assistant.config.settings import Settings  # noqa: E402
 from interview_assistant.config.user_settings import UserSettingsStore  # noqa: E402
 from interview_assistant.history.store import HistoryStore  # noqa: E402
-from interview_assistant.ui import motion  # noqa: E402
+from interview_assistant.ui import motion, tokens  # noqa: E402
 from interview_assistant.ui.account_screen import AccountScreen  # noqa: E402
 from interview_assistant.ui.bg import run_inline  # noqa: E402
 from interview_assistant.ui.onboarding import OnboardingWizard  # noqa: E402
@@ -100,6 +101,7 @@ def main() -> int:
     if policy:
         motion.set_override(motion.MotionPolicy(**policy))
     app = QApplication([])
+    tokens.use(args.theme)
     apply_theme(app)
     for font in ("segoeui.ttf", "segoeuib.ttf", "seguisym.ttf", "consola.ttf"):
         path = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / font

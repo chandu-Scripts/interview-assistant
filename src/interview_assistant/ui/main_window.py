@@ -263,7 +263,7 @@ class MainWindow(QMainWindow):
             )
         else:
             self.banner.setStyleSheet(
-                f"background:{color}; color:white; font-weight:bold; padding:4px;"
+                f"background:{color}; color:{tokens.ON_BLUE}; font-weight:bold; padding:4px;"
                 " border-radius:4px;"
             )
         self.banner.setVisible(True)

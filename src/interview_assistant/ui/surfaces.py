@@ -31,20 +31,25 @@ from interview_assistant.ui import motion, tokens
 TICK_MS = 80  # 12.5 fps, below the 15 fps cap
 STATIC_RIM_ANGLE = 40.0
 
-_ALPHA = {
-    "panel": tokens.ALPHA_PANEL,
-    "header": tokens.ALPHA_HEADER,
-    "sidebar": tokens.ALPHA_SIDEBAR,
-    "card": tokens.ALPHA_CARD,
-    "overlay": tokens.ALPHA_OVERLAY,
-}
-_SOLID = {
-    "panel": tokens.SOLID_PANEL,
-    "header": tokens.SOLID_PANEL,
-    "sidebar": tokens.SOLID_SIDEBAR,
-    "card": tokens.SOLID_CARD,
-    "overlay": tokens.SOLID_PANEL,
-}
+
+def _alpha(role: str) -> int:
+    return {
+        "panel": tokens.ALPHA_PANEL,
+        "header": tokens.ALPHA_HEADER,
+        "sidebar": tokens.ALPHA_SIDEBAR,
+        "card": tokens.ALPHA_CARD,
+        "overlay": tokens.ALPHA_OVERLAY,
+    }[role]
+
+
+def _solid(role: str) -> str:
+    return {
+        "panel": tokens.SOLID_PANEL,
+        "header": tokens.SOLID_PANEL,
+        "sidebar": tokens.SOLID_SIDEBAR,
+        "card": tokens.SOLID_CARD,
+        "overlay": tokens.SOLID_PANEL,
+    }[role]
 
 
 @dataclass(frozen=True)
@@ -59,9 +64,21 @@ def surface_color(role: str, policy: motion.MotionPolicy | None = None) -> QColo
     """Fill colour for a surface role, opaque when transparency is reduced."""
     policy = policy or motion.current()
     if policy.reduce_transparency or policy.high_contrast:
-        return QColor(_SOLID[role])
-    colour = QColor(tokens.WHITE)
-    colour.setAlpha(_ALPHA[role])
+        return QColor(_solid(role))
+    colour = QColor(tokens.SURFACE)
+    colour.setAlpha(_alpha(role))
+    return colour
+
+
+def _shadow(alpha: int) -> QColor:
+    r, g, b = (int(v) for v in tokens.SHADOW_RGB.split(","))
+    return QColor(r, g, b, alpha)
+
+
+def _edge(alpha: int) -> QColor:
+    """The panel outline: bright on light glass, a faint blue-white line on dark glass."""
+    colour = QColor(tokens.EDGE)
+    colour.setAlpha(min(alpha, tokens.EDGE_ALPHA + 45))
     return colour
 
 
@@ -70,8 +87,8 @@ def _rim_brush(rect: QRectF, angle: float) -> QBrush:
     for stop, colour, alpha in (
         (0.0, tokens.BLUE, 235),
         (0.14, "#6f83ff", 220),
-        (0.30, "#bde9ff", 150),
-        (0.55, tokens.WHITE, 120),
+        (0.30, tokens.MESH[2], 150),
+        (0.55, tokens.EDGE, 120),
         (0.80, "#8fa0ff", 90),
         (1.0, tokens.BLUE, 235),
     ):
@@ -111,7 +128,7 @@ def paint_panel(
     painter.setClipPath(outside)
     painter.setPen(Qt.PenStyle.NoPen)
     for grow, alpha in ((1, 12), (3, 8), (6, 4)):
-        painter.setBrush(QColor(35, 40, 71, alpha))
+        painter.setBrush(_shadow(alpha))
         painter.drawRoundedRect(
             rect.adjusted(-grow, -grow + 3, grow, grow + 3),
             panel.radius + grow,
@@ -122,8 +139,11 @@ def paint_panel(
     painter.setBrush(surface_color(panel.role, policy))
     painter.drawPath(shape)
     sheen = QLinearGradient(rect.topLeft(), QPointF(rect.left(), rect.top() + rect.height() * 0.45))
-    sheen.setColorAt(0, QColor(255, 255, 255, 90))
-    sheen.setColorAt(1, QColor(255, 255, 255, 0))
+    edge = QColor(tokens.EDGE)
+    edge.setAlpha(tokens.SHEEN)
+    sheen.setColorAt(0, edge)
+    edge.setAlpha(0)
+    sheen.setColorAt(1, edge)
     painter.setBrush(sheen)
     painter.drawPath(shape)
     painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -131,7 +151,7 @@ def paint_panel(
         angle = STATIC_RIM_ANGLE if rim_angle is None else rim_angle
         painter.setPen(QPen(_rim_brush(rect, angle), 1.8))
     else:
-        painter.setPen(QPen(QColor(255, 255, 255, 235), 1.2))
+        painter.setPen(QPen(_edge(235), 1.2))
     painter.drawPath(shape)
     painter.restore()
 
@@ -263,7 +283,7 @@ class GlassBackdrop(QObject):
         for panel in self._panels():
             paint_panel(painter, panel, rim_angle=angle, policy=policy)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(255, 255, 255, 220), 1.2))
+        painter.setPen(QPen(_edge(220), 1.2))
         painter.drawPath(window_shape)
 
     def _paint_mesh(self, painter: QPainter, rect: QRectF, policy: motion.MotionPolicy) -> None:

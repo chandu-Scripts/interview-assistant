@@ -1,4 +1,4 @@
-"""Shared light glass theme: tokens become QSS, the application palette and painted surfaces."""
+"""Shared blue glass theme: tokens become QSS, the application palette and painted surfaces."""
 
 from string import Template
 
@@ -16,28 +16,29 @@ QDialog, QMainWindow, QWizard { background: ${base}; }
 QLabel, QScrollArea, QStackedWidget, QWidget#sessionForm, QWidget#accountBody {
     background: transparent; }
 QScrollArea QDialog { background: transparent; }
+QScrollArea > QWidget > QWidget { background: transparent; }
 QWidget#sidebar { background: transparent; }
-QLabel#brand { font-size: 17px; font-weight: 700; padding: 8px 0 20px; color: ${blue}; }
-QLabel#title { font-size: 22px; font-weight: 600; }
+QLabel#brand { font-size: 17px; font-weight: 700; padding: 8px 0 20px; color: ${blue_dark}; }
+QLabel#title { font-size: 26px; font-weight: 650; }
 QLabel#hint, QLabel#muted { color: ${muted_text}; }
 QLabel#section { color: ${muted_text}; font-size: 11px; font-weight: 600; padding-top: 16px; }
-QPushButton { background: rgba(255,255,255,${ctl}); border: 1px solid rgba(${ink_rgb},48);
+QPushButton { background: rgba(${surf_rgb},${ctl}); border: 1px solid rgba(${ink_rgb},48);
     border-radius: ${r_control}px; padding: 9px 13px; }
 QPushButton:hover { background: rgba(${blue_rgb},30); border-color: rgba(${blue_rgb},170); }
 QPushButton:pressed { background: rgba(${blue_rgb},56); }
 QPushButton:focus { border-color: ${blue}; }
 QPushButton:checked { background: rgba(${blue_rgb},38); color: ${blue_dark};
     border-color: ${blue}; }
-QPushButton:disabled { color: ${disabled}; background: rgba(255,255,255,${w_dim});
+QPushButton:disabled { color: ${disabled}; background: rgba(${surf_rgb},${w_dim});
     border-color: rgba(${ink_rgb},24); }
 QPushButton#create, QPushButton#connect, QPushButton#rowStart {
-    background: ${blue}; color: #ffffff; border: 1px solid ${blue}; font-weight: 600; }
+    background: ${blue}; color: ${on_blue}; border: 1px solid ${blue}; font-weight: 600; }
 QPushButton#create:hover, QPushButton#connect:hover, QPushButton#rowStart:hover {
     background: ${blue_dark}; border-color: ${blue_dark}; }
 QPushButton#create:focus, QPushButton#connect:focus, QPushButton#rowStart:focus {
     border: 1px solid ${ink}; }
 QPushButton#create:disabled, QPushButton#connect:disabled, QPushButton#rowStart:disabled {
-    color: ${disabled}; background: rgba(255,255,255,${w_dim});
+    color: ${disabled}; background: rgba(${surf_rgb},${w_dim});
     border: 1px solid rgba(${ink_rgb},24); }
 QPushButton#nav { text-align: left; background: transparent; border: 1px solid transparent;
     padding: 11px 9px; }
@@ -56,25 +57,25 @@ QPushButton#windowClose:hover { background: ${recording}; color: #ffffff; }
 QTableWidget { background: transparent; border: none; gridline-color: rgba(${ink_rgb},28);
     selection-background-color: rgba(${blue_rgb},34); selection-color: ${ink}; }
 QTableWidget::item { padding: 12px; border-bottom: 1px solid rgba(${ink_rgb},28); }
-QWidget#sessionCard { background: rgba(255,255,255,${card}); border-radius: ${r_card}px;
-    border: 1px solid rgba(255,255,255,${w_edge}); }
+QWidget#sessionCard { background: rgba(${surf_rgb},${card}); border-radius: ${r_card}px;
+    border: 1px solid rgba(${edge_rgb},${w_edge}); }
 QFrame#promptFeatures { background: rgba(${blue_rgb},20);
     border: 1px solid rgba(${blue_rgb},80); border-radius: ${r_control}px; }
 QLabel#cardTitle { font-size: 15px; font-weight: 600; }
-QHeaderView::section { background: rgba(255,255,255,${w_head}); color: ${muted_text}; border: none;
+QHeaderView::section { background: rgba(${surf_rgb},${w_head}); color: ${muted_text}; border: none;
     padding: 10px; }
 QLineEdit, QPlainTextEdit, QTextEdit, QTextBrowser, QComboBox, QSpinBox, QDoubleSpinBox {
-    background: rgba(255,255,255,${ctl}); color: ${ink}; border: 1px solid rgba(${ink_rgb},56);
+    background: rgba(${surf_rgb},${ctl}); color: ${ink}; border: 1px solid rgba(${ink_rgb},56);
     border-radius: ${r_control}px; padding: 8px; selection-background-color: ${blue};
-    selection-color: #ffffff; }
+    selection-color: ${on_blue}; }
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus,
 QDoubleSpinBox:focus { border: 1px solid ${blue}; }
 QLineEdit:disabled, QPlainTextEdit:disabled, QComboBox:disabled { color: ${disabled}; }
-QListWidget { background: rgba(255,255,255,${ctl}); border: 1px solid rgba(${ink_rgb},56);
+QListWidget { background: rgba(${surf_rgb},${ctl}); border: 1px solid rgba(${ink_rgb},56);
     border-radius: ${r_control}px; }
 QListWidget::item { padding: 12px 8px; }
 QListWidget::item:selected { background: rgba(${blue_rgb},38); color: ${blue_dark}; }
-QTabWidget::pane { border: 1px solid rgba(${ink_rgb},40); background: rgba(255,255,255,${w_pane});
+QTabWidget::pane { border: 1px solid rgba(${ink_rgb},40); background: rgba(${surf_rgb},${w_pane});
     border-radius: ${r_control}px; }
 QTabBar::tab { background: transparent; padding: 10px 16px; color: ${muted_text}; }
 QTabBar::tab:selected { color: ${blue_dark}; border-bottom: 2px solid ${blue}; }
@@ -83,14 +84,14 @@ QComboBox QAbstractItemView, QMenu { background: ${solid_panel}; color: ${ink};
     selection-color: ${ink}; }
 QMenu::item { padding: 8px 18px; }
 QMenu::item:selected { background: rgba(${blue_rgb},40); }
-QLabel#readyBadge { color: ${ok}; background: rgba(23,113,74,30); border-radius: 8px;
+QLabel#readyBadge { color: ${ok}; background: rgba(${ok_rgb},34); border-radius: 8px;
     padding: 5px 8px; }
 QLabel#endedBadge { color: ${muted_text}; background: rgba(${ink_rgb},22); border-radius: 8px;
     padding: 5px 8px; }
 QCheckBox { spacing: 9px; }
 QCheckBox::indicator { width: 16px; height: 16px; border-radius: 5px;
-    border: 1px solid rgba(${ink_rgb},120); background: #ffffff; }
-QCheckBox::indicator:checked { background: ${blue}; border: 4px solid #dfe3ff; }
+    border: 1px solid rgba(${ink_rgb},120); background: ${solid_control}; }
+QCheckBox::indicator:checked { background: ${blue}; border: 4px solid ${solid_control}; }
 QCheckBox:focus { color: ${blue_dark}; }
 QScrollBar:vertical { background: transparent; width: 8px; }
 QScrollBar::handle:vertical { background: rgba(${ink_rgb},70); border-radius: 4px;
@@ -102,39 +103,57 @@ QToolTip { color: ${ink}; background: ${solid_panel}; border: 1px solid rgba(${i
 )
 
 
+def rgb(color: str) -> str:
+    """'#rrggbb' -> 'r,g,b' for rgba() in QSS."""
+    c = QColor(color)
+    return f"{c.red()},{c.green()},{c.blue()}"
+
+
 def _build_style(opaque: bool) -> str:
-    """The glass stylesheet; ``opaque`` swaps every translucent white for a solid one."""
+    """The glass stylesheet; ``opaque`` swaps every translucent surface for a solid one."""
 
     def alpha(value: int) -> int:
         return 255 if opaque else value
 
     return _STYLE_TEMPLATE.substitute(
         ink=tokens.INK,
-        ink_rgb="35,40,71",
+        ink_rgb=tokens.INK_RGB,
         base=tokens.BASE,
         blue=tokens.BLUE,
-        blue_rgb="67,85,220",
+        blue_rgb=rgb(tokens.BLUE),
         blue_dark=tokens.BLUE_DARK,
+        on_blue=tokens.ON_BLUE,
         muted_text=tokens.MUTED_TEXT,
         disabled=tokens.DISABLED_TEXT,
         recording=tokens.RECORDING,
         ok=tokens.OK,
+        ok_rgb=rgb(tokens.OK),
+        surf_rgb=tokens.SURFACE_RGB,
+        edge_rgb=rgb(tokens.EDGE),
         ctl=alpha(tokens.ALPHA_CONTROL),
         card=alpha(tokens.ALPHA_CARD),
         w_dim=alpha(110),
         w_head=alpha(150),
         w_pane=alpha(120),
-        w_edge=alpha(200),
+        w_edge=alpha(tokens.EDGE_ALPHA),
         r_control=tokens.RADIUS_CONTROL,
         r_card=tokens.RADIUS_CARD,
         solid_panel=tokens.SOLID_PANEL,
+        solid_control=tokens.SOLID_CONTROL,
     )
 
 
-STYLE = _build_style(opaque=False)
-OPAQUE_STYLE = _build_style(opaque=True)
+def __getattr__(name: str) -> str:
+    # STYLE / OPAQUE_STYLE always reflect the active palette, so they can never be stale.
+    if name == "STYLE":
+        return _build_style(opaque=False)
+    if name == "OPAQUE_STYLE":
+        return _build_style(opaque=True)
+    raise AttributeError(name)
 
-ONBOARDING_STYLE = f"""
+
+def onboarding_style() -> str:
+    return f"""
 QWizardPage {{ background: transparent; }}
 QRadioButton:disabled, QCheckBox:disabled, QLabel:disabled {{ color: {tokens.DISABLED_TEXT}; }}
 """
@@ -145,7 +164,7 @@ def window_style() -> str:
     policy = motion.current()
     if policy.high_contrast:
         return ""
-    return OPAQUE_STYLE if policy.reduce_transparency else STYLE
+    return _build_style(opaque=policy.reduce_transparency)
 
 
 def status_color(color: str) -> str:
@@ -154,9 +173,9 @@ def status_color(color: str) -> str:
 
 
 def white(alpha: int) -> str:
-    """Translucent white for local QSS, solid when transparency is reduced."""
+    """Translucent panel tint for local QSS (blue glass), solid when transparency is reduced."""
     solid = motion.current().reduce_transparency or motion.current().high_contrast
-    return f"rgba(255, 255, 255, {255 if solid else alpha})"
+    return f"rgba({tokens.SURFACE_RGB}, {255 if solid else alpha})"
 
 
 def apply_theme(app: QApplication) -> None:
@@ -170,15 +189,15 @@ def apply_theme(app: QApplication) -> None:
     for role, color in (
         (QPalette.ColorRole.Window, tokens.BASE),
         (QPalette.ColorRole.WindowText, tokens.INK),
-        (QPalette.ColorRole.Base, tokens.WHITE),
-        (QPalette.ColorRole.AlternateBase, "#f4f5fe"),
+        (QPalette.ColorRole.Base, tokens.SOLID_CONTROL),
+        (QPalette.ColorRole.AlternateBase, tokens.SOLID_CARD),
         (QPalette.ColorRole.Text, tokens.INK),
-        (QPalette.ColorRole.Button, tokens.WHITE),
+        (QPalette.ColorRole.Button, tokens.SOLID_CONTROL),
         (QPalette.ColorRole.ButtonText, tokens.INK),
         (QPalette.ColorRole.Highlight, tokens.BLUE),
-        (QPalette.ColorRole.HighlightedText, tokens.WHITE),
+        (QPalette.ColorRole.HighlightedText, tokens.ON_BLUE),
         (QPalette.ColorRole.PlaceholderText, tokens.MUTED_TEXT),
-        (QPalette.ColorRole.Link, tokens.BLUE),
+        (QPalette.ColorRole.Link, tokens.BLUE_DARK),
         (QPalette.ColorRole.ToolTipBase, tokens.SOLID_PANEL),
         (QPalette.ColorRole.ToolTipText, tokens.INK),
     ):

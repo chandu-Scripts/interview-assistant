@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from interview_assistant.app.practice_library import PracticeLibrary
 from interview_assistant.ui import motion, tokens
 from interview_assistant.ui.practice_import import PracticeImport
-from interview_assistant.ui.theme import white
+from interview_assistant.ui.theme import rgb, white
 
 
 class PracticePage(QWidget):
@@ -74,8 +74,8 @@ class PracticePage(QWidget):
             "QListWidget { border: none; background: transparent; }"
             "QListWidget::item { padding: 16px; margin: 4px 0; border-radius: 10px; "
             f"background: {white(150)}; }}"
-            "QListWidget::item:hover { background: rgba(67, 85, 220, 30); }"
-            f"QListWidget::item:selected {{ background: rgba(67, 85, 220, 46); "
+            f"QListWidget::item:hover {{ background: rgba({rgb(tokens.BLUE)}, 30); }}"
+            f"QListWidget::item:selected {{ background: rgba({rgb(tokens.BLUE)}, 46); "
             f"color: {tokens.BLUE_DARK}; }}"
         )
         self.entries.itemClicked.connect(self._select)

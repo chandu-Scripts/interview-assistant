@@ -17,8 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from interview_assistant.ui import tokens
 from interview_assistant.ui.answer_typography import AnswerTypography
-from interview_assistant.ui.theme import white
+from interview_assistant.ui.theme import rgb, white
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,7 @@ class ParagraphCard(QFrame):
         self.setObjectName("answerParagraph")
         self.setStyleSheet(
             f"QFrame#answerParagraph {{ background: {white(170)}; "
-            "border: 1px solid rgba(67, 85, 220, 45); border-radius: 12px; }"
+            f"border: 1px solid rgba({rgb(tokens.BLUE)}, 45); border-radius: 12px; }}"
         )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 8, 14, 14)
