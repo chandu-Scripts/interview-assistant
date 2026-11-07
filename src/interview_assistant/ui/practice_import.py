@@ -19,6 +19,8 @@ from interview_assistant.app.practice_library import (
     parse_qa_json,
     question_key,
 )
+from interview_assistant.ui import tokens
+from interview_assistant.ui.theme import status_color
 
 
 class PracticeImport(QWidget):
@@ -60,7 +62,7 @@ class PracticeImport(QWidget):
             "open Privacy and turn off Incognito."
         )
         self.privacy_notice.setWordWrap(True)
-        self.privacy_notice.setStyleSheet("color: #ffd29b;")
+        self.privacy_notice.setStyleSheet(f"color: {status_color(tokens.WARN)};")
         layout.addWidget(self.privacy_notice)
         row = QHBoxLayout()
         self.cancel_btn = QPushButton("Back to questions")
@@ -69,10 +71,6 @@ class PracticeImport(QWidget):
         self.validate_btn.clicked.connect(self._validate)
         self.import_btn = QPushButton("Import questions")
         self.import_btn.setObjectName("create")
-        self.import_btn.setStyleSheet(
-            "QPushButton#create:disabled { background: #23374a; color: #8a9cad; "
-            "border: 1px solid #354a5f; }"
-        )
         self.import_btn.clicked.connect(self._import)
         row.addWidget(self.cancel_btn)
         row.addStretch()

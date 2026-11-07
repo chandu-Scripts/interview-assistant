@@ -4,6 +4,8 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QLabel, QTextEdit, QVBoxLayout, QWidget
 
 from interview_assistant.stt.base import TranscriptEvent
+from interview_assistant.ui import tokens
+from interview_assistant.ui.theme import status_color
 
 MAX_UTTERANCES = 300
 
@@ -68,7 +70,7 @@ class TranscriptPanel(QWidget):
     def _render(self) -> None:
         parts = [f"<p>{escape(t)}</p>" for t in self.final_texts]
         parts += [
-            f"<p style='color:#888;font-style:italic'>{escape(t)}</p>"
+            f"<p style='color:{status_color(tokens.MUTED_TEXT)};font-style:italic'>{escape(t)}</p>"
             for _, t in sorted(self._partials.items())
         ]
         self.view.setHtml("".join(parts))

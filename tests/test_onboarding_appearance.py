@@ -123,7 +123,7 @@ def page_background(wizard) -> QColor:
 
 def assert_readable_page(wizard):
     background = luminance(page_background(wizard))
-    assert background < 0.15, "The native wizard painted a light page behind light text"
+    assert background > 0.6, "The native wizard must paint the light glass page behind dark ink"
     labels = [
         label
         for label in wizard.findChildren(QLabel)

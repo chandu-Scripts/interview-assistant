@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
 
 from interview_assistant.app.attachments import ATTACHMENT_FILTER, AttachmentError, read_attachment
 from interview_assistant.app.resume_library import ResumeLibrary
+from interview_assistant.ui import tokens
+from interview_assistant.ui.theme import status_color
 
 
 class ResumeImport(QThread):
@@ -78,7 +80,7 @@ class ResumePage(QWidget):
             "Use a resume for a session without saving it, or open Privacy to manage saved resumes."
         )
         self.write_notice.setWordWrap(True)
-        self.write_notice.setStyleSheet("color: #ffd29b;")
+        self.write_notice.setStyleSheet(f"color: {status_color(tokens.WARN)};")
         self.privacy_btn = QPushButton("Open Privacy")
         self.privacy_btn.clicked.connect(self.privacy_requested.emit)
         privacy_row = QHBoxLayout()

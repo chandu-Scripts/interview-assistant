@@ -1,7 +1,8 @@
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QRectF, QSettings
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
@@ -32,11 +33,13 @@ from interview_assistant.config.settings import Settings
 from interview_assistant.config.user_settings import UserSettingsStore
 from interview_assistant.privacy.consent import KEY as CONSENT_KEY
 from interview_assistant.privacy.disclosure import CONSENT_TEXT
+from interview_assistant.ui import tokens
 from interview_assistant.ui.bg import Runner, run_in_thread
 from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.key_row import Checker, KeyRow
 from interview_assistant.ui.settings_dialog import WHISPER_CHOICES
-from interview_assistant.ui.theme import ONBOARDING_STYLE, STYLE, center_window
+from interview_assistant.ui.surfaces import GlassBackdrop, Panel
+from interview_assistant.ui.theme import ONBOARDING_STYLE, center_window, window_style
 
 DONE_KEY = "onboarding/done_v1"
 WarmupFn = Callable[[str], None]
@@ -240,7 +243,7 @@ class OnboardingWizard(QWizard):
     ) -> None:
         super().__init__()
         self.setWindowTitle("Interview Assistant - setup")
-        # Windows Aero paints white native page surfaces despite the dark app palette.
+        # Windows Aero paints opaque native page surfaces over the themed glass.
         self.setWizardStyle(QWizard.WizardStyle.ClassicStyle)
         center_window(self, 840, 660)
         self.button(QWizard.WizardButton.NextButton).setObjectName("connect")
@@ -251,7 +254,18 @@ class OnboardingWizard(QWizard):
         self.profile = ProfilePage()
         for page in (self.welcome, self.providers, self.speech, self.profile):
             self.addPage(page)
-        self.setStyleSheet(STYLE + ONBOARDING_STYLE)
+        self.setStyleSheet(window_style() + ONBOARDING_STYLE)
+        self.backdrop = GlassBackdrop(self, self._glass_panels, animated=True, radius=0)
+
+    def _glass_panels(self) -> list[Panel]:
+        inset = QRectF(self.rect()).adjusted(6, 6, -6, -6)
+        return [Panel(inset, tokens.RADIUS_PANEL, "panel", rim=True)]
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        self.backdrop.paint(painter)
+        painter.end()
+        super().paintEvent(event)
 
     def collect(self) -> dict[str, Any]:
         sp, pr = self.speech, self.profile

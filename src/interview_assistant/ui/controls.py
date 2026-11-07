@@ -14,6 +14,8 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPaintEvent, QPen, QWheelEvent
 from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QCheckBox, QComboBox, QWidget
 
+from interview_assistant.ui import motion, tokens
+
 
 class ToggleSwitch(QCheckBox):
     """Accessible checkable switch with an animated thumb and glass-theme colours."""
@@ -35,7 +37,7 @@ class ToggleSwitch(QCheckBox):
 
     def _animate(self, checked: bool) -> None:
         self._animation.stop()
-        if not self.isVisible():
+        if not self.isVisible() or not motion.current().animations_allowed:
             self._move_thumb(float(checked))
             return
         self._animation.setStartValue(self._position)
@@ -58,15 +60,15 @@ class ToggleSwitch(QCheckBox):
             painter.setOpacity(0.45)
         track = QRectF(3, (self.height() - 26) / 2, 48, 26)
         gradient = QLinearGradient(track.topLeft(), track.bottomRight())
-        gradient.setColorAt(0, QColor("#77e5df" if self.isChecked() else "#334b66"))
-        gradient.setColorAt(1, QColor("#328d9b" if self.isChecked() else "#172c42"))
-        painter.setPen(QPen(QColor("#8af0ed" if self.isChecked() else "#60849d"), 1))
+        gradient.setColorAt(0, QColor("#6f83ff" if self.isChecked() else "#a3a8c0"))
+        gradient.setColorAt(1, QColor(tokens.BLUE if self.isChecked() else "#8d92ab"))
+        painter.setPen(QPen(QColor(tokens.BLUE_DARK if self.isChecked() else tokens.MUTED), 1))
         painter.setBrush(gradient)
         painter.drawRoundedRect(track, 13, 13)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#efffff"))
+        painter.setBrush(QColor(tokens.WHITE))
         painter.drawEllipse(QRectF(6 + 22 * self._position, track.top() + 3, 20, 20))
-        painter.setPen(QColor("#8af0ed" if self.isChecked() else "#a7b9d2"))
+        painter.setPen(QColor(tokens.BLUE_DARK if self.isChecked() else tokens.INK))
         painter.drawText(
             self.rect().adjusted(64, 0, -2, 0),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -74,7 +76,7 @@ class ToggleSwitch(QCheckBox):
         )
         if self.hasFocus():
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(QColor("#77e5df"), 1, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(QColor(tokens.BLUE), 2))
             painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 6, 6)
 
 
