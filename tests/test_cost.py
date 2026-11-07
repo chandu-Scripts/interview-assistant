@@ -430,3 +430,12 @@ def test_new_interview_resets_session_and_history(qtbot, tmp_path):
     c.new_interview()
     assert tracker.summary("session").calls == 0 and tracker.summary("all").calls == 1
     c.shutdown()
+
+
+def test_overlay_cost_label_shows_spend_only_even_with_a_saved_budget(qtbot, tmp_path):
+    tracker, c, o = make_stack(qtbot, tmp_path, budget=Budget(17.0))
+    c.ask("Write a function to solve the two sum problem.")
+    qtbot.waitUntil(lambda: tracker.summary().calls == 1, timeout=5000)
+    qtbot.waitUntil(lambda: "$" in o.cost_label.text(), timeout=2000)
+    assert "/" not in o.cost_label.text()
+    c.shutdown()
