@@ -2,7 +2,7 @@
 
 from functools import partial
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QDialog,
@@ -26,6 +26,7 @@ from interview_assistant.ui.bg import Runner, run_in_thread
 from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.key_row import Checker
 from interview_assistant.ui.provider_catalog import NAMES, ProviderCatalog, fingerprint
+from interview_assistant.ui.provider_icons import provider_icon
 from interview_assistant.ui.surfaces import GlassBackdrop, Panel
 from interview_assistant.ui.theme import status_color, window_style
 
@@ -48,6 +49,8 @@ def update_provider_button(button: QPushButton, provider: str, catalog: Provider
         "unverified": "Not verified",
     }[state]
     button.setText(f"●  {NAMES[provider]}\n{label}")
+    button.setIcon(provider_icon(provider))
+    button.setIconSize(QSize(28, 28))
     button.setProperty("providerState", state)
     button.setStyleSheet(
         f"QPushButton {{ color: {status_color(state_color(state))}; "

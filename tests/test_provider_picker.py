@@ -356,8 +356,7 @@ def test_glass_popup_selects_same_models_and_closes_with_escape(qtbot, tmp_path)
     d.show()
     d.provider_buttons["openai"].click()
     popup = d.provider_dialogs["openai"]
-    assert popup.isVisible() and popup.width() <= 570
-    assert popup.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    assert popup.isVisible() and not popup.isWindow()
     assert d.key_rows["openai"].isVisible()
     assert not d.key_rows["anthropic"].isVisible()
     qtbot.keyClick(popup, Qt.Key.Key_Escape)
@@ -497,8 +496,7 @@ def test_provider_popup_sizing_and_no_unrequested_network(qtbot, tmp_path):
     popup = d.provider_dialogs["openai"]
     qtbot.waitUntil(lambda: popup.isVisible())
     QApplication.processEvents()
-    assert popup.height() <= 560 and popup.width() <= 570
-    assert d.height() <= 560
+    assert not popup.isWindow() and d.height() <= 560
     assert not calls and catalog.status("openai")[0] == "unverified"
     popup.grab().save(str(tmp_path / "provider-popup.png"))
     d.hide()
@@ -631,3 +629,25 @@ def test_remove_failure_keeps_active_key_and_reports_failure(qtbot, tmp_path):
     row.remove()
     assert "still in" in row.result.text()
     assert catalog.status("openai")[0] == "verified"
+
+
+def test_provider_row_opens_inline_and_back_returns_to_the_list(qtbot, tmp_path):
+    d, _selector, _catalog, _ = make(qtbot, tmp_path, initial={"openai": "key"})
+    d.show()
+    panel = d.provider_dialogs["openai"]
+    assert not panel.isVisible() and d.provider_buttons["openai"].isVisible()
+    d.provider_buttons["openai"].click()
+    assert panel.isVisible() and not panel.isWindow()
+    assert not d.provider_buttons["openai"].isVisible()
+    panel.back_btn.click()
+    assert not panel.isVisible() and d.provider_buttons["openai"].isVisible()
+
+
+def test_provider_buttons_show_a_distinct_icon(qtbot, tmp_path):
+    d, _selector, _catalog, _ = make(qtbot, tmp_path)
+    keys = [
+        d.provider_buttons[p].icon().pixmap(28, 28).toImage().pixelColor(14, 3).name()
+        for p in ("openai", "anthropic", "gemini")
+    ]
+    assert all(not d.provider_buttons[p].icon().isNull() for p in d.provider_buttons)
+    assert len(set(keys)) == 3

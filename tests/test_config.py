@@ -1049,3 +1049,21 @@ def test_key_status_dataclass_helpers():
     assert KeyStatus("openai", "none", "").present is False
     assert KeyStatus("openai", "env", "sk-…1234").editable is False
     assert KeyStatus("openai", "keyring", "sk-…1234").editable is True
+
+
+def test_settings_navigation_lists_every_page_and_follows_the_tabs(qtbot, dialog):
+    d, _ = dialog
+    titles = [d.tabs.tabText(i) for i in range(d.tabs.count())]
+    assert [b.text() for b in d.nav_buttons] == titles
+    assert not d.tabs.tabBar().isVisibleTo(d)
+    assert "Privacy" in titles and "Hotkeys" in titles
+    d.nav_buttons[2].click()
+    assert d.tabs.currentIndex() == 2
+    d.tabs.setCurrentIndex(4)
+    assert d.nav_buttons[4].isChecked() and not d.nav_buttons[2].isChecked()
+
+
+def test_settings_save_is_the_primary_button(qtbot, dialog):
+    d, _ = dialog
+    assert d.save_btn.objectName() == "create"
+    assert d.cancel_btn.objectName() != "create"

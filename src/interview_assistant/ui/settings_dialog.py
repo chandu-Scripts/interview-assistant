@@ -2,9 +2,10 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QStackedWidget,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -59,7 +61,7 @@ from interview_assistant.ui.provider_catalog import (
     ProviderCatalog,
 )
 from interview_assistant.ui.provider_catalog import MODEL_FIELDS as PROVIDER_FIELDS
-from interview_assistant.ui.provider_picker import GlassDialog, update_provider_button
+from interview_assistant.ui.provider_picker import update_provider_button
 from interview_assistant.ui.relay_panel import RelayPanel, RequestFn, StatusFn
 
 WHISPER_CHOICES = [
@@ -71,6 +73,41 @@ WHISPER_CHOICES = [
 MODEL_PROVIDER = {
     field: provider for provider, fields in PROVIDER_FIELDS.items() for field in fields
 }
+
+
+class ProviderPanel(QWidget):
+    """One provider's key and model controls, shown inside the Settings page (no extra window)."""
+
+    def __init__(self, title: str, stack: QStackedWidget) -> None:
+        super().__init__()
+        self._stack = stack
+        outer = QVBoxLayout(self)
+        header = QHBoxLayout()
+        self.back_btn = QPushButton("‹  AI providers")
+        self.back_btn.setAccessibleName("Back to AI providers")
+        self.back_btn.clicked.connect(self.reject)
+        header.addWidget(self.back_btn)
+        label = QLabel(title)
+        label.setObjectName("cardTitle")
+        header.addWidget(label, 1)
+        outer.addLayout(header)
+        self.body = QVBoxLayout()
+        self.body.setSpacing(14)
+        outer.addLayout(self.body, 1)
+
+    def present(self) -> None:
+        self._stack.setCurrentWidget(self)
+
+    def reject(self) -> None:
+        if self._stack.currentWidget() is self:
+            self._stack.setCurrentIndex(0)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class SettingsDialog(QDialog):
@@ -114,8 +151,9 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self._providers_tab(checker, runner), "AI providers")
         self.tabs.addTab(self._speech_tab(), "Speech")
         self.tabs.addTab(self._profile_tab(), "Profile")
-        self.tabs.addTab(self._budget_tab(), "Budget && history")
-        self.tabs.addTab(self._privacy_tab(), "Privacy && hotkeys")
+        self.tabs.addTab(self._budget_tab(), "Budget and history")
+        self.tabs.addTab(self._privacy_tab(), "Privacy")
+        self.tabs.addTab(self._hotkeys_tab(), "Hotkeys")
         self.tabs.addTab(self._appearance_tab(), "Appearance")
         if not self._customer:
             self.tabs.addTab(
@@ -139,16 +177,22 @@ class SettingsDialog(QDialog):
             scroll.setWidget(content)
             self.tabs.insertTab(index, scroll, title)
         self.tabs.setCurrentIndex(0)
+        self.tabs.tabBar().hide()
+        self.tabs.currentChanged.connect(self._sync_nav)
         self.message = QLabel("")
         self.message.setWordWrap(True)
         self.save_btn = QPushButton("Save")
+        self.save_btn.setObjectName("create")
         self.cancel_btn = QPushButton("Cancel")
         buttons = QHBoxLayout()
         buttons.addWidget(self.message, 1)
-        buttons.addWidget(self.save_btn)
         buttons.addWidget(self.cancel_btn)
+        buttons.addWidget(self.save_btn)
+        body = QHBoxLayout()
+        body.addLayout(self._nav_column(), 0)
+        body.addWidget(self.tabs, 1)
         layout = QVBoxLayout(self)
-        layout.addWidget(self.tabs, 1)
+        layout.addLayout(body, 1)
         layout.addLayout(buttons)
         self.save_btn.clicked.connect(self.save)
         self.cancel_btn.clicked.connect(self.reject)
@@ -156,14 +200,37 @@ class SettingsDialog(QDialog):
         self.catalog.changed.connect(self._refresh_providers)
         self._refresh_providers()
 
+    # ---- navigation ----
+    def _nav_column(self) -> QVBoxLayout:
+        """One button per page; the QTabWidget stays the source of truth for the current page."""
+        column = QVBoxLayout()
+        self.nav_buttons: list[QPushButton] = []
+        group = QButtonGroup(self)
+        group.setExclusive(True)
+        for index in range(self.tabs.count()):
+            button = QPushButton(self.tabs.tabText(index))
+            button.setObjectName("nav")
+            button.setCheckable(True)
+            button.setFixedWidth(160)
+            button.clicked.connect(partial(self.tabs.setCurrentIndex, index))
+            group.addButton(button)
+            column.addWidget(button)
+            self.nav_buttons.append(button)
+        column.addStretch(1)
+        self._sync_nav(self.tabs.currentIndex())
+        return column
+
+    def _sync_nav(self, index: int) -> None:
+        if 0 <= index < len(self.nav_buttons):
+            self.nav_buttons[index].setChecked(True)
+
     # ---- tabs ----
     def _appearance_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         note = QLabel(
-            "Customize answer text. Preview changes here, then Save to apply without restarting. "
-            "Code stays in regular Consolas at the selected size. "
-            "The theme applies after a restart."
+            "Answer text applies on Save. Theme applies after a restart. "
+            "Code always uses Consolas."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -229,9 +296,11 @@ class SettingsDialog(QDialog):
 
     def _providers_tab(self, checker: Checker, runner: Runner) -> QWidget:
         w = QWidget()
+        self.provider_stack = QStackedWidget()
+        self.provider_stack.addWidget(w)
         lay = QVBoxLayout(w)
-        note = QLabel(
-            "Choose a provider to manage its key and Fast / Smart models. "
+        note = QLabel("Pick a provider to manage its key and models.")
+        note.setToolTip(
             "Green: key verified. Red: missing or rejected. Amber: test needed or connection issue."
         )
         note.setWordWrap(True)
@@ -244,7 +313,7 @@ class SettingsDialog(QDialog):
             billing.setWordWrap(True)
             lay.addWidget(billing)
         self.provider_buttons: dict[str, QPushButton] = {}
-        self.provider_dialogs: dict[str, GlassDialog] = {}
+        self.provider_dialogs: dict[str, ProviderPanel] = {}
         self.provider_states: dict[str, QLabel] = {}
         self.model_boxes: dict[str, ChoiceComboBox] = {}
         for p in KEY_PROVIDERS:
@@ -262,11 +331,12 @@ class SettingsDialog(QDialog):
             self.key_rows[p] = row
             if p == "speechmatics":
                 lay.addWidget(row)
-                note = QLabel("Select Speechmatics in the Speech tab to enable live transcription.")
+                note = QLabel("Select Speechmatics on the Speech page for live transcription.")
                 note.setWordWrap(True)
                 lay.addWidget(note)
                 continue
-            popup = GlassDialog(NAMES[p], self)
+            popup = ProviderPanel(NAMES[p], self.provider_stack)
+            self.provider_stack.addWidget(popup)
             self.provider_dialogs[p] = popup
             state = QLabel()
             state.setWordWrap(True)
@@ -299,7 +369,7 @@ class SettingsDialog(QDialog):
                 popup.body.addWidget(self.recommended_models_btn)
             note = QLabel(
                 "Test key checks authentication only; credits and model access may vary. "
-                "Keys save immediately. Close this popup and use Settings → Save "
+                "Keys save immediately. Go back and use Save "
                 "to apply model changes."
             )
             note.setWordWrap(True)
@@ -327,7 +397,7 @@ class SettingsDialog(QDialog):
         lay.addWidget(advanced_button)
         lay.addWidget(advanced)
         lay.addStretch(1)
-        return w
+        return self.provider_stack
 
     def _open_provider(self, provider: str) -> None:
         self.key_rows[provider].refresh()
@@ -410,10 +480,7 @@ class SettingsDialog(QDialog):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.addWidget(
-            QLabel(
-                "Your background, sent with each question so answers fit you. Emails and phone "
-                "numbers are masked before sending if redaction is on."
-            )
+            QLabel("Your background. It is sent with each question so answers fit you.")
         )
         self.profile = QPlainTextEdit()
         self.profile.setPlaceholderText(
@@ -463,6 +530,14 @@ class SettingsDialog(QDialog):
         self.incognito = QCheckBox("Start in incognito (save nothing)")
         self.redact = QCheckBox("Mask emails, phones, cards and API keys before sending to AI")
         self.consent = QCheckBox("Show the recording notice before the first capture")
+        form.addRow(self.incognito)
+        form.addRow(self.redact)
+        form.addRow(self.consent)
+        return w
+
+    def _hotkeys_tab(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
         self.hotkey_presentation = QLineEdit()
         self.hotkey_overlay = QLineEdit()
         self.hotkey_bubble = QLineEdit()
@@ -478,15 +553,12 @@ class SettingsDialog(QDialog):
             self.hotkey_chat,
         ):
             e.setPlaceholderText("e.g. ctrl+alt+p (empty = disabled)")
-        form.addRow(self.incognito)
-        form.addRow(self.redact)
-        form.addRow(self.consent)
-        form.addRow("Hotkey: presentation mode", self.hotkey_presentation)
-        form.addRow("Hotkey: show/hide overlay", self.hotkey_overlay)
-        form.addRow("Hotkey: collapse to bubble", self.hotkey_bubble)
-        form.addRow("Hotkey: answer from any window", self.hotkey_answer)
-        form.addRow("Hotkey: screenshot from any window", self.hotkey_screenshot)
-        form.addRow("Hotkey: show/hide chat from any window", self.hotkey_chat)
+        form.addRow("Presentation mode", self.hotkey_presentation)
+        form.addRow("Show or hide overlay", self.hotkey_overlay)
+        form.addRow("Collapse to bubble", self.hotkey_bubble)
+        form.addRow("Answer", self.hotkey_answer)
+        form.addRow("Screenshot", self.hotkey_screenshot)
+        form.addRow("Show or hide chat", self.hotkey_chat)
         return w
 
     def _shared_access_tab(
