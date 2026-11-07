@@ -43,6 +43,7 @@ identified in the status document and remain on their respective branches.
 - [Customer access, admin and BYOK integration](decisions/004-customer-access-integration.md)
 - [Natural answers and project overviews](decisions/005-natural-answers-project-overview.md)
 - [Explicit screen-share privacy](decisions/screen-share-privacy.md)
+- [Blue glass light and dark themes](decisions/006-blue-glass-light-dark-theme.md)
 
 ## Bug-fix evidence
 

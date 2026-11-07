@@ -1,7 +1,7 @@
 # Built-in prompt toggle
 
-The session wizard places a sliding navy/cyan switch directly below AI instructions.
-Its thumb animates over 160 ms; cyan/right means On and muted/left means Off.
+The session wizard places a sliding switch directly below AI instructions, styled with the
+light glass theme. Its thumb animates over 160 ms; blue/right means On and grey/left means Off.
 Its visible On/Off label and checked state expose the choice to keyboard and accessibility
 users. New forms and cancelled forms default to On.
 
@@ -30,7 +30,7 @@ Tests cover all specialist prompts in Off mode, actual generation requests in bo
 controller output normalization, form reset, persistence/resume, schema 6 migration and the
 native Windows layout. API providers and audio are mocked; no paid requests are needed.
 
-The Features button beside the toggle expands a navy/cyan panel inside the same workspace.
+The Features button beside the toggle expands a light blue glass panel inside the same workspace.
 It shows short titles for the current built-in rules, not the full prompt. The scrollable list
 is available in both modes, automatically scrolls into view and has a Close button. Cancel or
 creating a session collapses it. The titles live alongside the built-in prompt in

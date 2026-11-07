@@ -7,7 +7,8 @@ automatic failover, tracks cost, keeps a searchable local history, and has expli
 
 **Current status:** [Completed work, pending tasks, branches and release gaps](docs/PROJECT_STATUS.md).
 The source includes Screen-share privacy (`78f5b54`, merged and pushed); the latest installer
-has not been rebuilt. The light glass redesign and improved saved-Q&A matching remain separate branches.
+has not been rebuilt. The blue glass light and dark themes (`172bd33`, modelled on the Orbit app's look; choose in
+Settings > Appearance) are in main; improved saved-Q&A matching remains a separate branch.
 
 **Privacy controls (see AGENTS.md):** capture requires an explicit start and visible indicator.
 Presentation hides locally and pauses capture/answers. The separate Screen-share privacy toggle

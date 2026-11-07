@@ -45,7 +45,7 @@ button and transition to a complete 120-model synthetic list with a visible coun
 No live provider request or installed-app update was performed in this verification.
 
 The AI providers page now shows OpenAI, Anthropic (Claude), and Google (Gemini) cards.
-Clicking a card opens a small navy/cyan glass popup with its key controls and Fast/Smart
+Clicking a card opens a small light glass popup with its key controls and Fast/Smart
 model presets. Advanced routing chains are collapsed by default. Speechmatics retains its
 separate key controls and Speech-tab selection.
 
