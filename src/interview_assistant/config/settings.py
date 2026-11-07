@@ -100,6 +100,8 @@ class Settings(BaseSettings):
     answer_font_family: Literal["Segoe UI", "Arial", "Calibri", "Consolas"] = "Segoe UI"
     answer_font_weight: Literal["Regular", "Medium", "Bold"] = "Regular"
     answer_font_size: Literal["Small", "Medium", "Large"] = "Medium"
+    # Window colours. "system" follows the Windows app colour mode; applied at startup.
+    theme: Literal["system", "light", "dark"] = "light"
     # Cost tracking. budget_usd=None disables budgets; hard stop blocks new answers once exceeded.
     budget_usd: float | None = None
     budget_scope: Literal["session", "day", "month"] = "session"

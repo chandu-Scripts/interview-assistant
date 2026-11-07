@@ -162,7 +162,8 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(page)
         note = QLabel(
             "Customize answer text. Preview changes here, then Save to apply without restarting. "
-            "Code stays in regular Consolas at the selected size."
+            "Code stays in regular Consolas at the selected size. "
+            "The theme applies after a restart."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -178,6 +179,14 @@ class SettingsDialog(QDialog):
         self.answer_font_size = ChoiceComboBox()
         for size, points in SIZES.items():
             self.answer_font_size.addItem(f"{size} ({points} pt)", size)
+        self.theme = ChoiceComboBox()
+        for value, label in (
+            ("light", "Light blue"),
+            ("dark", "Dark blue"),
+            ("system", "Match Windows"),
+        ):
+            self.theme.addItem(label, value)
+        form.addRow("Theme (restart to apply)", self.theme)
         form.addRow("Font family", self.answer_font_family)
         form.addRow("Font style", self.answer_font_weight)
         form.addRow("Font size", self.answer_font_size)
@@ -530,6 +539,7 @@ class SettingsDialog(QDialog):
                     if route.provider in PROVIDERS
                 )
             edit.setText(value)
+        self._select(self.theme, s.theme)
         self._select(self.stt_provider, s.stt_provider)
         self._select_or_add(self.whisper_model, s.whisper_model)
         self.stt_language.setText(s.stt_language or "")
@@ -590,6 +600,7 @@ class SettingsDialog(QDialog):
                 except ValueError as e:
                     raise ValueError(f"{field}: {e}") from e
             values[field] = text or None
+        values["theme"] = self.theme.currentData()
         values["stt_provider"] = self.stt_provider.currentData()
         values["whisper_model"] = self.whisper_model.currentData()
         values["stt_language"] = self.stt_language.text().strip() or None

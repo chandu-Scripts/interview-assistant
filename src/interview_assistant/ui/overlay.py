@@ -10,6 +10,7 @@ from PySide6.QtGui import (
     QGuiApplication,
     QKeySequence,
     QPainter,
+    QPainterPath,
     QShortcut,
 )
 from PySide6.QtWidgets import (
@@ -41,57 +42,83 @@ from interview_assistant.ui.audio_panel import AudioPanel
 from interview_assistant.ui.controls import ChoiceComboBox
 from interview_assistant.ui.screenshot import capture_screen_png
 from interview_assistant.ui.surfaces import Panel, paint_panel
+from interview_assistant.ui.theme import rgb as theme_rgb
 
-# Light glass live bar: one toolbar with labelled shortcut buttons, a listening line under it,
+
+# Blue glass live bar: one toolbar with labelled shortcut buttons, a listening line under it,
 # and the answer panel below. The overlay floats over arbitrary content, so its fill is nearly
-# opaque and its blue rim is static: nothing animates during an interview.
-STYLE = f"""
+# opaque and its rim is static: nothing animates during an interview. The answer panel carries a
+# coloured top edge that always shows the state (see OverlayWindow.paintEvent).
+def build_style() -> str:
+    ink, rgb = tokens.INK, tokens.INK_RGB
+    blue_rgb = theme_rgb(tokens.BLUE)
+    return f"""
 QWidget {{ font-family: 'Segoe UI'; font-size: 12px; }}
-QLabel {{ color: {tokens.INK}; background: transparent; }}
+QLabel {{ color: {ink}; background: transparent; }}
 #title {{ color: {tokens.MUTED_TEXT}; font-size: 10px; }}
 #chip {{ color: {tokens.MUTED_TEXT}; font-size: 11px; }}
-#question {{ color: {tokens.INK}; font-size: 14px; font-weight: 600; padding: 8px 0; }}
-#transcript {{ background: rgba(35,40,71,0.07); border-radius: 8px; padding: 6px 10px; }}
+#question {{ color: {ink}; font-size: 15px; font-weight: 650; padding: 8px 0; }}
+#transcript {{ background: rgba({rgb},0.08); border-radius: 8px; padding: 6px 10px; }}
 #history {{ color: {tokens.MUTED_TEXT}; font-size: 11px; }}
 #warn {{ color: {tokens.WARN}; font-size: 11px; }}
-#timer {{ color: {tokens.INK}; font-size: 12px; }}
-#status {{ color: {tokens.MUTED_TEXT}; font-size: 12px; }}
-QTextBrowser {{ background: transparent; color: {tokens.INK}; border: none; font-size: 14px; }}
-QLineEdit {{ background: rgba(255,255,255,0.85); color: {tokens.INK};
-            border: 1px solid rgba(35,40,71,0.30); border-radius: 8px; padding: 4px 8px; }}
+#timer {{ color: {tokens.MUTED_TEXT}; font-size: 12px; }}
+#status {{ color: {tokens.MUTED_TEXT}; font-size: 12px; font-weight: 600; }}
+QTextBrowser {{ background: transparent; color: {ink}; border: none; font-size: 14px; }}
+QLineEdit {{ background: rgba({tokens.SURFACE_RGB},0.9); color: {ink};
+            border: 1px solid rgba({rgb},0.30); border-radius: 8px; padding: 4px 8px; }}
 QLineEdit:focus {{ border-color: {tokens.BLUE}; }}
-QPushButton {{ background: rgba(35,40,71,0.07); color: {tokens.INK};
+QPushButton {{ background: rgba({rgb},0.07); color: {ink};
               border: 1px solid transparent; border-radius: {tokens.RADIUS_CONTROL}px;
               padding: 6px 9px; }}
-QPushButton:hover {{ background: rgba(67,85,220,0.16); }}
+QPushButton:hover {{ background: rgba({blue_rgb},0.18); }}
 QPushButton:focus {{ border-color: {tokens.BLUE}; }}
-QPushButton:disabled {{ color: {tokens.DISABLED_TEXT}; background: rgba(35,40,71,0.04); }}
+QPushButton:disabled {{ color: {tokens.DISABLED_TEXT}; background: rgba({rgb},0.04); }}
 #iconbtn {{ padding: 2px 8px; font-weight: bold; }}
-#pill {{ font-weight: 600; background: rgba(67,85,220,0.14); color: {tokens.BLUE_DARK}; }}
+#pill {{ font-weight: 600; background: transparent; color: {ink}; }}
+#pill:hover {{ background: rgba({blue_rgb},0.18); }}
+#primary {{ font-weight: 650; background: {tokens.BLUE}; color: {tokens.ON_BLUE};
+           border-color: {tokens.BLUE}; }}
+#primary:hover {{ background: {tokens.BLUE_DARK}; border-color: {tokens.BLUE_DARK}; }}
+#primary:disabled {{ background: rgba({blue_rgb},0.22); color: {tokens.DISABLED_TEXT};
+                    border-color: transparent; }}
 #audio {{ padding: 4px 8px; }}
-#audio:checked {{ background: {tokens.RECORDING}; color: #ffffff; }}
-#end {{ background: {tokens.RECORDING}; color: #ffffff; font-weight: 600; }}
-#end:hover {{ background: #b71c1c; }}
-QMenu {{ background: {tokens.SOLID_PANEL}; color: {tokens.INK};
-        border: 1px solid rgba(35,40,71,0.20); padding: 5px; }}
+#audio:checked {{ background: {tokens.RECORDING}; color: {tokens.ON_BLUE}; }}
+#end {{ background: transparent; color: {tokens.RECORDING};
+       border: 1px solid {tokens.RECORDING}; font-weight: 600; }}
+#end:hover {{ background: {tokens.RECORDING}; color: {tokens.ON_BLUE}; }}
+QMenu {{ background: {tokens.SOLID_PANEL}; color: {ink};
+        border: 1px solid rgba({rgb},0.20); padding: 5px; }}
 QMenu::item {{ padding: 6px 18px; }}
-QMenu::item:selected {{ background: rgba(67,85,220,0.16); border-radius: 6px; }}
+QMenu::item:selected {{ background: rgba({blue_rgb},0.20); border-radius: 6px; }}
 QScrollBar:vertical {{ background: transparent; width: 7px; }}
-QScrollBar::handle:vertical {{ background: rgba(35,40,71,0.30); border-radius: 3px;
+QScrollBar::handle:vertical {{ background: rgba({rgb},0.30); border-radius: 3px;
                               min-height: 24px; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 """
-COST_COLOR = {
-    BudgetLevel.OK: tokens.OK,
-    BudgetLevel.WARN: tokens.WARN,
-    BudgetLevel.EXCEEDED: tokens.ERROR,
-}
-DOT = {
-    "idle": tokens.MUTED,
-    "listening": tokens.RECORDING,
-    "thinking": tokens.WARN,
-    "answering": tokens.OK,
-}
+
+
+def __getattr__(name: str) -> str:
+    if name == "STYLE":  # always the active palette; tests and callers never see a stale copy
+        return build_style()
+    raise AttributeError(name)
+
+
+def cost_color(level: BudgetLevel) -> str:
+    return {
+        BudgetLevel.OK: tokens.OK,
+        BudgetLevel.WARN: tokens.WARN,
+        BudgetLevel.EXCEEDED: tokens.ERROR,
+    }[level]
+
+
+def dot_color(state: str) -> str:
+    return {
+        "idle": tokens.MUTED,
+        "listening": tokens.RECORDING,
+        "thinking": tokens.WARN,
+        "answering": tokens.OK,
+    }[state]
+
 STATUS_TEXT = {
     "idle": "Ready",
     "listening": "Listening…",
@@ -149,9 +176,16 @@ class ShortcutButton(QPushButton):
         badge_width = QFontMetrics(font).horizontalAdvance(keys) + 12
         badge = QRectF(self.width() - badge_width - 6, 5, badge_width, self.height() - 10)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(35, 40, 71, 26 if self.isEnabled() else 10))
+        primary = self.objectName() == "primary"
+        text_color = QColor(tokens.ON_BLUE if primary else tokens.INK)
+        badge_fill = QColor(text_color)
+        badge_fill.setAlpha(48 if primary else 26)
+        if not self.isEnabled():
+            text_color = QColor(tokens.DISABLED_TEXT)
+            badge_fill.setAlpha(10)
+        painter.setBrush(badge_fill)
         painter.drawRoundedRect(badge, 4, 4)
-        painter.setPen(QColor(tokens.INK if self.isEnabled() else tokens.DISABLED_TEXT))
+        painter.setPen(text_color)
         painter.drawText(
             QRectF(9, 0, badge.left() - 12, self.height()), Qt.AlignmentFlag.AlignVCenter, label
         )
@@ -199,6 +233,7 @@ class OverlayWindow(QWidget):
         self._expanded_height = 420
         self._restore_width = 800
         self._listening = False
+        self._state = "idle"
         self._mic_bound = False
         self._busy = False
         self._answer_cost: float | None = None
@@ -212,7 +247,7 @@ class OverlayWindow(QWidget):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMinimumSize(640, 90)
-        self.setStyleSheet("" if motion.current().high_contrast else STYLE)
+        self.setStyleSheet("" if motion.current().high_contrast else build_style())
 
         self.dot = QLabel("●")
         self.title = QLabel("Interview Assistant")
@@ -230,6 +265,7 @@ class OverlayWindow(QWidget):
         self.mic_toggle = self._audio_toggle("🎤", "Microphone (what you say)")
         self.mic_toggle.setVisible(False)  # shown once bind_audio() gets a microphone panel
         self.answer_btn = self._shortcut_button("Answer", "Ctrl ↵", "Answer the question above")
+        self.answer_btn.setObjectName("primary")
         self.answer_btn.setEnabled(False)
         self.screenshot_btn = self._shortcut_button("Screenshot", "Ctrl ⇧ ↵", SCREENSHOT_TIP)
         self.chat_btn = self._shortcut_button("Chat", "Ctrl ⇧ Space", "Type a question (toggle)")
@@ -659,7 +695,7 @@ class OverlayWindow(QWidget):
         if state.limit_usd is not None:
             text += f" / {format_usd(state.limit_usd)}"
         self.cost_label.setText(text)
-        self.cost_label.setStyleSheet(f"color: {COST_COLOR[state.level]}; font-size: 11px;")
+        self.cost_label.setStyleSheet(f"color: {cost_color(state.level)}; font-size: 11px;")
         lines = [f"Session: {format_usd(summary.total_usd)} ({summary.calls} calls)"]
         lines += [f"  {k}: {format_usd(v)}" for k, v in sorted(summary.by_model.items())]
         if summary.stt_usd:
@@ -719,7 +755,9 @@ class OverlayWindow(QWidget):
         state = "answering" if answering else "thinking" if thinking else "idle"
         if state == "idle" and self._listening:
             state = "listening"
-        self.dot.setStyleSheet(f"color: {DOT[state]}; font-size: 14px;")
+        self._state = state
+        self.update()  # the answer panel's top edge follows the state
+        self.dot.setStyleSheet(f"color: {dot_color(state)}; font-size: 14px;")
         self.dot.setToolTip(state)
         self.status_label.setText(STATUS_TEXT[state])
 
@@ -979,6 +1017,20 @@ class OverlayWindow(QWidget):
             ):
                 if panel.isVisibleTo(self):
                     paint_panel(p, Panel(QRectF(panel.geometry()), radius, role, rim))
+            self._paint_state_edge(p)
+
+    def _paint_state_edge(self, p: QPainter) -> None:
+        """A 4 px band along the top of the answer panel; colour, not text, says what is going on
+        (listening is the same red as the recording indicator)."""
+        rect = QRectF(self.body.geometry())
+        if not self.body.isVisibleTo(self) or rect.isEmpty():
+            return
+        shape = QPainterPath()
+        shape.addRoundedRect(rect, tokens.RADIUS_CARD, tokens.RADIUS_CARD)
+        p.save()
+        p.setClipPath(shape)
+        p.fillRect(QRectF(rect.left(), rect.top(), rect.width(), 4), QColor(dot_color(self._state)))
+        p.restore()
 
     def mousePressEvent(self, e) -> None:  # noqa: N802
         if e.button() == Qt.MouseButton.LeftButton and (self._bubble or e.position().y() < 44):

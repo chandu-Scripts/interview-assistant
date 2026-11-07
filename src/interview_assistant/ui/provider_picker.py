@@ -29,12 +29,14 @@ from interview_assistant.ui.provider_catalog import NAMES, ProviderCatalog, fing
 from interview_assistant.ui.surfaces import GlassBackdrop, Panel
 from interview_assistant.ui.theme import status_color, window_style
 
-COLORS = {
-    "verified": tokens.OK,
-    "missing": tokens.ERROR,
-    "invalid": tokens.ERROR,
-    "unverified": tokens.WARN,
-}
+
+def state_color(state: str) -> str:
+    return {
+        "verified": tokens.OK,
+        "missing": tokens.ERROR,
+        "invalid": tokens.ERROR,
+        "unverified": tokens.WARN,
+    }[state]
 
 
 def update_provider_button(button: QPushButton, provider: str, catalog: ProviderCatalog) -> None:
@@ -48,7 +50,8 @@ def update_provider_button(button: QPushButton, provider: str, catalog: Provider
     button.setText(f"●  {NAMES[provider]}\n{label}")
     button.setProperty("providerState", state)
     button.setStyleSheet(
-        f"QPushButton {{ color: {status_color(COLORS[state])}; text-align: left; padding: 14px; }}"
+        f"QPushButton {{ color: {status_color(state_color(state))}; "
+        "text-align: left; padding: 14px; }"
     )
     button.setToolTip(detail)
     button.setAccessibleName(f"{NAMES[provider]}: {label}")

@@ -39,56 +39,83 @@ def over(top: QColor, bottom: QColor) -> QColor:
     )
 
 
+@pytest.fixture(params=("light", "dark"))
+def palette(request):
+    """Run a test once per palette; the light palette is restored afterwards."""
+    tokens.use(request.param)
+    yield request.param
+    tokens.use("light")
+
+
 # What can sit behind a glass surface inside a workspace window: the base and each mesh colour.
-MESH_BEHIND = [QColor(tokens.BASE), *(QColor(c) for c in tokens.MESH)]
-TEXT = {
-    "ink": tokens.INK,
-    "muted text": tokens.MUTED_TEXT,
-    "blue": tokens.BLUE,
-    "blue dark": tokens.BLUE_DARK,
-    "ok": tokens.OK,
-    "warn": tokens.WARN,
-    "error": tokens.ERROR,
-}
+def mesh_behind() -> list[QColor]:
+    return [QColor(tokens.BASE), *(QColor(c) for c in tokens.MESH)]
+
+
+def text_tokens() -> dict[str, str]:
+    return {
+        "ink": tokens.INK,
+        "muted text": tokens.MUTED_TEXT,
+        "blue": tokens.BLUE,
+        "blue dark": tokens.BLUE_DARK,
+        "ok": tokens.OK,
+        "warn": tokens.WARN,
+        "error": tokens.ERROR,
+    }
+
+
 WORKSPACE_ROLES = ("panel", "header", "sidebar", "card")
+TEXT_NAMES = sorted(text_tokens())
 
 
 @pytest.mark.parametrize("role", WORKSPACE_ROLES)
-@pytest.mark.parametrize("name", sorted(TEXT))
-def test_text_meets_aa_on_every_workspace_surface_over_every_mesh_colour(role, name):
+@pytest.mark.parametrize("name", TEXT_NAMES)
+def test_text_meets_aa_on_every_workspace_surface_over_every_mesh_colour(palette, role, name):
     fill = surface_color(role, motion.MotionPolicy())
-    for behind in MESH_BEHIND:
-        assert contrast(QColor(TEXT[name]), over(fill, behind)) >= 4.5, (name, role, behind.name())
+    for behind in mesh_behind():
+        assert contrast(QColor(text_tokens()[name]), over(fill, behind)) >= 4.5, (
+            palette,
+            name,
+            role,
+            behind.name(),
+        )
 
 
-@pytest.mark.parametrize("name", sorted(TEXT))
-def test_overlay_text_meets_aa_over_any_desktop(name):
+@pytest.mark.parametrize("name", TEXT_NAMES)
+def test_overlay_text_meets_aa_over_any_desktop(palette, name):
     fill = surface_color("overlay", motion.MotionPolicy())
     for behind in (QColor("black"), QColor("white"), QColor("#ff0000"), QColor("#0000ff")):
-        assert contrast(QColor(TEXT[name]), over(fill, behind)) >= 4.5, (name, behind.name())
+        assert contrast(QColor(text_tokens()[name]), over(fill, behind)) >= 4.5, (
+            palette,
+            name,
+            behind.name(),
+        )
 
 
 def test_requested_muted_colour_would_fail_so_text_uses_the_darker_token():
+    tokens.use("light")
     panel = over(surface_color("panel", motion.MotionPolicy()), QColor(tokens.MESH[1]))
     assert contrast(QColor("#767b93"), panel) < 4.5  # the brief's muted is for icons only
     assert contrast(QColor(tokens.MUTED_TEXT), panel) >= 4.5
 
 
-@pytest.mark.parametrize(
-    ("foreground", "background", "minimum"),
-    [
-        (tokens.WHITE, tokens.BLUE, 4.5),  # primary buttons
-        (tokens.WHITE, tokens.BLUE_DARK, 4.5),
-        (tokens.WHITE, tokens.RECORDING, 4.5),  # End / recording / presentation banner
-        (tokens.WHITE, tokens.INCOGNITO, 4.5),
+def test_filled_controls_and_indicators_are_readable(palette):
+    cases = [
+        (tokens.ON_BLUE, tokens.BLUE, 4.5),  # primary buttons
+        (tokens.ON_BLUE, tokens.BLUE_DARK, 4.5),  # primary hover
+        (tokens.ON_BLUE, tokens.RECORDING, 4.5),  # recording toggle, End on hover
+        (tokens.ON_BLUE, tokens.INCOGNITO, 4.5),
         (tokens.DISABLED_TEXT, tokens.SOLID_PANEL, 3.0),  # disabled text is exempt from AA
-    ],
-)
-def test_filled_controls_and_indicators_are_readable(foreground, background, minimum):
-    assert contrast(QColor(foreground), QColor(background)) >= minimum
+    ]
+    for foreground, background, minimum in cases:
+        assert contrast(QColor(foreground), QColor(background)) >= minimum, (
+            palette,
+            foreground,
+            background,
+        )
 
 
-def test_blue_rim_and_controls_have_non_text_contrast_against_the_panel():
+def test_blue_rim_and_controls_have_non_text_contrast_against_the_panel(palette):
     panel = over(surface_color("panel", motion.MotionPolicy()), QColor(tokens.BASE))
     assert contrast(QColor(tokens.BLUE), panel) >= 3.0  # rim, focus ring, checked toggle
 
@@ -324,14 +351,22 @@ def test_entering_high_contrast_discards_the_glass_palette(qapp):
         qapp.setPalette(previous_palette)
 
 
-def test_reduced_transparency_stylesheet_has_no_translucent_white():
-    translucent = re.compile(r"rgba\(255, ?255, ?255, ?(\d+)\)")
-    assert any(int(a) < 255 for a in translucent.findall(STYLE))
+def test_reduced_transparency_stylesheet_has_no_translucent_surface(palette):
+    tint = tokens.SURFACE_RGB.replace(",", ", ?")
+    translucent = re.compile(rf"rgba\({tint}, ?(\d+)\)")
+    assert any(int(a) < 255 for a in translucent.findall(theme.STYLE))
     assert all(int(a) == 255 for a in translucent.findall(theme.OPAQUE_STYLE))
     with motion.override(reduce_transparency=True):
         assert window_style() == theme.OPAQUE_STYLE
-        assert theme.white(150) == "rgba(255, 255, 255, 255)"
-    assert theme.white(150) == "rgba(255, 255, 255, 150)"
+        assert theme.white(150) == f"rgba({tokens.SURFACE_RGB}, 255)"
+    assert theme.white(150) == f"rgba({tokens.SURFACE_RGB}, 150)"
+
+
+def test_panels_are_blue_glass_not_pure_white(palette):
+    assert tokens.SURFACE.lower() != "#ffffff"
+    colour = QColor(tokens.SURFACE)
+    assert colour.blue() > colour.red()  # tinted toward blue in both themes
+    assert theme.rgb(tokens.SURFACE) == tokens.SURFACE_RGB.replace(" ", "")
 
 
 def frame_of(backdrop, size=(300, 200)) -> QImage:
@@ -398,3 +433,65 @@ def test_practice_page_transition_is_skipped_when_motion_is_reduced(qtbot, tmp_p
     with motion.override(reduce_motion=False, high_contrast=False):
         page._show(page.stack.currentWidget())
         assert page._transition.state() == page._transition.State.Running
+
+
+# ---- theme selection (light / dark / system) ----
+
+
+def test_resolve_follows_preference_and_windows_mode(monkeypatch):
+    monkeypatch.setattr(tokens, "system_prefers_dark", lambda: True)
+    assert tokens.resolve("dark") == "dark"
+    assert tokens.resolve("light") == "light"
+    assert tokens.resolve("system") == "dark"
+    monkeypatch.setattr(tokens, "system_prefers_dark", lambda: False)
+    assert tokens.resolve("system") == "light"
+    assert tokens.resolve("anything else") == "light"
+
+
+def test_use_switches_every_consumer_without_stale_styles(palette, qapp):
+    assert tokens.NAME == palette
+    assert tokens.INK in theme.STYLE
+    assert tokens.INK in window_style()
+    from interview_assistant.ui.overlay import build_style
+
+    assert tokens.BLUE in build_style()
+
+
+def test_dark_and_light_stylesheets_differ_and_are_both_blue_tinted():
+    tokens.use("light")
+    light = theme.STYLE
+    tokens.use("dark")
+    dark = theme.STYLE
+    tokens.use("light")
+    assert light != dark
+    compact = light.replace(" ", "")
+    # Control, card and pane fills use the blue tint; only the 1 px card edge may be white.
+    assert f"background:rgba({tokens.LIGHT.surface_rgb}," in compact
+    assert "background:rgba(255,255,255" not in compact
+
+
+def test_theme_setting_defaults_to_light_and_is_saved(tmp_path, qtbot):
+    from interview_assistant.config.settings import Settings
+    from interview_assistant.config.user_settings import UserSettingsStore
+
+    assert Settings.model_fields["theme"].default == "light"
+    store = UserSettingsStore(tmp_path / "settings.json")
+    store.update({"theme": "dark"})
+    assert store.load()["theme"] == "dark"
+    with pytest.raises(ValueError):
+        store.update({"theme": "neon"})
+
+
+def test_overlay_state_edge_follows_the_state(qtbot, palette):
+    overlay = OverlayWindow()
+    qtbot.addWidget(overlay)
+    overlay._update_dot(thinking=True)
+    assert overlay._state == "thinking"
+    overlay._update_dot(answering=True)
+    assert overlay._state == "answering"
+    overlay._listening = True
+    overlay._update_dot()
+    assert overlay._state == "listening"  # same red as the recording indicator
+    overlay.resize(800, 420)
+    image = overlay.grab().toImage()
+    assert not image.isNull()

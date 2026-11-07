@@ -18,6 +18,7 @@ from interview_assistant.config.settings import Settings
 from interview_assistant.config.user_settings import UserSettingsStore
 from interview_assistant.cost.factory import data_dir
 from interview_assistant.logging_setup import install_crash_handlers, setup_logging
+from interview_assistant.ui import tokens
 from interview_assistant.ui.onboarding import OnboardingWizard, needs_onboarding
 from interview_assistant.ui.theme import apply_theme
 
@@ -63,6 +64,8 @@ def main() -> int:
     root = bootstrap.root if boot is None else data_dir(boot)
     log_path = setup_logging(boot.log_level if boot else "INFO", root)
     app = QApplication(sys.argv)
+    # Customer builds cannot read account settings before login, so they start on the Windows mode.
+    tokens.use(tokens.resolve(boot.theme if boot else "system"))
     apply_theme(app)
 
     def tell_user(summary: str) -> None:
@@ -106,6 +109,9 @@ def main() -> int:
             )
             return 1
     settings = load_settings(keys)  # env / .env > settings.json, keys from the credential store
+    if tokens.resolve(settings.theme) != tokens.NAME:  # the account's own choice, before any window
+        tokens.use(tokens.resolve(settings.theme))
+        apply_theme(app)
 
     parts = build_app(app, settings, keys, app_settings, _consent_prompt, _confirm_restart)
     instance.on_raise = parts.on_second_launch

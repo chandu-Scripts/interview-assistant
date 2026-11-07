@@ -8,7 +8,7 @@ from interview_assistant.config.settings import Settings
 from interview_assistant.config.user_settings import UserSettingsStore
 from interview_assistant.ui.answer_typography import FAMILIES, SIZES, WEIGHTS, AnswerTypography
 from interview_assistant.ui.answer_view import AnswerView
-from interview_assistant.ui.overlay import STYLE
+from interview_assistant.ui.overlay import build_style
 from interview_assistant.ui.settings_dialog import SettingsDialog
 
 
@@ -18,7 +18,7 @@ from interview_assistant.ui.settings_dialog import SettingsDialog
 def test_themed_streaming_cards_keep_typography_and_raw_copy(qtbot, family, weight, size):
     parent = QWidget()
     qtbot.addWidget(parent)
-    parent.setStyleSheet(STYLE)
+    parent.setStyleSheet(build_style())
     view = AnswerView()
     QVBoxLayout(parent).addWidget(view)
     parent.resize(500, 350)
