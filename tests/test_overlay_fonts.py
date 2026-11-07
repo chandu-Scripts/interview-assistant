@@ -104,9 +104,10 @@ def test_defaults_remove_only_font_overrides(editor):
 
 def test_compact_layout_and_hidden_popup(editor, qtbot):
     overlay, _, _, _ = editor
-    overlay.resize(640, 500)
+    narrowest = overlay.minimumWidth()
+    overlay.resize(narrowest, 500)
     QApplication.processEvents()
-    assert overlay.width() == 640
+    assert overlay.width() == narrowest
     assert overlay.height() == 500
     assert overlay.font_controls.isVisible()
     for combo in overlay.font_controls.combos:

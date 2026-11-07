@@ -495,3 +495,72 @@ def test_overlay_state_edge_follows_the_state(qtbot, palette):
     overlay.resize(800, 420)
     image = overlay.grab().toImage()
     assert not image.isNull()
+
+
+@pytest.mark.parametrize("tint", ("BLUE", "WARN"))
+def test_privacy_chip_text_is_readable_on_its_tint_over_any_desktop(palette, tint):
+    fill = surface_color("overlay", motion.MotionPolicy())
+    tint_colour = QColor(getattr(tokens, tint))
+    tint_colour.setAlphaF(0.22 if tint == "WARN" else 0.18)
+    for behind in (QColor("black"), QColor("white"), QColor("#ff0000"), QColor("#0000ff")):
+        chip = over(tint_colour, over(fill, behind))
+        assert contrast(QColor(tokens.INK), chip) >= 4.5, (palette, tint, behind.name())
+
+
+class FakeCapturePrivacy(QWidget):
+    from PySide6.QtCore import Signal as _Signal
+
+    changed = _Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.status = "Off"
+
+    @property
+    def enabled(self) -> bool:
+        return self.status == "On"
+
+
+@pytest.mark.parametrize(
+    ("status", "text", "state"),
+    [
+        ("On", "Privacy On", "on"),
+        ("Unavailable: reset failed; retry Off", "Unavailable", "unavailable"),
+    ],
+)
+def test_privacy_indicator_shows_its_full_text_as_a_styled_chip(
+    qtbot, tmp_path, status, text, state
+):
+    from PySide6.QtCore import QSettings
+
+    from interview_assistant.ui.privacy_dialog import CapturePrivacyIndicator
+
+    overlay = OverlayWindow(
+        settings=QSettings(str(tmp_path / "ui.ini"), QSettings.Format.IniFormat)
+    )
+    qtbot.addWidget(overlay)
+    manager = FakeCapturePrivacy()
+    chip = CapturePrivacyIndicator(manager, overlay, overlay.header)
+    overlay.header.layout().insertWidget(5, chip)
+    overlay.resize(1400, 500)  # room for the whole header; offscreen fonts are wider than Segoe
+    overlay.show()
+    manager.status = status
+    manager.changed.emit()
+    qtbot.wait(20)
+    assert chip.text() == text and chip.property("privacyState") == state
+    assert chip.isVisibleTo(overlay)
+    assert chip.width() >= chip.sizeHint().width()  # laid out at its full size, so no clipping
+    assert chip.geometry().right() <= overlay.header.width()
+    manager.status = "Off"
+    manager.changed.emit()
+    assert chip.isHidden()
+
+
+def test_audio_toggles_are_labelled_text_not_emoji(qtbot, tmp_path):
+    from PySide6.QtCore import QSettings
+
+    overlay = OverlayWindow(
+        settings=QSettings(str(tmp_path / "ui.ini"), QSettings.Format.IniFormat)
+    )
+    qtbot.addWidget(overlay)
+    assert (overlay.system_toggle.text(), overlay.mic_toggle.text()) == ("System", "Mic")
