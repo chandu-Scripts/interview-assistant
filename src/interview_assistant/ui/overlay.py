@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 from interview_assistant.agents.specialists import ANSWERABLE_CATEGORIES, LABELS
 from interview_assistant.agents.types import Category, Decision
 from interview_assistant.app.controller import DETECTED_QUESTION_PREFIX, AssistantController
-from interview_assistant.cost.tracker import BudgetLevel, BudgetState, Summary, format_usd
+from interview_assistant.cost.tracker import format_usd
 from interview_assistant.stt.base import NO_WORDS_MESSAGE
 from interview_assistant.ui import motion, tokens
 from interview_assistant.ui.answer_font_controls import AnswerFontControls
@@ -106,14 +106,6 @@ def __getattr__(name: str) -> str:
     if name == "STYLE":  # always the active palette; tests and callers never see a stale copy
         return build_style()
     raise AttributeError(name)
-
-
-def cost_color(level: BudgetLevel) -> str:
-    return {
-        BudgetLevel.OK: tokens.OK,
-        BudgetLevel.WARN: tokens.WARN,
-        BudgetLevel.EXCEEDED: tokens.ERROR,
-    }[level]
 
 
 def dot_color(state: str) -> str:
@@ -264,8 +256,6 @@ class OverlayWindow(QWidget):
         self.status_label.setObjectName("status")
         self.chip = QLabel("")
         self.chip.setObjectName("chip")
-        self.cost_label = QLabel("")
-        self.cost_label.setToolTip("Session cost")
         self.timer_label = QLabel("00:00")
         self.timer_label.setObjectName("timer")
         self.timer_label.setToolTip("Time since the overlay started")
@@ -299,7 +289,6 @@ class OverlayWindow(QWidget):
             self.title,
             self.status_label,
             self.chip,
-            self.cost_label,
             self.timer_label,
             self.answer_btn,
             self.screenshot_btn,
@@ -405,7 +394,7 @@ class OverlayWindow(QWidget):
         footer.setContentsMargins(0, 0, 0, 0)
         footer.addWidget(self.title)
         footer.addWidget(self.chip, 1)
-        for extra in (self.cost_label, self.stop_btn, self.opacity):
+        for extra in (self.stop_btn, self.opacity):
             footer.addWidget(extra)
         self.footer = QWidget()
         self.footer.setLayout(footer)
@@ -532,7 +521,6 @@ class OverlayWindow(QWidget):
         c.busy_changed.connect(self._set_busy)
         c.answer_cost.connect(self.on_answer_cost)
         c.latency_ready.connect(self.on_latency)
-        c.cost_updated.connect(self.on_cost_updated)
         c.answer_flags.connect(self.on_flags)
         c.category_corrected.connect(self.on_category_corrected)
         c.screenshot_pending.connect(self.on_screenshot_pending)
@@ -699,21 +687,6 @@ class OverlayWindow(QWidget):
     def on_answer_cost(self, gen: int, usd: object) -> None:
         if gen == self._gen and isinstance(usd, float):
             self._answer_cost = usd
-
-    def on_cost_updated(self, summary: Summary, state: BudgetState) -> None:
-        # Only the spend is shown. The budget limit has no UI any more (Settings and setup no
-        # longer ask for one), so the overlay does not print a limit the user cannot change.
-        self.cost_label.setText(format_usd(summary.total_usd, summary.unpriced_calls > 0))
-        self.cost_label.setStyleSheet(f"color: {cost_color(state.level)}; font-size: 11px;")
-        lines = [f"Session: {format_usd(summary.total_usd)} ({summary.calls} calls)"]
-        lines += [f"  {k}: {format_usd(v)}" for k, v in sorted(summary.by_model.items())]
-        if summary.stt_usd:
-            lines.append(f"  speech-to-text: {format_usd(summary.stt_usd)}")
-        if summary.wasted_usd:
-            lines.append(f"  wasted (failed/cancelled): {format_usd(summary.wasted_usd)}")
-        if summary.unpriced_calls:
-            lines.append(f"  {summary.unpriced_calls} call(s) on unpriced models (not counted)")
-        self.cost_label.setToolTip("\n".join(lines))
 
     def on_stopped(self, gen: int) -> None:
         if gen == self._gen:

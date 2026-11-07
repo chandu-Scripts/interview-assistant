@@ -1047,7 +1047,7 @@ def test_overlay_toggle_bubble_hides_everything_but_the_dot(qtbot, tmp_path):
     o.toggle_bubble()
     assert o.bubbled
     assert o.dot.isVisibleTo(o)
-    for w in (o.title, o.chip, o.cost_label, o.chat_btn, o.fix_btn, o.collapse_btn, o.close_btn):
+    for w in (o.title, o.chip, o.chat_btn, o.fix_btn, o.collapse_btn, o.close_btn):
         assert not w.isVisibleTo(o)
     assert (o.width(), o.height()) == (48, 48)
     o.toggle_bubble()
