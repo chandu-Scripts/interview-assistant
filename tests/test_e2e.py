@@ -185,7 +185,7 @@ def test_spoken_question_flows_to_answer_history_and_cost(make_stack):
     assert turn.route == "openai:gpt-4o" and turn.cost_usd and turn.cost_usd > 0
     assert turn.decision_source == "rules"  # classified without an extra model call
     assert s.tracker.summary().calls == 1
-    assert "openai:gpt-4o" in s.overlay.chip.text() and "$" in s.overlay.chip.text()
+    assert "openai:gpt-4o" in s.overlay.chip.text() and "$" not in s.overlay.chip.text()
     assert "transcribe" in s.overlay.chip.toolTip()  # the latency breakdown is available
     assert not hasattr(s.overlay, "cost_label")  # no session-cost label on the overlay
 

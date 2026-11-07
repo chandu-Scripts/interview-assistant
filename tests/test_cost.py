@@ -392,11 +392,11 @@ def make_stack(qtbot, tmp_path, budget=None, steps=("Use a ", "hash map.")):
     return tracker, c, o
 
 
-def test_overlay_shows_answer_cost_and_session_total(qtbot, tmp_path):
+def test_overlay_shows_no_cost_but_the_tracker_still_counts(qtbot, tmp_path):
     tracker, c, o = make_stack(qtbot, tmp_path)
     c.ask("Write a function to solve the two sum problem.")
     qtbot.waitUntil(lambda: "openai:gpt-4o" in o.chip.text(), timeout=5000)
-    assert "$" in o.chip.text()  # per-answer cost in the chip
+    assert "$" not in o.chip.text()  # no per-answer cost on the overlay
     assert tracker.summary().calls == 1
     assert not hasattr(o, "cost_label")  # the overlay shows the answer cost only, no session total
     c.shutdown()

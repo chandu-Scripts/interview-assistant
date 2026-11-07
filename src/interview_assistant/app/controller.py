@@ -110,7 +110,6 @@ class AssistantController(QObject):
     live_text = Signal(str)  # partial transcript of the ongoing utterance
     transcription_status = Signal(str)
     busy_changed = Signal(bool)
-    answer_cost = Signal(int, object)  # gen, USD spent on this question (float | None)
     latency_ready = Signal(int, object)  # gen, dict of stage timings in seconds
     cost_updated = Signal(object, object)  # Summary (session), BudgetState
     answer_flags = Signal(int, list)  # gen, unverified numeric claims found in the answer
@@ -566,7 +565,6 @@ class AssistantController(QObject):
         self._commit(gen, text, source)
         self._last_question = None  # do not regenerate fictional text as verified experience
         self.answer_delta.emit(gen, entry.answer)
-        self.answer_cost.emit(gen, 0.0)
         self.latency_ready.emit(
             gen,
             {
@@ -692,8 +690,6 @@ class AssistantController(QObject):
                 finish_reason
             ):
                 raise RuntimeError("The AI ended the response without completing the answer.")
-            if self._tracker is not None:
-                self.answer_cost.emit(gen, self._request_cost())
             answer_text = "".join(parts)
             if completion_is_incomplete(finish_reason):
                 status = "incomplete"

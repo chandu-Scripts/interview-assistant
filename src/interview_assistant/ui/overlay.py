@@ -32,7 +32,6 @@ from PySide6.QtWidgets import (
 from interview_assistant.agents.specialists import ANSWERABLE_CATEGORIES, LABELS
 from interview_assistant.agents.types import Category, Decision
 from interview_assistant.app.controller import DETECTED_QUESTION_PREFIX, AssistantController
-from interview_assistant.cost.tracker import format_usd
 from interview_assistant.stt.base import NO_WORDS_MESSAGE
 from interview_assistant.ui import motion, tokens
 from interview_assistant.ui.answer_font_controls import AnswerFontControls
@@ -236,7 +235,6 @@ class OverlayWindow(QWidget):
         self._state = "idle"
         self._mic_bound = False
         self._busy = False
-        self._answer_cost: float | None = None
         self._last_decision: Decision | None = None
         self._fix_row_open = False
         self._chat_row_open = False
@@ -519,7 +517,6 @@ class OverlayWindow(QWidget):
         c.live_text.connect(self.on_live_text)
         c.transcription_status.connect(self.on_transcription_status)
         c.busy_changed.connect(self._set_busy)
-        c.answer_cost.connect(self.on_answer_cost)
         c.latency_ready.connect(self.on_latency)
         c.answer_flags.connect(self.on_flags)
         c.category_corrected.connect(self.on_category_corrected)
@@ -543,7 +540,6 @@ class OverlayWindow(QWidget):
         self.origin_label.clear()
         self._gen = gen
         self._text = ""
-        self._answer_cost = None
         self._last_decision = None
         self._current_question, self._current_source = text, source
         self._history_index = len(self._qa_history)  # a new question always means "live"
@@ -615,11 +611,10 @@ class OverlayWindow(QWidget):
         self._history_index = len(self._qa_history)  # still live, now one past the new entry
         self._update_nav()
         cat = self.chip.text().split(" · ")[0]
-        cost = f" · {format_usd(self._answer_cost)}" if self._answer_cost is not None else ""
         if route == "Saved fictional Q&A":
-            self.chip.setText(f"Local lookup · {first_token_s * 1000:.0f} ms · $0")
+            self.chip.setText(f"Local lookup · {first_token_s * 1000:.0f} ms")
         else:
-            self.chip.setText(f"{cat} · {route} · {first_token_s:.1f}s{cost}")
+            self.chip.setText(f"{cat} · {route} · {first_token_s:.1f}s")
         self._update_dot()
 
     def on_failed(self, gen: int, message: str) -> None:
@@ -683,10 +678,6 @@ class OverlayWindow(QWidget):
     def on_category_corrected(self, _question: str, original: str, corrected: str) -> None:
         # A brief hint on the chip; on_finished/on_latency overwrite it once the redo completes.
         self.chip.setToolTip(f"You corrected this from {original} to {corrected}.")
-
-    def on_answer_cost(self, gen: int, usd: object) -> None:
-        if gen == self._gen and isinstance(usd, float):
-            self._answer_cost = usd
 
     def on_stopped(self, gen: int) -> None:
         if gen == self._gen:
